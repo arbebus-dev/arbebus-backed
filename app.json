@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "Arbebus",
+    "slug": "arbebus",
+    "version": "1.0.0",
+    "android": {
+      "package": "com.arbebus.app"
+    },
+    "ios": {
+      "bundleIdentifier": "com.arbebus.app"
+    },
+    "web": {
+      "output": "static"
+    },
+    "scheme": "arbebus",
+    "plugins": ["expo-router"]
+  }
+}
