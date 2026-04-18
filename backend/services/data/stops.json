@@ -1,0 +1,128 @@
+[
+  {
+    "id": "klaipeda-akropolis",
+    "name": "Akropolis",
+    "latitude": 55.6882,
+    "longitude": 21.159,
+    "routes": [
+      { "id": "8", "sequence": 1 },
+      { "id": "10", "sequence": 1 },
+      { "id": "12", "sequence": 1 }
+    ]
+  },
+  {
+    "id": "klaipeda-svyturio-arena",
+    "name": "Švyturio arena",
+    "latitude": 55.6901,
+    "longitude": 21.165,
+    "routes": [
+      { "id": "8", "sequence": 2 },
+      { "id": "12", "sequence": 2 }
+    ]
+  },
+  {
+    "id": "klaipeda-taikos-pr",
+    "name": "Taikos pr.",
+    "latitude": 55.6955,
+    "longitude": 21.165,
+    "routes": [
+      { "id": "8", "sequence": 3 },
+      { "id": "10", "sequence": 2 },
+      { "id": "12", "sequence": 3 }
+    ]
+  },
+  {
+    "id": "klaipeda-kauno-st",
+    "name": "Kauno st.",
+    "latitude": 55.6998,
+    "longitude": 21.1524,
+    "routes": [
+      { "id": "8", "sequence": 4 },
+      { "id": "10", "sequence": 3 }
+    ]
+  },
+  {
+    "id": "klaipeda-mokyklos-st",
+    "name": "Mokyklos st.",
+    "latitude": 55.7032,
+    "longitude": 21.1441,
+    "routes": [
+      { "id": "8", "sequence": 5 },
+      { "id": "10", "sequence": 4 },
+      { "id": "12", "sequence": 4 }
+    ]
+  },
+  {
+    "id": "klaipeda-danes-skveras",
+    "name": "Danės skveras",
+    "latitude": 55.7055,
+    "longitude": 21.1285,
+    "routes": [
+      { "id": "8", "sequence": 6 },
+      { "id": "10", "sequence": 5 }
+    ]
+  },
+  {
+    "id": "klaipeda-atgimimo-aikste",
+    "name": "Atgimimo aikštė",
+    "latitude": 55.7061,
+    "longitude": 21.1312,
+    "routes": [
+      { "id": "8", "sequence": 7 },
+      { "id": "9", "sequence": 1 },
+      { "id": "10", "sequence": 6 },
+      { "id": "12", "sequence": 5 }
+    ]
+  },
+  {
+    "id": "klaipeda-studlendas",
+    "name": "Studlendas",
+    "latitude": 55.715,
+    "longitude": 21.133,
+    "routes": [
+      { "id": "8", "sequence": 8 },
+      { "id": "10", "sequence": 7 }
+    ]
+  },
+  {
+    "id": "klaipeda-universitetas",
+    "name": "Klaipėdos universitetas",
+    "latitude": 55.7189,
+    "longitude": 21.1231,
+    "routes": [
+      { "id": "8", "sequence": 9 },
+      { "id": "10", "sequence": 8 }
+    ]
+  },
+  {
+    "id": "klaipeda-ligonine",
+    "name": "Ligoninė",
+    "latitude": 55.7235,
+    "longitude": 21.1401,
+    "routes": [
+      { "id": "10", "sequence": 9 },
+      { "id": "12", "sequence": 6 }
+    ]
+  },
+  {
+    "id": "klaipeda-miesto-ligonine",
+    "name": "Miesto ligoninė",
+    "latitude": 55.7284,
+    "longitude": 21.1428,
+    "routes": [
+      { "id": "10", "sequence": 10 },
+      { "id": "12", "sequence": 7 }
+    ]
+  },
+  {
+    "id": "klaipeda-mazvydo-al",
+    "name": "Mažvydo al.",
+    "latitude": 55.7096,
+    "longitude": 21.1358,
+    "routes": [
+      { "id": "8", "sequence": 7 },
+      { "id": "10", "sequence": 6 },
+      { "id": "12", "sequence": 5 }
+    ]
+  }
+]

@@ -1,0 +1,69 @@
+route_id,agency_id,route_short_name,route_long_name,route_desc,route_type,route_url,route_color,route_text_color,route_class,route_sort_order
+klaipeda_bus_M6_TOKS,klaipeda,M6,Mogiliovo g. - Taikos pr. - Melnragė,,3,https://www.stops.lt/klaipeda/index.html#minibus,FF6600,FFFFFF,M,7900014
+klaipeda_bus_M8_TOKS,klaipeda,M8,Jūrininkų st. - Taikos pr. - Ligoninės,,3,https://www.stops.lt/klaipeda/index.html#minibus,FF6600,FFFFFF,M,7900014
+klaipeda_bus_1_AP,klaipeda,1,Autobusų stotis - VLG,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2000100
+klaipeda_bus_1A_Kautra,klaipeda,1A,Turgus - VLG,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2000102
+klaipeda_bus_2_Kautra,klaipeda,2,Kurėno st. - Sportininkų g.,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2000200
+klaipeda_bus_2A_TOKS,klaipeda,2A,Sportininkų g. - Debreceno g.,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2000202
+klaipeda_bus_3_Kautra,klaipeda,3,Naikupės g. - Ligoninės,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2000300
+klaipeda_bus_4_Kautra,klaipeda,4,Statybininkų pr. - Giruliai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2000400
+klaipeda_bus_5_AP,klaipeda,5,Žiedo st. (Kretingos g.) - Jūrininkų st.,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2000500
+klaipeda_bus_6_AP,klaipeda,6,Mogiliovo g. - Melnragė,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2000600
+klaipeda_bus_7_AP,klaipeda,7,Klipščiai - Trušeliai - Klipščiai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2000700
+klaipeda_bus_8_AP,klaipeda,8,Autobusų stotis - Jūrininkų st.,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2000800
+klaipeda_bus_8E_AP,klaipeda,8E,Ligoninės - Jūrininkų st.,,3,https://www.stops.lt/klaipeda/index.html#expressbus,008000,FFFFFF,C,1000806
+klaipeda_bus_9_AP,klaipeda,9,Jūrininkų st. - Ligoninės,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2000900
+klaipeda_bus_9A_AP,klaipeda,9A,Turgus - VLG,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2000902
+klaipeda_bus_10_AP,klaipeda,10,Autobusų parkas - Statybininkų pr. - Smiltelės g. - Autobusų parkas,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2001000
+klaipeda_bus_11_AP,klaipeda,11,Turgus - Lėbartai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2001100
+klaipeda_bus_11A_AP,klaipeda,11A,Kurėno st. - Šernų sodai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2001102
+klaipeda_bus_11B_AP,klaipeda,11B,Kurėno st. - Dovilai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2001103
+klaipeda_bus_12_Kautra,klaipeda,12,Turgus - VLG,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2001200
+klaipeda_bus_12A_Kautra,klaipeda,12A,Turgus - Draugystės geležinkelio stotis,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2001202
+klaipeda_bus_13_TOKS,klaipeda,13,Turgus - Paupiai - Turgus,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2001300
+klaipeda_bus_14_Kautra,klaipeda,14,Arena - Klipščiai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2001400
+klaipeda_bus_14A_TOKS,klaipeda,14A,Naujasis turgus - Turgus (Taikos pr.) - Turgus (Tilžės g.),,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2001402
+klaipeda_bus_15_AP,klaipeda,15,Mogiliovo g. - Ligoninės,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2001500
+klaipeda_bus_15B_AP,klaipeda,15B,Ligoninės - Normantai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2001503
+klaipeda_bus_16_AP,klaipeda,16,Mogiliovo g. - Smiltelės g. - VLG,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2001600
+klaipeda_bus_17_Kautra,klaipeda,17,Paupiai - Kalotė,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2001700
+klaipeda_bus_18_Kautra,klaipeda,18,Kurėno st. - Panevėžio g.,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2001800
+klaipeda_bus_19_AP,klaipeda,19,Autobusų parkas - Jūrininkų st.,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2001900
+klaipeda_bus_20_AP,klaipeda,20,Smeltė - Taikos pr. - Naikupės g. - Smeltė,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2002000
+klaipeda_bus_21_TOKS,klaipeda,21,Akropolis - Jakai - Sudmantai - Ermitažas PROMO - Akropolis,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2002100
+klaipeda_bus_21A_TOKS,klaipeda,21A,Turgus - Jakai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2002102
+klaipeda_bus_22_Kautra,klaipeda,22,Jūrininkų st. - LEZ,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2002200
+klaipeda_bus_22A_TOKS,klaipeda,22A,Statybininkų pr. - LEZ,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2002202
+klaipeda_bus_22B_Kautra,klaipeda,22B,Panevėžio g. - LEZ,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2002203
+klaipeda_bus_23_Kautra,klaipeda,23,Ligoninės - Žaliasis slėnis - Ligoninės,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2002300
+klaipeda_bus_24_Kautra,klaipeda,24,Universiteto st. - Karklė - Kunkiai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2002400
+klaipeda_bus_25_AP,klaipeda,25,Autobusų stotis - Vaiteliai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2002500
+klaipeda_bus_26_AP,klaipeda,26,Atgimimo aikštė - Radailiai - Eketė,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2002600
+klaipeda_bus_27_AP,klaipeda,27,Akropolis - SB Tolupis - SB Aisė,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2002700
+klaipeda_bus_28_AP,klaipeda,28,Autobusų stotis - Šernų sodai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2002800
+klaipeda_bus_29_AP,klaipeda,29,Kurėno st. - Agluonėnai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2002900
+klaipeda_bus_30_TOKS,klaipeda,30,Klaipėda - Ginduliai - Baukštininkai - Slengiai - Klaipėda,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2003000
+klaipeda_bus_31_TOKS,klaipeda,31,Klaipėda - Palanga - Palangos Oro Uostas,,3,https://www.stops.lt/klaipeda/index.html#minibus,FF6600,FFFFFF,C,7003100
+klaipeda_bus_34_AP,klaipeda,34,Naujojo Turgaus st. - Šernų sodai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2003400
+klaipeda_bus_35_Transrevis,klaipeda,35,Klaipėda (Savivaldybės st.) - Slengiai - Trušeliai - Smilgynai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2003500
+klaipeda_bus_36_Transrevis,klaipeda,36,Klaipėda - Ginduliai - Klemiškė II - Klaipėda,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2003600
+klaipeda_bus_37_TOKS,klaipeda,37,Žiedo st. - Kretingos g. - Tauralaukis - Žiedo st.,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2003700
+klaipeda_bus_40_AP,klaipeda,40,Klaipėda (Naujojo Turgaus st.) - Dituva,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2004000
+klaipeda_bus_41_AP,klaipeda,41,Klaipėda (Autobusų stotis) - Dituva,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2004100
+klaipeda_bus_42_AP,klaipeda,42,Klaipėda (Naujojo Turgaus st.) - Vaiteliai - Rasa,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2004200
+klaipeda_bus_43_AP,klaipeda,43,Klaipėda (Naujojo Turgaus st.) - SB Spengiai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2004300
+klaipeda_bus_45_Transrevis,klaipeda,45,Klaipėda - Priekulė - Dreverna - Svencelė,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2004500
+klaipeda_bus_46_TOKS,klaipeda,46,Klaipėda - Priekulė - Kintai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2004600
+klaipeda_bus_101_Transrevis,klaipeda,101,Vėžaičiai - Klaipėda,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2010100
+klaipeda_bus_102_Transrevis,klaipeda,102,Gargždai - Endriejavas - Žadeikiai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2010200
+klaipeda_bus_103_Transrevis,klaipeda,103,Gargždai - Dovilai - Medsėdžiai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2010300
+klaipeda_bus_104_Transrevis,klaipeda,104,Gargždai - Pakalniškiai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2010400
+klaipeda_bus_105_Transrevis,klaipeda,105,Gargždai - Šiūpariai - Svencelė,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2010500
+klaipeda_bus_106_Transrevis,klaipeda,106,Gargždai - Utriai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2010600
+klaipeda_bus_107_Transrevis,klaipeda,107,Gargždai - Plikiai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2010700
+klaipeda_bus_108_Transrevis,klaipeda,108,Gargždai - Judrėnai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2010800
+klaipeda_bus_109_Transrevis,klaipeda,109,Gargždai - Vaitelių sodai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2010900
+klaipeda_bus_110_Transrevis,klaipeda,110,Gargždai - Dovilai - Klaipėda,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2011000
+klaipeda_bus_112_Transrevis,klaipeda,112,Gargždai - Antkoptis - Judrėnai,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2011200
+klaipeda_bus_115_Transrevis,klaipeda,115,Klaipėda - Rusnė,,3,https://www.stops.lt/klaipeda/index.html#bus,0073AC,FFFFFF,C,2011500
+klaipeda_bus_116_Transrevis,klaipeda,116,Gargždai - Klaipėda,,3,https://www.stops.lt/klaipeda/index.html#minibus,FF6600,FFFFFF,C,7011600

@@ -1,0 +1,16 @@
+{
+  "deviceId": "ios-vendor-id",
+  "alertId": "leave-alert-123",
+  "routeId": "8",
+  "pickupLabel": "15 Taikos pr",
+  "destinationLabel": "Klaipėdos centras",
+  "pickupCoordinate": {
+    "latitude": 55.6915,
+    "longitude": 21.1592
+  },
+  "arrivalAtIso": "2026-04-17T18:20:00.000Z",
+  "triggerAtIso": "2026-04-17T18:14:00.000Z",
+  "walkSeconds": 180,
+  "prepSeconds": 120,
+  "selectedBusId": "trip-123"
+}
