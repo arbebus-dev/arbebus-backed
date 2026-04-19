@@ -23,6 +23,7 @@ app.use(express.json());
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
 const GPS_URL = "https://www.stops.lt/klaipeda/gps_full.txt";
+const TRANSFER_RADIUS_METERS = Number(process.env.TRANSFER_RADIUS_METERS || 350);
 
 function parseGPS(text) {
   const tokens = text
@@ -73,10 +74,7 @@ function parseGPS(text) {
       vehicleLabel,
       latitude,
       longitude,
-      coordinate: {
-        latitude,
-        longitude,
-      },
+      coordinate: { latitude, longitude },
       speed: Number(speed) || 0,
       speedKph: Number(speed) || 0,
       bearing: Number(bearing) || 0,
@@ -108,8 +106,42 @@ function estimateWalkMinutes(distance) {
   return Math.max(1, Math.round(distance / 80));
 }
 
-function estimateRideMinutes(stopCount) {
-  return Math.max(3, Math.round(stopCount * 2));
+function estimateRideMinutes(stopCount, mode = "bus") {
+  const perStopSeconds = mode === "train" ? 150 : 110;
+  return Math.max(mode === "train" ? 6 : 3, Math.round((stopCount * perStopSeconds) / 60));
+}
+
+function modeFromRouteType(routeType) {
+  switch (Number(routeType)) {
+    case 2:
+      return "train";
+    case 0:
+    case 1:
+    case 3:
+    case 11:
+      return "bus";
+    default:
+      return "bus";
+  }
+}
+
+function iconFromMode(mode) {
+  switch (mode) {
+    case "train":
+      return "train";
+    case "walk":
+      return "walk";
+    case "transfer":
+      return "swap-horizontal";
+    case "bus":
+    default:
+      return "bus";
+  }
+}
+
+function formatLegLabel(mode, routeLabel) {
+  if (mode === "train") return `Traukinys ${routeLabel}`;
+  return `Autobusas ${routeLabel}`;
 }
 
 function getNearbyStops(point, gtfs, maxDistanceMeters = 900, limit = 8) {
@@ -164,6 +196,15 @@ function sliceShapeBetweenStops(gtfs, variant, fromStop, toStop) {
   ];
 }
 
+function enrichVariant(variant) {
+  const mode = modeFromRouteType(variant.routeType);
+  return {
+    ...variant,
+    mode,
+    agencyName: variant.agencyName || null,
+  };
+}
+
 function makeDirectCandidate({ variant, boardStop, alightStop }) {
   const boardIndex = variant.stopIndexByStopId.get(boardStop.id);
   const alightIndex = variant.stopIndexByStopId.get(alightStop.id);
@@ -176,9 +217,11 @@ function makeDirectCandidate({ variant, boardStop, alightStop }) {
     return null;
   }
 
+  const mode = modeFromRouteType(variant.routeType);
   const stopCount = alightIndex - boardIndex;
   const walkToOrigin = boardStop.distanceMeters;
   const walkFromDestination = alightStop.distanceMeters;
+  const transferPenalty = mode === "train" ? 30 : 0;
 
   return {
     type: "direct",
@@ -194,15 +237,17 @@ function makeDirectCandidate({ variant, boardStop, alightStop }) {
     stopCount,
     walkToOrigin,
     walkFromDestination,
-    estimatedBusSeconds: Math.max(180, stopCount * 110),
+    estimatedBusSeconds: Math.max(mode === "train" ? 300 : 180, stopCount * (mode === "train" ? 150 : 110)),
     score:
       walkToOrigin +
       walkFromDestination +
-      stopCount * 100 +
+      stopCount * (mode === "train" ? 140 : 100) +
+      transferPenalty +
       (variant.directionId === null ? 50 : 0),
-    firstVariant: variant,
+    firstVariant: enrichVariant(variant),
     secondVariant: null,
     transferStop: null,
+    transferBoardStop: null,
   };
 }
 
@@ -210,12 +255,13 @@ function makeTransferCandidate({
   firstVariant,
   secondVariant,
   boardStop,
-  transferStop,
+  transferAlightStop,
+  transferBoardStop,
   alightStop,
 }) {
   const boardIndex = firstVariant.stopIndexByStopId.get(boardStop.id);
-  const transferIndex1 = firstVariant.stopIndexByStopId.get(transferStop.id);
-  const transferIndex2 = secondVariant.stopIndexByStopId.get(transferStop.id);
+  const transferIndex1 = firstVariant.stopIndexByStopId.get(transferAlightStop.id);
+  const transferIndex2 = secondVariant.stopIndexByStopId.get(transferBoardStop.id);
   const alightIndex = secondVariant.stopIndexByStopId.get(alightStop.id);
 
   if (
@@ -230,14 +276,22 @@ function makeTransferCandidate({
   if (transferIndex1 <= boardIndex) return null;
   if (alightIndex <= transferIndex2) return null;
 
+  const firstMode = modeFromRouteType(firstVariant.routeType);
+  const secondMode = modeFromRouteType(secondVariant.routeType);
   const firstStopCount = transferIndex1 - boardIndex;
   const secondStopCount = alightIndex - transferIndex2;
   const walkToOrigin = boardStop.distanceMeters;
   const walkFromDestination = alightStop.distanceMeters;
-  const transferWalkMeters = 60;
-  const transferWalkMinutes = 1;
+  const transferWalkMeters = Math.round(
+    distanceMeters(
+      { latitude: transferAlightStop.latitude, longitude: transferAlightStop.longitude },
+      { latitude: transferBoardStop.latitude, longitude: transferBoardStop.longitude }
+    )
+  );
+  const transferWalkMinutes = estimateWalkMinutes(Math.max(transferWalkMeters, 60));
   const estimatedBusSeconds =
-    Math.max(180, firstStopCount * 110) + Math.max(180, secondStopCount * 110);
+    Math.max(firstMode === "train" ? 300 : 180, firstStopCount * (firstMode === "train" ? 150 : 110)) +
+    Math.max(secondMode === "train" ? 300 : 180, secondStopCount * (secondMode === "train" ? 150 : 110));
 
   return {
     type: "transfer",
@@ -251,7 +305,8 @@ function makeTransferCandidate({
     secondDirectionCode: secondVariant.directionCode,
     originStop: boardStop,
     destinationStop: alightStop,
-    transferStop,
+    transferStop: transferAlightStop,
+    transferBoardStop,
     boardIndex,
     stopCount: firstStopCount + secondStopCount,
     walkToOrigin,
@@ -267,14 +322,43 @@ function makeTransferCandidate({
       estimatedBusSeconds +
       300 +
       transferWalkMeters,
-    firstVariant,
-    secondVariant,
+    firstVariant: enrichVariant(firstVariant),
+    secondVariant: enrichVariant(secondVariant),
   };
 }
 
+function getTransferStopOptions(gtfs, stop) {
+  const options = [
+    {
+      ...stop,
+      distanceMeters: 0,
+    },
+  ];
+
+  for (const candidate of gtfs.stopsById.values()) {
+    if (candidate.id === stop.id) continue;
+
+    const transferDistance = Math.round(
+      distanceMeters(
+        { latitude: stop.latitude, longitude: stop.longitude },
+        { latitude: candidate.latitude, longitude: candidate.longitude }
+      )
+    );
+
+    if (transferDistance <= TRANSFER_RADIUS_METERS) {
+      options.push({
+        ...candidate,
+        distanceMeters: transferDistance,
+      });
+    }
+  }
+
+  return options.sort((a, b) => a.distanceMeters - b.distanceMeters).slice(0, 12);
+}
+
 function buildTransitCandidates({ origin, destination, gtfs }) {
-  const originStops = getNearbyStops(origin, gtfs, 900, 8);
-  const destinationStops = getNearbyStops(destination, gtfs, 900, 8);
+  const originStops = getNearbyStops(origin, gtfs, 1100, 10);
+  const destinationStops = getNearbyStops(destination, gtfs, 1100, 10);
 
   const direct = [];
   const transfers = [];
@@ -285,8 +369,7 @@ function buildTransitCandidates({ origin, destination, gtfs }) {
     for (const alightStop of destinationStops) {
       if (boardStop.id === alightStop.id) continue;
 
-      const destinationVariants =
-        gtfs.activeVariantsByStopId.get(alightStop.id) || [];
+      const destinationVariants = gtfs.activeVariantsByStopId.get(alightStop.id) || [];
       const destinationVariantIds = new Set(destinationVariants.map((v) => v.id));
 
       for (const variant of originVariants) {
@@ -308,25 +391,29 @@ function buildTransitCandidates({ origin, destination, gtfs }) {
           const transferStopBase = gtfs.stopsById.get(transferStopId);
           if (!transferStopBase) continue;
 
-          const secondVariants =
-            gtfs.activeVariantsByStopId.get(transferStopId) || [];
+          const transferBoardCandidates = getTransferStopOptions(gtfs, transferStopBase);
 
-          for (const secondVariant of secondVariants) {
-            if (secondVariant.id === variant.id) continue;
-            if (!secondVariant.stopIndexByStopId.has(alightStop.id)) continue;
+          for (const transferBoardStop of transferBoardCandidates) {
+            const secondVariants = gtfs.activeVariantsByStopId.get(transferBoardStop.id) || [];
 
-            const candidate = makeTransferCandidate({
-              firstVariant: variant,
-              secondVariant,
-              boardStop,
-              transferStop: {
-                ...transferStopBase,
-                distanceMeters: 0,
-              },
-              alightStop,
-            });
+            for (const secondVariant of secondVariants) {
+              if (secondVariant.id === variant.id) continue;
+              if (!secondVariant.stopIndexByStopId.has(alightStop.id)) continue;
 
-            if (candidate) transfers.push(candidate);
+              const candidate = makeTransferCandidate({
+                firstVariant: variant,
+                secondVariant,
+                boardStop,
+                transferAlightStop: {
+                  ...transferStopBase,
+                  distanceMeters: 0,
+                },
+                transferBoardStop,
+                alightStop,
+              });
+
+              if (candidate) transfers.push(candidate);
+            }
           }
         }
       }
@@ -341,6 +428,7 @@ function buildTransitCandidates({ origin, destination, gtfs }) {
       candidate.routeId,
       candidate.originStop.id,
       candidate.transferStop?.id || "",
+      candidate.transferBoardStop?.id || "",
       candidate.destinationStop.id,
     ].join("|");
 
@@ -393,9 +481,10 @@ function computeJourneyStage({ userLocation, candidate, etaMinutes }) {
   }
 
   if (candidate.type === "transfer") {
+    const secondMode = candidate.secondVariant?.mode === "train" ? "traukinį" : "autobusą";
     return {
       stage: "transfer_expected",
-      message: `Bus persėdimas ${candidate.transferStop.name}`,
+      message: `Bus persėdimas ${candidate.transferBoardStop?.name || candidate.transferStop.name} į ${secondMode}`,
     };
   }
 
@@ -450,19 +539,16 @@ function buildAlertSignals({
       type: "leave_now",
       priority: "medium",
       title: "Laikas eiti",
-      message: `Eik į ${candidate.originStop.name}, autobusas atvyks maždaug po ${etaMinutes} min.`,
+      message: `Eik į ${candidate.originStop.name}, ${formatLegLabel(candidate.firstVariant.mode, candidate.firstVariant.routeLabel).toLowerCase()} atvyks maždaug po ${etaMinutes} min.`,
     });
   }
 
-  if (
-    boardingStage === "ready_to_board" ||
-    boardingStage === "board_now"
-  ) {
+  if (boardingStage === "ready_to_board" || boardingStage === "board_now") {
     alerts.push({
       type: "board_now",
       priority: "high",
-      title: "Lipk dabar",
-      message: `Autobusas ${candidate.firstVariant.routeLabel} jau beveik prie ${candidate.originStop.name}.`,
+      title: candidate.firstVariant.mode === "train" ? "Lipk į traukinį" : "Lipk dabar",
+      message: `${formatLegLabel(candidate.firstVariant.mode, candidate.firstVariant.routeLabel)} jau beveik prie ${candidate.originStop.name}.`,
     });
   }
 
@@ -471,7 +557,7 @@ function buildAlertSignals({
       type: "transfer_soon",
       priority: "high",
       title: "Tuoj persėdimas",
-      message: `Ruoškis persėsti ${candidate.transferStop.name}.`,
+      message: `Ruoškis persėsti ${candidate.transferBoardStop?.name || candidate.transferStop.name}.`,
     });
   }
 
@@ -492,40 +578,40 @@ function buildJourneyStepsFromCandidate(candidate, timing) {
     return [
       {
         type: "walk",
-        icon: "walk",
+        icon: iconFromMode("walk"),
         title: `Eik iki ${candidate.originStop.name}`,
         subtitle: `${timing.walkToOriginMinutes} min • ${candidate.originStop.distanceMeters} m`,
       },
       {
-        type: "bus",
-        icon: "bus",
-        title: `Autobusas ${candidate.firstVariant.routeLabel}`,
+        type: candidate.firstVariant.mode,
+        icon: iconFromMode(candidate.firstVariant.mode),
+        title: formatLegLabel(candidate.firstVariant.mode, candidate.firstVariant.routeLabel),
         subtitle:
-          timing.etaMinutes != null
-            ? `Atvyks po ${timing.etaMinutes} min • kryptis ${
-                candidate.firstVariant.headsign || candidate.firstVariant.directionCode || ""
-              }`
-            : `Kryptis ${
-                candidate.firstVariant.headsign || candidate.firstVariant.directionCode || ""
-              }`,
+          timing.etaMinutes != null && candidate.firstVariant.mode === "bus"
+            ? `Atvyks po ${timing.etaMinutes} min • kryptis ${candidate.firstVariant.headsign || candidate.firstVariant.directionCode || ""}`
+            : `Kryptis ${candidate.firstVariant.headsign || candidate.firstVariant.directionCode || ""}`,
       },
       {
         type: "transfer",
-        icon: "swap-horizontal",
-        title: `Persėsk ${candidate.transferStop.name}`,
-        subtitle: `${timing.transferWalkMinutes} min • į ${candidate.secondVariant.routeLabel}`,
+        icon: iconFromMode("transfer"),
+        title:
+          candidate.transferBoardStop && candidate.transferBoardStop.id !== candidate.transferStop.id
+            ? `Persėsk ${candidate.transferBoardStop.name}`
+            : `Persėsk ${candidate.transferStop.name}`,
+        subtitle:
+          candidate.transferBoardStop && candidate.transferBoardStop.id !== candidate.transferStop.id
+            ? `${timing.transferWalkMinutes} min • ${candidate.transferStop.name} → ${candidate.transferBoardStop.name}`
+            : `${timing.transferWalkMinutes} min • į ${formatLegLabel(candidate.secondVariant.mode, candidate.secondVariant.routeLabel).toLowerCase()}`,
       },
       {
-        type: "bus",
-        icon: "bus",
-        title: `Autobusas ${candidate.secondVariant.routeLabel}`,
-        subtitle: `Kryptis ${
-          candidate.secondVariant.headsign || candidate.secondVariant.directionCode || ""
-        } • ${timing.secondRideMinutes} min`,
+        type: candidate.secondVariant.mode,
+        icon: iconFromMode(candidate.secondVariant.mode),
+        title: formatLegLabel(candidate.secondVariant.mode, candidate.secondVariant.routeLabel),
+        subtitle: `Kryptis ${candidate.secondVariant.headsign || candidate.secondVariant.directionCode || ""} • ${timing.secondRideMinutes} min`,
       },
       {
         type: "walk",
-        icon: "walk",
+        icon: iconFromMode("walk"),
         title: `Išlipk ${candidate.destinationStop.name}`,
         subtitle: `${timing.walkFromDestinationMinutes} min pėsčiomis iki tikslo`,
       },
@@ -535,28 +621,154 @@ function buildJourneyStepsFromCandidate(candidate, timing) {
   return [
     {
       type: "walk",
-      icon: "walk",
+      icon: iconFromMode("walk"),
       title: `Eik iki ${candidate.originStop.name}`,
       subtitle: `${timing.walkToOriginMinutes} min • ${candidate.originStop.distanceMeters} m`,
     },
     {
-      type: "bus",
-      icon: "bus",
-      title: `Autobusas ${candidate.firstVariant.routeLabel}`,
+      type: candidate.firstVariant.mode,
+      icon: iconFromMode(candidate.firstVariant.mode),
+      title: formatLegLabel(candidate.firstVariant.mode, candidate.firstVariant.routeLabel),
       subtitle:
-        timing.etaMinutes != null
-          ? `Atvyks po ${timing.etaMinutes} min • ${
-              candidate.firstVariant.headsign || candidate.firstVariant.directionCode || ""
-            }`
+        timing.etaMinutes != null && candidate.firstVariant.mode === "bus"
+          ? `Atvyks po ${timing.etaMinutes} min • ${candidate.firstVariant.headsign || candidate.firstVariant.directionCode || ""}`
           : `${candidate.firstVariant.headsign || candidate.firstVariant.directionCode || ""}`,
     },
     {
       type: "walk",
-      icon: "walk",
+      icon: iconFromMode("walk"),
       title: `Išlipk ${candidate.destinationStop.name}`,
       subtitle: `${timing.walkFromDestinationMinutes} min pėsčiomis iki tikslo`,
     },
   ];
+}
+
+function buildFallbackOption({ origin, destination, userLocation, vehicles, gtfs }) {
+  const currentLocation = userLocation || origin;
+  const originStops = getNearbyStops(origin, gtfs, 900, 6);
+  const destinationStops = getNearbyStops(destination, gtfs, 900, 6);
+  const originStop = originStops[0] || null;
+  const destinationStop = destinationStops[0] || null;
+
+  if (!originStop || !destinationStop) {
+    return null;
+  }
+
+  let bestLive = null;
+  let bestDistance = Infinity;
+
+  for (const vehicle of Array.isArray(vehicles) ? vehicles : []) {
+    const dist = distanceMeters(
+      { latitude: vehicle.latitude, longitude: vehicle.longitude },
+      { latitude: originStop.latitude, longitude: originStop.longitude }
+    );
+
+    if (dist < bestDistance) {
+      bestDistance = dist;
+      bestLive = vehicle;
+    }
+  }
+
+  const etaSeconds = bestLive ? Math.max(60, Math.round(bestDistance / 6.5)) : null;
+  const etaMinutes = etaSeconds != null ? Math.max(1, Math.round(etaSeconds / 60)) : null;
+  const walkToOriginMinutes = estimateWalkMinutes(originStop.distanceMeters);
+  const walkFromDestinationMinutes = estimateWalkMinutes(destinationStop.distanceMeters);
+  const totalBusMinutes = 10;
+  const totalDurationMinutes = walkToOriginMinutes + walkFromDestinationMinutes + totalBusMinutes + (etaMinutes || 5);
+
+  return {
+    id: "fallback-live-transit",
+    mode: "bus",
+    routeId: bestLive?.routeId || bestLive?.route || "LIVE",
+    summary: {
+      totalDurationMinutes,
+      totalWalkMinutes: walkToOriginMinutes + walkFromDestinationMinutes,
+      totalBusMinutes,
+      boardStopName: originStop.name,
+      alightStopName: destinationStop.name,
+      routeLabel: bestLive?.routeId || bestLive?.route || "LIVE",
+      etaMinutes,
+      stopCount: 0,
+      transfersCount: 0,
+      directionCode: null,
+      headsign: bestLive?.directionName || null,
+      boardingState: "walking_to_board",
+      nextStopName: null,
+      journeyMessage: `Eik į ${originStop.name}${bestLive ? ` ir lauk ${formatLegLabel("bus", bestLive.routeId || bestLive.route || "")}` : ""}`,
+      missedStop: false,
+      approximateStopsRemaining: null,
+      alertSignals: [],
+      modes: ["bus"],
+    },
+    originStop,
+    destinationStop,
+    liveVehicle: bestLive || null,
+    previewPoints: [
+      origin,
+      { latitude: originStop.latitude, longitude: originStop.longitude },
+      { latitude: destinationStop.latitude, longitude: destinationStop.longitude },
+      destination,
+    ],
+    legs: [
+      {
+        type: "walk",
+        mode: "walk",
+        fromLabel: "Dabartinė vieta",
+        toLabel: originStop.name,
+        distanceMeters: originStop.distanceMeters,
+        durationMinutes: walkToOriginMinutes,
+      },
+      {
+        type: "bus",
+        mode: "bus",
+        routeId: bestLive?.routeId || bestLive?.route || "LIVE",
+        routeLabel: bestLive?.routeId || bestLive?.route || "LIVE",
+        fromStopId: originStop.id,
+        fromStopName: originStop.name,
+        toStopId: destinationStop.id,
+        toStopName: destinationStop.name,
+        stopCount: 0,
+        durationMinutes: totalBusMinutes,
+        etaMinutes,
+        directionCode: null,
+        headsign: bestLive?.directionName || null,
+      },
+      {
+        type: "walk",
+        mode: "walk",
+        fromLabel: destinationStop.name,
+        toLabel: "Tikslas",
+        distanceMeters: destinationStop.distanceMeters,
+        durationMinutes: walkFromDestinationMinutes,
+      },
+    ],
+    journeySteps: [
+      {
+        type: "walk",
+        icon: "walk",
+        title: `Eik iki ${originStop.name}`,
+        subtitle: `${walkToOriginMinutes} min • ${originStop.distanceMeters} m`,
+      },
+      {
+        type: "bus",
+        icon: "bus",
+        title: bestLive ? `Lipk į autobusą ${bestLive.routeId || bestLive.route || ""}` : "Lauk artimiausio autobuso",
+        subtitle: bestLive
+          ? `${bestLive.directionName || "Live GPS"}${etaMinutes != null ? ` • po ${etaMinutes} min` : ""}`
+          : "Live autobusas šiuo metu neaptiktas prie stotelės",
+      },
+      {
+        type: "walk",
+        icon: "walk",
+        title: `Išlipk ${destinationStop.name}`,
+        subtitle: `${walkFromDestinationMinutes} min pėsčiomis iki tikslo`,
+      },
+    ],
+    debug: {
+      type: "fallback",
+      matchedVehicleId: bestLive?.vehicleId || bestLive?.id || null,
+    },
+  };
 }
 
 function buildOptionFromCandidate({
@@ -568,45 +780,39 @@ function buildOptionFromCandidate({
   gtfs,
   index,
 }) {
-  const bestVehicle = pickBestVehicleForStop({
-    vehicles,
-    routeId: candidate.firstVariant.routeLabel,
-    stop: candidate.originStop,
-    destinationStop: candidate.transferStop || candidate.destinationStop,
-    headsign: candidate.firstVariant.headsign,
-  });
+  const bestVehicle =
+    candidate.firstVariant.mode === "bus"
+      ? pickBestVehicleForStop({
+          vehicles,
+          routeId: candidate.firstVariant.routeLabel,
+          stop: candidate.originStop,
+          destinationStop: candidate.transferStop || candidate.destinationStop,
+          headsign: candidate.firstVariant.headsign,
+        })
+      : null;
 
   const etaSeconds = bestVehicle?.etaSeconds ?? null;
-  const etaMinutes =
-    etaSeconds != null ? Math.max(1, Math.round(etaSeconds / 60)) : null;
+  const etaMinutes = etaSeconds != null ? Math.max(1, Math.round(etaSeconds / 60)) : null;
 
   const walkToOriginMinutes = estimateWalkMinutes(candidate.walkToOrigin);
-  const walkFromDestinationMinutes = estimateWalkMinutes(
-    candidate.walkFromDestination
-  );
+  const walkFromDestinationMinutes = estimateWalkMinutes(candidate.walkFromDestination);
 
   const firstRideMinutes = estimateRideMinutes(
-    candidate.type === "transfer" ? candidate.firstStopCount : candidate.stopCount
+    candidate.type === "transfer" ? candidate.firstStopCount : candidate.stopCount,
+    candidate.firstVariant.mode
   );
 
   const secondRideMinutes =
     candidate.type === "transfer"
-      ? estimateRideMinutes(candidate.secondStopCount)
+      ? estimateRideMinutes(candidate.secondStopCount, candidate.secondVariant.mode)
       : 0;
 
-  const transferWalkMinutes =
-    candidate.type === "transfer" ? candidate.transferWalkMinutes : 0;
-
-  const transferWaitMinutes = candidate.type === "transfer" ? 4 : 0;
+  const transferWalkMinutes = candidate.type === "transfer" ? candidate.transferWalkMinutes : 0;
+  const transferWaitMinutes = candidate.type === "transfer" ? (candidate.secondVariant.mode === "train" ? 8 : 4) : 0;
 
   const totalBusMinutes = firstRideMinutes + secondRideMinutes;
-  const totalWalkMinutes =
-    walkToOriginMinutes + walkFromDestinationMinutes + transferWalkMinutes;
-  const totalDurationMinutes =
-    totalWalkMinutes +
-    totalBusMinutes +
-    (etaMinutes || 4) +
-    transferWaitMinutes;
+  const totalWalkMinutes = walkToOriginMinutes + walkFromDestinationMinutes + transferWalkMinutes;
+  const totalDurationMinutes = totalWalkMinutes + totalBusMinutes + (etaMinutes || (candidate.firstVariant.mode === "train" ? 12 : 4)) + transferWaitMinutes;
 
   const currentLocation = userLocation || origin;
 
@@ -616,20 +822,14 @@ function buildOptionFromCandidate({
     etaMinutes,
   });
 
-  const missedStop = detectMissedStop({
-    userLocation: currentLocation,
-    candidate,
-  });
+  const missedStop = detectMissedStop({ userLocation: currentLocation, candidate });
 
   const nextStopName =
     candidate.type === "transfer"
-      ? candidate.transferStop.name
+      ? (candidate.transferBoardStop?.name || candidate.transferStop.name)
       : gtfs.stopsById.get(
           candidate.firstVariant.stopIds[
-            Math.min(
-              candidate.firstVariant.stopIds.length - 1,
-              candidate.boardIndex + 1
-            )
+            Math.min(candidate.firstVariant.stopIds.length - 1, candidate.boardIndex + 1)
           ]
         )?.name || null;
 
@@ -640,10 +840,7 @@ function buildOptionFromCandidate({
     })
   );
 
-  const approximateStopsRemaining = Math.max(
-    0,
-    Math.round(toDestinationStopMeters / 700)
-  );
+  const approximateStopsRemaining = Math.max(0, Math.round(toDestinationStopMeters / (candidate.firstVariant.mode === "train" ? 1800 : 700)));
 
   const alertSignals = buildAlertSignals({
     candidate,
@@ -671,6 +868,10 @@ function buildOptionFromCandidate({
     missedStop,
     approximateStopsRemaining,
     alertSignals,
+    modes:
+      candidate.type === "transfer"
+        ? [candidate.firstVariant.mode, candidate.secondVariant.mode]
+        : [candidate.firstVariant.mode],
   };
 
   const journeySteps = buildJourneyStepsFromCandidate(candidate, {
@@ -691,12 +892,7 @@ function buildOptionFromCandidate({
 
   const busShape2 =
     candidate.type === "transfer"
-      ? sliceShapeBetweenStops(
-          gtfs,
-          candidate.secondVariant,
-          candidate.transferStop,
-          candidate.destinationStop
-        )
+      ? sliceShapeBetweenStops(gtfs, candidate.secondVariant, candidate.transferBoardStop || candidate.transferStop, candidate.destinationStop)
       : [];
 
   const previewPoints =
@@ -706,6 +902,9 @@ function buildOptionFromCandidate({
           { latitude: candidate.originStop.latitude, longitude: candidate.originStop.longitude },
           ...busShape1,
           { latitude: candidate.transferStop.latitude, longitude: candidate.transferStop.longitude },
+          ...(candidate.transferBoardStop && candidate.transferBoardStop.id !== candidate.transferStop.id
+            ? [{ latitude: candidate.transferBoardStop.latitude, longitude: candidate.transferBoardStop.longitude }]
+            : []),
           ...busShape2,
           { latitude: candidate.destinationStop.latitude, longitude: candidate.destinationStop.longitude },
           destination,
@@ -738,13 +937,15 @@ function buildOptionFromCandidate({
         ? [
             {
               type: "walk",
+              mode: "walk",
               fromLabel: "Dabartinė vieta",
               toLabel: candidate.originStop.name,
               distanceMeters: candidate.walkToOrigin,
               durationMinutes: walkToOriginMinutes,
             },
             {
-              type: "bus",
+              type: candidate.firstVariant.mode,
+              mode: candidate.firstVariant.mode,
               routeId: candidate.firstVariant.routeLabel,
               routeLabel: candidate.firstVariant.routeLabel,
               fromStopId: candidate.originStop.id,
@@ -756,19 +957,25 @@ function buildOptionFromCandidate({
               etaMinutes,
               directionCode: candidate.firstVariant.directionCode || null,
               headsign: candidate.firstVariant.headsign || null,
+              agencyName: candidate.firstVariant.agencyName || null,
             },
             {
               type: "transfer",
+              mode: "transfer",
               atStopId: candidate.transferStop.id,
               atStopName: candidate.transferStop.name,
+              toStopId: candidate.transferBoardStop?.id || candidate.transferStop.id,
+              toStopName: candidate.transferBoardStop?.name || candidate.transferStop.name,
+              distanceMeters: candidate.transferWalkMeters,
               durationMinutes: transferWalkMinutes,
             },
             {
-              type: "bus",
+              type: candidate.secondVariant.mode,
+              mode: candidate.secondVariant.mode,
               routeId: candidate.secondVariant.routeLabel,
               routeLabel: candidate.secondVariant.routeLabel,
-              fromStopId: candidate.transferStop.id,
-              fromStopName: candidate.transferStop.name,
+              fromStopId: (candidate.transferBoardStop || candidate.transferStop).id,
+              fromStopName: (candidate.transferBoardStop || candidate.transferStop).name,
               toStopId: candidate.destinationStop.id,
               toStopName: candidate.destinationStop.name,
               stopCount: candidate.secondStopCount,
@@ -776,9 +983,11 @@ function buildOptionFromCandidate({
               etaMinutes: null,
               directionCode: candidate.secondVariant.directionCode || null,
               headsign: candidate.secondVariant.headsign || null,
+              agencyName: candidate.secondVariant.agencyName || null,
             },
             {
               type: "walk",
+              mode: "walk",
               fromLabel: candidate.destinationStop.name,
               toLabel: "Tikslas",
               distanceMeters: candidate.walkFromDestination,
@@ -788,13 +997,15 @@ function buildOptionFromCandidate({
         : [
             {
               type: "walk",
+              mode: "walk",
               fromLabel: "Dabartinė vieta",
               toLabel: candidate.originStop.name,
               distanceMeters: candidate.walkToOrigin,
               durationMinutes: walkToOriginMinutes,
             },
             {
-              type: "bus",
+              type: candidate.firstVariant.mode,
+              mode: candidate.firstVariant.mode,
               routeId: candidate.firstVariant.routeLabel,
               routeLabel: candidate.firstVariant.routeLabel,
               fromStopId: candidate.originStop.id,
@@ -806,9 +1017,11 @@ function buildOptionFromCandidate({
               etaMinutes,
               directionCode: candidate.firstVariant.directionCode || null,
               headsign: candidate.firstVariant.headsign || null,
+              agencyName: candidate.firstVariant.agencyName || null,
             },
             {
               type: "walk",
+              mode: "walk",
               fromLabel: candidate.destinationStop.name,
               toLabel: "Tikslas",
               distanceMeters: candidate.walkFromDestination,
@@ -821,10 +1034,10 @@ function buildOptionFromCandidate({
       routeInternalId: candidate.routeInternalId,
       directionId: candidate.directionId || null,
       headsign: candidate.firstVariant.headsign || null,
-      transferRoute:
-        candidate.type === "transfer" ? candidate.secondVariant.routeLabel : null,
-      matchedVehicleId:
-        bestVehicle?.vehicle?.vehicleId || bestVehicle?.vehicle?.id || null,
+      transferRoute: candidate.type === "transfer" ? candidate.secondVariant.routeLabel : null,
+      transferMode: candidate.type === "transfer" ? candidate.secondVariant.mode : null,
+      matchedVehicleId: bestVehicle?.vehicle?.vehicleId || bestVehicle?.vehicle?.id || null,
+      sourceModes: summary.modes,
       candidateVehicles: (bestVehicle?.candidates || []).map((v) => ({
         id: v.vehicle?.vehicleId || v.vehicle?.id || null,
         routeId: v.vehicle?.routeId || v.vehicle?.number || null,
@@ -843,16 +1056,9 @@ async function buildTransitPlan({ origin, destination, userLocation = null }) {
   ]);
 
   const candidates = buildTransitCandidates({ origin, destination, gtfs });
-  if (!candidates.length) {
-    return {
-      gtfsMeta: gtfs.meta,
-      options: [],
-      best: null,
-    };
-  }
 
   const options = candidates
-    .slice(0, 8)
+    .slice(0, 12)
     .map((candidate, index) =>
       buildOptionFromCandidate({
         candidate,
@@ -864,11 +1070,17 @@ async function buildTransitPlan({ origin, destination, userLocation = null }) {
         index,
       })
     )
-    .sort(
-      (a, b) =>
-        a.summary.totalDurationMinutes - b.summary.totalDurationMinutes
-    )
-    .slice(0, 3);
+    .sort((a, b) => a.summary.totalDurationMinutes - b.summary.totalDurationMinutes)
+    .slice(0, 4);
+
+  if (!options.length) {
+    const fallback = buildFallbackOption({ origin, destination, userLocation, vehicles, gtfs });
+    return {
+      gtfsMeta: gtfs.meta,
+      options: fallback ? [fallback] : [],
+      best: fallback,
+    };
+  }
 
   return {
     gtfsMeta: gtfs.meta,
@@ -949,11 +1161,7 @@ app.post("/transit/plan", async (req, res) => {
       });
     }
 
-    const result = await buildTransitPlan({
-      origin,
-      destination,
-      userLocation,
-    });
+    const result = await buildTransitPlan({ origin, destination, userLocation });
 
     if (!result?.best) {
       return res.status(404).json({
@@ -1040,50 +1248,71 @@ app.post("/push/register", async (req, res) => {
   }
 });
 
+app.get("/leave-alerts", (_req, res) => {
+  try {
+    res.json({
+      ok: true,
+      alerts: listActiveLeaveAlerts(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
+app.get("/transit/gtfs-status", async (req, res) => {
+  try {
+    const loader = require("./services/transit/gtfsLoader");
+
+    if (!loader || !loader.getStatus) {
+      return res.json({
+        loaded: false,
+        error: "GTFS loader not initialized",
+      });
+    }
+
+    const status = loader.getStatus();
+
+    return res.json({
+      loaded: true,
+      ...status,
+    });
+  } catch (e) {
+    console.error("GTFS STATUS ERROR:", e);
+
+    return res.json({
+      loaded: false,
+      error: e.message,
+    });
+  }
+});
+
+
 app.post("/leave-alerts", async (req, res) => {
   try {
     const payload = req.body || {};
-    const result = await createOrReplaceLeaveAlert(payload);
-
-    res.json({
-      ok: true,
-      alert: result,
-    });
+    const alert = await createOrReplaceLeaveAlert(payload);
+    res.json({ ok: true, alert });
   } catch (error) {
-    console.error("POST /leave-alerts error:", error.message);
-    res.status(500).json({
-      ok: false,
-      error: error.message,
-    });
+    res.status(400).json({ ok: false, error: error.message });
   }
 });
 
-app.delete("/leave-alerts/:alertId", async (req, res) => {
+app.delete("/leave-alerts/:id", async (req, res) => {
   try {
-    const removed = await cancelLeaveAlert(req.params.alertId);
-
-    res.json({
-      ok: true,
-      removed,
-    });
+    const removed = await cancelLeaveAlert(req.params.id);
+    res.json({ ok: true, removed });
   } catch (error) {
-    console.error("DELETE /leave-alerts/:alertId error:", error.message);
-    res.status(500).json({
-      ok: false,
-      error: error.message,
-    });
+    res.status(400).json({ ok: false, error: error.message });
   }
 });
 
-app.get("/leave-alerts", (_req, res) => {
-  res.json({
-    ok: true,
-    items: listActiveLeaveAlerts(),
-  });
+startLeaveAlertEngine().catch((error) => {
+  console.error("Leave alert engine failed to start:", error.message);
 });
-
-startLeaveAlertEngine();
 
 app.listen(PORT, HOST, () => {
-  console.log(`🚀 Running on http://${HOST}:${PORT}`);
+  console.log(`Arbebus backend running on http://${HOST}:${PORT}`);
 });

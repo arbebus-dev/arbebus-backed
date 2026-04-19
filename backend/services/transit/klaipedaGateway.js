@@ -1,4 +1,4 @@
-const axios = require("axios");
+const fetch = require("node-fetch");
 const {
   normalizeRouteId,
   normalizeVehicleId,
@@ -7,7 +7,7 @@ const {
 const GPS_URL = "https://www.stops.lt/klaipeda/gps_full.txt";
 
 function parseGpsFeed(text) {
-  const tokens = text
+  const tokens = String(text || "")
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
@@ -36,15 +36,31 @@ function parseGpsFeed(text) {
     const longitude = Number(lonRaw) / 1000000;
     const latitude = Number(latRaw) / 1000000;
 
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+    if (
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude) ||
+      latitude < 55 ||
+      latitude > 56 ||
+      longitude < 20 ||
+      longitude > 22
+    ) {
+      continue;
+    }
 
     vehicles.push({
+      id: normalizeVehicleId(tripId || `${route}-${vehicleLabel}`),
       vehicleId: normalizeVehicleId(tripId || `${route}-${vehicleLabel}`),
+      route: normalizeRouteId(route),
       routeId: normalizeRouteId(route),
       latitude,
       longitude,
+      coordinate: {
+        latitude,
+        longitude,
+      },
       speedKph: Number(speed) || 0,
       bearing: Number(bearing) || 0,
+      heading: Number(bearing) || 0,
       tripStart: tripStart || null,
       delaySeconds: Number(delay) || 0,
       directionName: directionName || null,
@@ -57,61 +73,27 @@ function parseGpsFeed(text) {
   return vehicles;
 }
 
-const fetch = require("node-fetch");
-
 async function fetchLiveVehicles() {
   try {
-    const res = await fetch("https://www.stops.lt/klaipeda/gps_full.txt", {
+    const res = await fetch(GPS_URL, {
       headers: {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 Arbebus/1.0",
+        Accept: "text/plain,*/*",
       },
+      timeout: 15000,
     });
 
+    if (!res.ok) {
+      throw new Error(`GPS upstream HTTP ${res.status}`);
+    }
+
     const text = await res.text();
-
-    if (!text) {
-      console.log("❌ EMPTY GPS RESPONSE");
-      return [];
-    }
-
-    const rows = text.split("\n");
-
-    const vehicles = [];
-
-    for (const row of rows) {
-      const parts = row.split(",");
-
-      if (parts.length < 6) continue;
-
-      const lat = Number(parts[3]) / 1000000;
-      const lon = Number(parts[4]) / 1000000;
-
-      if (!lat || !lon) continue;
-
-      // Klaipėdos bounding box
-      if (
-        lat < 55.5 ||
-        lat > 56.0 ||
-        lon < 20.8 ||
-        lon > 21.5
-      ) {
-        continue;
-      }
-
-      vehicles.push({
-        id: parts[0],
-        route: parts[1],
-        latitude: lat,
-        longitude: lon,
-        heading: Number(parts[5]) || 0,
-      });
-    }
+    const vehicles = parseGpsFeed(text);
 
     console.log("🚌 LIVE VEHICLES:", vehicles.length);
-
     return vehicles;
-  } catch (e) {
-    console.error("❌ GPS FETCH ERROR:", e.message);
+  } catch (error) {
+    console.log("❌ fetchLiveVehicles error:", error.message);
     return [];
   }
 }

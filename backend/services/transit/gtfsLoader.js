@@ -8,6 +8,7 @@ const GTFS_DIR = path.join(__dirname, "..", "data", "gtfs");
 const DEFAULT_GTFS_URL =
   process.env.KLAIPEDA_GTFS_URL ||
   "https://www.stops.lt/klaipeda/klaipeda/gtfs.zip";
+const USE_REMOTE_GTFS_FIRST = String(process.env.USE_REMOTE_GTFS_FIRST || "") === "1";
 
 let cache = {
   loadedAt: 0,
@@ -21,6 +22,11 @@ function normalizeId(value) {
 function normalizeRouteLabel(value, fallback) {
   const trimmed = String(value || "").trim();
   return trimmed || String(fallback || "").trim();
+}
+
+function normalizeAgencyName(value) {
+  const trimmed = String(value || "").trim();
+  return trimmed || null;
 }
 
 function parseCsvLine(line) {
@@ -77,8 +83,9 @@ function parseCsv(text) {
   });
 }
 
-function tryReadLocalGtfsFiles() {
-  const filenames = [
+function getLocalFilenames() {
+  return [
+    "agency.txt",
     "stops.txt",
     "routes.txt",
     "trips.txt",
@@ -87,9 +94,13 @@ function tryReadLocalGtfsFiles() {
     "calendar_dates.txt",
     "shapes.txt",
   ];
+}
 
+function tryReadLocalGtfsFiles() {
+  const filenames = getLocalFilenames();
   const result = {};
-  let foundCore =
+
+  const foundCore =
     fs.existsSync(path.join(GTFS_DIR, "stops.txt")) &&
     fs.existsSync(path.join(GTFS_DIR, "routes.txt")) &&
     fs.existsSync(path.join(GTFS_DIR, "trips.txt")) &&
@@ -108,13 +119,16 @@ function tryReadLocalGtfsFiles() {
 }
 
 async function tryReadRemoteGtfsZip() {
-  const tempZip = path.join(os.tmpdir(), `klaipeda-gtfs-${Date.now()}.zip`);
+  const tempZip = path.join(os.tmpdir(), `arbebus-gtfs-${Date.now()}.zip`);
 
   const response = await axios.get(DEFAULT_GTFS_URL, {
     responseType: "arraybuffer",
-    timeout: 25000,
+    timeout: 45000,
+    maxContentLength: 150 * 1024 * 1024,
+    maxBodyLength: 150 * 1024 * 1024,
     headers: {
       "User-Agent": "Arbebus/1.0",
+      Accept: "application/zip, application/octet-stream, */*",
     },
   });
 
@@ -126,21 +140,18 @@ async function tryReadRemoteGtfsZip() {
         return execFileSync("unzip", ["-p", tempZip, name], {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "ignore"],
+          maxBuffer: 1024 * 1024 * 1024,
         });
       } catch (_error) {
         return null;
       }
     };
 
-    return {
-      "stops.txt": readFileFromZip("stops.txt"),
-      "routes.txt": readFileFromZip("routes.txt"),
-      "trips.txt": readFileFromZip("trips.txt"),
-      "stop_times.txt": readFileFromZip("stop_times.txt"),
-      "calendar.txt": readFileFromZip("calendar.txt"),
-      "calendar_dates.txt": readFileFromZip("calendar_dates.txt"),
-      "shapes.txt": readFileFromZip("shapes.txt"),
-    };
+    const files = {};
+    for (const name of getLocalFilenames()) {
+      files[name] = readFileFromZip(name);
+    }
+    return files;
   } finally {
     try {
       fs.unlinkSync(tempZip);
@@ -242,17 +253,11 @@ function isServiceActive(serviceId, calendarIndexes, dateInfo) {
   const base = calendarIndexes.calendarByServiceId.get(serviceId);
   if (!base) return true;
 
-  if (
-    base.startDate &&
-    dateInfo.yyyymmdd < base.startDate
-  ) {
+  if (base.startDate && dateInfo.yyyymmdd < base.startDate) {
     return false;
   }
 
-  if (
-    base.endDate &&
-    dateInfo.yyyymmdd > base.endDate
-  ) {
+  if (base.endDate && dateInfo.yyyymmdd > base.endDate) {
     return false;
   }
 
@@ -281,16 +286,16 @@ function nearestShapeIndex(shapePoints, stop) {
   let bestIndex = -1;
   let bestDistance = Infinity;
 
-  for (let i = 0; i < shapePoints.length; i += 1) {
-    const point = shapePoints[i];
-    const distance = distanceMetersSimple(
-      { latitude: stop.latitude, longitude: stop.longitude },
-      { latitude: point.latitude, longitude: point.longitude }
-    );
+  for (let index = 0; index < shapePoints.length; index += 1) {
+    const point = shapePoints[index];
+    const distance = distanceMetersSimple(point, {
+      latitude: stop.latitude,
+      longitude: stop.longitude,
+    });
 
     if (distance < bestDistance) {
       bestDistance = distance;
-      bestIndex = i;
+      bestIndex = index;
     }
   }
 
@@ -298,6 +303,7 @@ function nearestShapeIndex(shapePoints, stop) {
 }
 
 function buildGtfsIndexes(files) {
+  const agencyRows = parseCsv(files["agency.txt"] || "");
   const stopsRows = parseCsv(files["stops.txt"] || "");
   const routesRows = parseCsv(files["routes.txt"] || "");
   const tripsRows = parseCsv(files["trips.txt"] || "");
@@ -306,11 +312,23 @@ function buildGtfsIndexes(files) {
   const calendarDatesRows = parseCsv(files["calendar_dates.txt"] || "");
   const shapesRows = parseCsv(files["shapes.txt"] || "");
 
+  const agenciesById = new Map();
   const stopsById = new Map();
   const routesById = new Map();
   const tripsById = new Map();
   const stopTimesByTripId = new Map();
   const shapesById = new Map();
+
+  for (const row of agencyRows) {
+    const agencyId = normalizeId(row.agency_id || row.agency_name);
+    if (!agencyId) continue;
+
+    agenciesById.set(agencyId, {
+      agencyId,
+      agencyName: normalizeAgencyName(row.agency_name || row.agency_id),
+      agencyUrl: row.agency_url || null,
+    });
+  }
 
   for (const row of stopsRows) {
     const stopId = normalizeId(row.stop_id);
@@ -328,6 +346,8 @@ function buildGtfsIndexes(files) {
       longitude,
       code: row.stop_code || null,
       desc: row.stop_desc || null,
+      parentStationId: normalizeId(row.parent_station) || null,
+      locationType: row.location_type || null,
     });
   }
 
@@ -335,10 +355,19 @@ function buildGtfsIndexes(files) {
     const routeId = normalizeId(row.route_id);
     if (!routeId) continue;
 
+    const agencyId = normalizeId(row.agency_id);
+    const routeTypeNumber = Number(row.route_type);
+
     routesById.set(routeId, {
       routeId,
+      agencyId: agencyId || null,
+      agencyName: agenciesById.get(agencyId)?.agencyName || null,
       routeShortName: normalizeRouteLabel(row.route_short_name, routeId),
       routeLongName: row.route_long_name || null,
+      routeType: Number.isFinite(routeTypeNumber) ? routeTypeNumber : null,
+      routeColor: row.route_color || null,
+      routeTextColor: row.route_text_color || null,
+      routeDesc: row.route_desc || null,
     });
   }
 
@@ -376,6 +405,8 @@ function buildGtfsIndexes(files) {
     stopTimesByTripId.get(tripId).push({
       stopId,
       stopSequence,
+      arrivalTime: row.arrival_time || null,
+      departureTime: row.departure_time || null,
     });
   }
 
@@ -414,7 +445,6 @@ function buildGtfsIndexes(files) {
   }
 
   const calendarIndexes = buildCalendarIndexes(calendarRows, calendarDatesRows);
-
   const variantBuckets = new Map();
 
   for (const trip of tripsById.values()) {
@@ -437,6 +467,8 @@ function buildGtfsIndexes(files) {
         routeId: trip.routeId,
         routeLabel: route?.routeShortName || trip.routeId,
         routeLongName: route?.routeLongName || null,
+        routeType: route?.routeType ?? null,
+        agencyName: route?.agencyName || null,
         directionId: trip.directionId,
         directionCode:
           trip.directionId === "0"
@@ -498,6 +530,8 @@ function buildGtfsIndexes(files) {
         routeId: variant.routeId,
         routeLabel: variant.routeLabel,
         routeLongName: variant.routeLongName,
+        routeType: variant.routeType,
+        agencyName: variant.agencyName,
         directionId: variant.directionId,
         directionCode: variant.directionCode,
         headsign: variant.headsign,
@@ -570,6 +604,12 @@ function buildGtfsIndexes(files) {
     }
   }
 
+  const routeTypeCounts = {};
+  for (const route of routesById.values()) {
+    const key = String(route.routeType ?? "unknown");
+    routeTypeCounts[key] = (routeTypeCounts[key] || 0) + 1;
+  }
+
   return {
     meta: {
       stopsCount: stopsById.size,
@@ -579,11 +619,14 @@ function buildGtfsIndexes(files) {
       activeVariantsCount: activeVariants.length,
       activeServiceIdsCount: activeServiceIds.size,
       shapesCount: shapesById.size,
+      agenciesCount: agenciesById.size,
       serviceDate: dateInfo.yyyymmdd,
       weekday: dateInfo.weekday,
       loadedAtIso: new Date().toISOString(),
       source: files.source || "unknown",
+      routeTypeCounts,
     },
+    agenciesById,
     stopsById,
     routesById,
     tripsById,
@@ -605,12 +648,24 @@ async function loadGtfsData({ force = false } = {}) {
     return cache.data;
   }
 
-  let files = tryReadLocalGtfsFiles();
-  if (files) {
-    files.source = "local_gtfs_dir";
+  let files = null;
+
+  if (USE_REMOTE_GTFS_FIRST) {
+    try {
+      files = await tryReadRemoteGtfsZip();
+      files.source = "remote_gtfs_zip";
+    } catch (_error) {
+      files = tryReadLocalGtfsFiles();
+      if (files) files.source = "local_gtfs_dir";
+    }
   } else {
-    files = await tryReadRemoteGtfsZip();
-    files.source = "remote_gtfs_zip";
+    files = tryReadLocalGtfsFiles();
+    if (files) {
+      files.source = "local_gtfs_dir";
+    } else {
+      files = await tryReadRemoteGtfsZip();
+      files.source = "remote_gtfs_zip";
+    }
   }
 
   const data = buildGtfsIndexes(files);
