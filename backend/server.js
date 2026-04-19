@@ -1262,14 +1262,24 @@ app.get("/leave-alerts", (_req, res) => {
   }
 });
 
-app.get("/transit/gtfs-status", async (req, res) => {
+app.get("/transit/gtfs-status", (req, res) => {
   try {
-    const loader = require("./services/transit/gtfsLoader");
+    let loader;
 
-    if (!loader || !loader.getStatus) {
+    try {
+      loader = require("./services/transit/gtfsLoader");
+    } catch (e) {
+      console.error("Loader require failed:", e);
       return res.json({
         loaded: false,
-        error: "GTFS loader not initialized",
+        error: "gtfsLoader not found",
+      });
+    }
+
+    if (!loader || typeof loader.getStatus !== "function") {
+      return res.json({
+        loaded: false,
+        error: "GTFS loader not initialized properly",
       });
     }
 
