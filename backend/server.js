@@ -750,17 +750,38 @@ app.get("/live-buses", async (_req, res) => {
   }
 });
 
-app.get("/transit/gtfs-status", async (_req, res) => {
+app.get("/transit/gtfs-status", async (req, res) => {
   try {
-    const gtfs = await loadGtfsData();
-    res.json({
+    let loader;
+
+    try {
+      loader = require("./services/transit/gtfsLoader");
+    } catch (e) {
+      return res.json({
+        ok: false,
+        error: "Loader not found",
+      });
+    }
+
+    if (!loader || typeof loader.getStatus !== "function") {
+      return res.json({
+        ok: false,
+        error: "GTFS loader not initialized",
+      });
+    }
+
+    const status = loader.getStatus();
+
+    return res.json({
       ok: true,
-      gtfs: gtfs.meta,
+      status,
     });
-  } catch (error) {
-    res.status(500).json({
+  } catch (err) {
+    console.error("GTFS STATUS ERROR:", err);
+
+    return res.status(500).json({
       ok: false,
-      error: error.message,
+      error: err.message,
     });
   }
 });
