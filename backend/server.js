@@ -1281,6 +1281,13 @@ app.delete("/leave-alerts/:id", async (req, res) => {
   }
 });
 
+app.get("/leave-alerts", (_req, res) => {
+  res.json({
+    ok: true,
+    items: listActiveLeaveAlerts(),
+  });
+});
+
 try {
   startLeaveAlertEngine();
 } catch (error) {
