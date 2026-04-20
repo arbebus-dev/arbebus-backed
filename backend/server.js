@@ -1281,9 +1281,11 @@ app.delete("/leave-alerts/:id", async (req, res) => {
   }
 });
 
-startLeaveAlertEngine().catch((error) => {
+try {
+  startLeaveAlertEngine();
+} catch (error) {
   console.error("Leave alert engine failed to start:", error.message);
-});
+}
 
 app.listen(PORT, HOST, () => {
   console.log(`Arbebus backend running on http://${HOST}:${PORT}`);
