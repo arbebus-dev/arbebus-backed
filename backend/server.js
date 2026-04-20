@@ -340,19 +340,223 @@ function buildTransitCandidates({ origin, destination, gtfs }) {
       candidate.type,
       candidate.routeId,
       candidate.originStop.id,
-      candidate.transferStop?.id || "direct",
+      candidate.transferStop?.id || "",
       candidate.destinationStop.id,
-    ].join(":");
+    ].join("|");
 
-    const current = dedupe.get(key);
-    if (!current || candidate.score < current.score) {
+    const existing = dedupe.get(key);
+    if (!existing || candidate.score < existing.score) {
       dedupe.set(key, candidate);
     }
   }
 
-  return Array.from(dedupe.values())
-    .sort((a, b) => a.score - b.score)
-    .slice(0, 12);
+  return Array.from(dedupe.values()).sort((a, b) => a.score - b.score);
+}
+
+function computeJourneyStage({ userLocation, candidate, etaMinutes }) {
+  const toBoardStopMeters = Math.round(
+    distanceMeters(userLocation, {
+      latitude: candidate.originStop.latitude,
+      longitude: candidate.originStop.longitude,
+    })
+  );
+
+  const toDestinationStopMeters = Math.round(
+    distanceMeters(userLocation, {
+      latitude: candidate.destinationStop.latitude,
+      longitude: candidate.destinationStop.longitude,
+    })
+  );
+
+  const nearBoardStop = toBoardStopMeters <= 35;
+  const nearDestinationStop = toDestinationStopMeters <= 60;
+
+  if (nearDestinationStop) {
+    return {
+      stage: "final_walk",
+      message: "Jau beveik išlipimo stotelė",
+    };
+  }
+
+  if (nearBoardStop && etaMinutes != null && etaMinutes <= 1) {
+    return {
+      stage: "board_now",
+      message: "Lipk dabar",
+    };
+  }
+
+  if (nearBoardStop && etaMinutes != null && etaMinutes <= 3) {
+    return {
+      stage: "ready_to_board",
+      message: "Pasiruošk lipti",
+    };
+  }
+
+  if (candidate.type === "transfer") {
+    return {
+      stage: "transfer_expected",
+      message: `Bus persėdimas ${candidate.transferStop.name}`,
+    };
+  }
+
+  return {
+    stage: "walking_to_board",
+    message: `Eik į ${candidate.originStop.name}`,
+  };
+}
+
+function detectMissedStop({ userLocation, candidate }) {
+  const boardStopDistance = Math.round(
+    distanceMeters(userLocation, {
+      latitude: candidate.originStop.latitude,
+      longitude: candidate.originStop.longitude,
+    })
+  );
+
+  const destinationStopDistance = Math.round(
+    distanceMeters(userLocation, {
+      latitude: candidate.destinationStop.latitude,
+      longitude: candidate.destinationStop.longitude,
+    })
+  );
+
+  if (boardStopDistance > 250 && destinationStopDistance > boardStopDistance + 120) {
+    return true;
+  }
+
+  return false;
+}
+
+function buildAlertSignals({
+  candidate,
+  etaMinutes,
+  boardingStage,
+  missedStop,
+  stopsRemaining,
+}) {
+  const alerts = [];
+
+  if (missedStop) {
+    alerts.push({
+      type: "reroute_needed",
+      priority: "high",
+      title: "Perskaičiuojamas maršrutas",
+      message: "Atrodo, kad praleidai stotelę arba nuėjai nuo maršruto.",
+    });
+  }
+
+  if (boardingStage === "walking_to_board" && etaMinutes != null && etaMinutes <= 6) {
+    alerts.push({
+      type: "leave_now",
+      priority: "medium",
+      title: "Laikas eiti",
+      message: `Eik į ${candidate.originStop.name}, autobusas atvyks maždaug po ${etaMinutes} min.`,
+    });
+  }
+
+  if (
+    boardingStage === "ready_to_board" ||
+    boardingStage === "board_now"
+  ) {
+    alerts.push({
+      type: "board_now",
+      priority: "high",
+      title: "Lipk dabar",
+      message: `Autobusas ${candidate.firstVariant.routeLabel} jau beveik prie ${candidate.originStop.name}.`,
+    });
+  }
+
+  if (candidate.type === "transfer" && stopsRemaining != null && stopsRemaining <= 2) {
+    alerts.push({
+      type: "transfer_soon",
+      priority: "high",
+      title: "Tuoj persėdimas",
+      message: `Ruoškis persėsti ${candidate.transferStop.name}.`,
+    });
+  }
+
+  if (candidate.type !== "transfer" && stopsRemaining != null && stopsRemaining <= 2) {
+    alerts.push({
+      type: "get_off_soon",
+      priority: "high",
+      title: "Tuoj išlipk",
+      message: `Ruoškis išlipti ${candidate.destinationStop.name}.`,
+    });
+  }
+
+  return alerts;
+}
+
+function buildJourneyStepsFromCandidate(candidate, timing) {
+  if (candidate.type === "transfer") {
+    return [
+      {
+        type: "walk",
+        icon: "walk",
+        title: `Eik iki ${candidate.originStop.name}`,
+        subtitle: `${timing.walkToOriginMinutes} min • ${candidate.originStop.distanceMeters} m`,
+      },
+      {
+        type: "bus",
+        icon: "bus",
+        title: `Autobusas ${candidate.firstVariant.routeLabel}`,
+        subtitle:
+          timing.etaMinutes != null
+            ? `Atvyks po ${timing.etaMinutes} min • kryptis ${
+                candidate.firstVariant.headsign || candidate.firstVariant.directionCode || ""
+              }`
+            : `Kryptis ${
+                candidate.firstVariant.headsign || candidate.firstVariant.directionCode || ""
+              }`,
+      },
+      {
+        type: "transfer",
+        icon: "swap-horizontal",
+        title: `Persėsk ${candidate.transferStop.name}`,
+        subtitle: `${timing.transferWalkMinutes} min • į ${candidate.secondVariant.routeLabel}`,
+      },
+      {
+        type: "bus",
+        icon: "bus",
+        title: `Autobusas ${candidate.secondVariant.routeLabel}`,
+        subtitle: `Kryptis ${
+          candidate.secondVariant.headsign || candidate.secondVariant.directionCode || ""
+        } • ${timing.secondRideMinutes} min`,
+      },
+      {
+        type: "walk",
+        icon: "walk",
+        title: `Išlipk ${candidate.destinationStop.name}`,
+        subtitle: `${timing.walkFromDestinationMinutes} min pėsčiomis iki tikslo`,
+      },
+    ];
+  }
+
+  return [
+    {
+      type: "walk",
+      icon: "walk",
+      title: `Eik iki ${candidate.originStop.name}`,
+      subtitle: `${timing.walkToOriginMinutes} min • ${candidate.originStop.distanceMeters} m`,
+    },
+    {
+      type: "bus",
+      icon: "bus",
+      title: `Autobusas ${candidate.firstVariant.routeLabel}`,
+      subtitle:
+        timing.etaMinutes != null
+          ? `Atvyks po ${timing.etaMinutes} min • ${
+              candidate.firstVariant.headsign || candidate.firstVariant.directionCode || ""
+            }`
+          : `${candidate.firstVariant.headsign || candidate.firstVariant.directionCode || ""}`,
+    },
+    {
+      type: "walk",
+      icon: "walk",
+      title: `Išlipk ${candidate.destinationStop.name}`,
+      subtitle: `${timing.walkFromDestinationMinutes} min pėsčiomis iki tikslo`,
+    },
+  ];
 }
 
 function buildOptionFromCandidate({
@@ -364,15 +568,26 @@ function buildOptionFromCandidate({
   gtfs,
   index,
 }) {
+  const bestVehicle = pickBestVehicleForStop({
+    vehicles,
+    routeId: candidate.firstVariant.routeLabel,
+    stop: candidate.originStop,
+    destinationStop: candidate.transferStop || candidate.destinationStop,
+    headsign: candidate.firstVariant.headsign,
+  });
+
+  const etaSeconds = bestVehicle?.etaSeconds ?? null;
+  const etaMinutes =
+    etaSeconds != null ? Math.max(1, Math.round(etaSeconds / 60)) : null;
+
   const walkToOriginMinutes = estimateWalkMinutes(candidate.walkToOrigin);
   const walkFromDestinationMinutes = estimateWalkMinutes(
     candidate.walkFromDestination
   );
 
-  const firstRideMinutes =
-    candidate.type === "transfer"
-      ? estimateRideMinutes(candidate.firstStopCount)
-      : estimateRideMinutes(candidate.stopCount);
+  const firstRideMinutes = estimateRideMinutes(
+    candidate.type === "transfer" ? candidate.firstStopCount : candidate.stopCount
+  );
 
   const secondRideMinutes =
     candidate.type === "transfer"
@@ -382,39 +597,99 @@ function buildOptionFromCandidate({
   const transferWalkMinutes =
     candidate.type === "transfer" ? candidate.transferWalkMinutes : 0;
 
-  const totalDurationMinutes =
-    walkToOriginMinutes +
-    firstRideMinutes +
-    transferWalkMinutes +
-    secondRideMinutes +
-    walkFromDestinationMinutes;
+  const transferWaitMinutes = candidate.type === "transfer" ? 4 : 0;
 
-  const boardingPoint = userLocation || origin;
-  const bestVehicle = pickBestVehicleForStop({
-    vehicles,
-    stop: candidate.originStop,
-    boardPoint: boardingPoint,
-    routeId: candidate.firstVariant.routeLabel,
-    directionHint:
-      candidate.firstVariant.directionCode ||
-      candidate.firstVariant.headsign ||
-      null,
+  const totalBusMinutes = firstRideMinutes + secondRideMinutes;
+  const totalWalkMinutes =
+    walkToOriginMinutes + walkFromDestinationMinutes + transferWalkMinutes;
+  const totalDurationMinutes =
+    totalWalkMinutes +
+    totalBusMinutes +
+    (etaMinutes || 4) +
+    transferWaitMinutes;
+
+  const currentLocation = userLocation || origin;
+
+  const stageInfo = computeJourneyStage({
+    userLocation: currentLocation,
+    candidate,
+    etaMinutes,
   });
 
-  const etaMinutes = bestVehicle
-    ? Math.max(1, Math.round(bestVehicle.etaSeconds / 60))
-    : Math.max(2, walkToOriginMinutes + 2);
+  const missedStop = detectMissedStop({
+    userLocation: currentLocation,
+    candidate,
+  });
 
-  const firstBusShape = sliceShapeBetweenStops(
+  const nextStopName =
+    candidate.type === "transfer"
+      ? candidate.transferStop.name
+      : gtfs.stopsById.get(
+          candidate.firstVariant.stopIds[
+            Math.min(
+              candidate.firstVariant.stopIds.length - 1,
+              candidate.boardIndex + 1
+            )
+          ]
+        )?.name || null;
+
+  const toDestinationStopMeters = Math.round(
+    distanceMeters(currentLocation, {
+      latitude: candidate.destinationStop.latitude,
+      longitude: candidate.destinationStop.longitude,
+    })
+  );
+
+  const approximateStopsRemaining = Math.max(
+    0,
+    Math.round(toDestinationStopMeters / 700)
+  );
+
+  const alertSignals = buildAlertSignals({
+    candidate,
+    etaMinutes,
+    boardingStage: stageInfo.stage,
+    missedStop,
+    stopsRemaining: approximateStopsRemaining,
+  });
+
+  const summary = {
+    totalDurationMinutes,
+    totalWalkMinutes,
+    totalBusMinutes,
+    boardStopName: candidate.originStop.name,
+    alightStopName: candidate.destinationStop.name,
+    routeLabel: candidate.routeId,
+    etaMinutes,
+    stopCount: candidate.stopCount,
+    transfersCount: candidate.type === "transfer" ? 1 : 0,
+    directionCode: candidate.firstVariant.directionCode || null,
+    headsign: candidate.firstVariant.headsign || null,
+    boardingState: stageInfo.stage,
+    nextStopName,
+    journeyMessage: stageInfo.message,
+    missedStop,
+    approximateStopsRemaining,
+    alertSignals,
+  };
+
+  const journeySteps = buildJourneyStepsFromCandidate(candidate, {
+    walkToOriginMinutes,
+    walkFromDestinationMinutes,
+    transferWalkMinutes,
+    firstRideMinutes,
+    secondRideMinutes,
+    etaMinutes,
+  });
+
+  const busShape1 = sliceShapeBetweenStops(
     gtfs,
     candidate.firstVariant,
     candidate.originStop,
-    candidate.type === "transfer"
-      ? candidate.transferStop
-      : candidate.destinationStop
+    candidate.type === "transfer" ? candidate.transferStop : candidate.destinationStop
   );
 
-  const secondBusShape =
+  const busShape2 =
     candidate.type === "transfer"
       ? sliceShapeBetweenStops(
           gtfs,
@@ -424,141 +699,37 @@ function buildOptionFromCandidate({
         )
       : [];
 
-  const previewPoints = [
-    origin,
-    { latitude: candidate.originStop.latitude, longitude: candidate.originStop.longitude },
-    ...firstBusShape,
-    ...(candidate.type === "transfer"
-      ? [
-          {
-            latitude: candidate.transferStop.latitude,
-            longitude: candidate.transferStop.longitude,
-          },
-          ...secondBusShape,
-        ]
-      : []),
-    {
-      latitude: candidate.destinationStop.latitude,
-      longitude: candidate.destinationStop.longitude,
-    },
-    destination,
-  ];
-
-  const journeySteps =
+  const previewPoints =
     candidate.type === "transfer"
       ? [
-          {
-            icon: "walk",
-            title: `Eik į stotelę ${candidate.originStop.name}`,
-            subtitle: `${candidate.walkToOrigin} m • ~${walkToOriginMinutes} min`,
-          },
-          {
-            icon: "bus",
-            title: `Įlipk į ${candidate.firstVariant.routeLabel} autobusą`,
-            subtitle:
-              candidate.firstVariant.headsign ||
-              candidate.firstVariant.directionCode ||
-              "Pirmas etapas",
-          },
-          {
-            icon: "map-marker-path",
-            title: `Važiuok iki ${candidate.transferStop.name}`,
-            subtitle: `${candidate.firstStopCount} st. • ~${firstRideMinutes} min`,
-          },
-          {
-            icon: "swap-horizontal",
-            title: `Persėsk stotelėje ${candidate.transferStop.name}`,
-            subtitle: `~${transferWalkMinutes} min iki kito reiso`,
-          },
-          {
-            icon: "bus",
-            title: `Lipk į ${candidate.secondVariant.routeLabel} autobusą`,
-            subtitle:
-              candidate.secondVariant.headsign ||
-              candidate.secondVariant.directionCode ||
-              "Antras etapas",
-          },
-          {
-            icon: "map-marker-check-outline",
-            title: `Išlipk ties ${candidate.destinationStop.name}`,
-            subtitle: `${candidate.secondStopCount} st. • ~${secondRideMinutes} min`,
-          },
-          {
-            icon: "walk",
-            title: "Eik iki tikslo",
-            subtitle: `${candidate.walkFromDestination} m • ~${walkFromDestinationMinutes} min`,
-          },
+          origin,
+          { latitude: candidate.originStop.latitude, longitude: candidate.originStop.longitude },
+          ...busShape1,
+          { latitude: candidate.transferStop.latitude, longitude: candidate.transferStop.longitude },
+          ...busShape2,
+          { latitude: candidate.destinationStop.latitude, longitude: candidate.destinationStop.longitude },
+          destination,
         ]
       : [
-          {
-            icon: "walk",
-            title: `Eik į stotelę ${candidate.originStop.name}`,
-            subtitle: `${candidate.walkToOrigin} m • ~${walkToOriginMinutes} min`,
-          },
-          {
-            icon: "bus",
-            title: `Įlipk į ${candidate.firstVariant.routeLabel} autobusą`,
-            subtitle:
-              candidate.firstVariant.headsign ||
-              candidate.firstVariant.directionCode ||
-              "Tiesioginis maršrutas",
-          },
-          {
-            icon: "map-marker-check-outline",
-            title: `Išlipk ties ${candidate.destinationStop.name}`,
-            subtitle: `${candidate.stopCount} st. • ~${firstRideMinutes} min`,
-          },
-          {
-            icon: "walk",
-            title: "Eik iki tikslo",
-            subtitle: `${candidate.walkFromDestination} m • ~${walkFromDestinationMinutes} min`,
-          },
+          origin,
+          { latitude: candidate.originStop.latitude, longitude: candidate.originStop.longitude },
+          ...busShape1,
+          { latitude: candidate.destinationStop.latitude, longitude: candidate.destinationStop.longitude },
+          destination,
         ];
 
   return {
-    id: `transit-${candidate.type}-${index}`,
+    id: `option-${index + 1}-${candidate.routeId.replace(/\s+/g, "-")}`,
     mode: "bus",
-    title:
-      candidate.type === "transfer"
-        ? `Autobusai ${candidate.firstVariant.routeLabel} → ${candidate.secondVariant.routeLabel}`
-        : `Autobusas ${candidate.firstVariant.routeLabel}`,
-    subtitle:
-      candidate.type === "transfer"
-        ? `${candidate.originStop.name} → ${candidate.transferStop.name} → ${candidate.destinationStop.name}`
-        : `${candidate.originStop.name} → ${candidate.destinationStop.name}`,
-    accent: "#5BA7FF",
-    etaLabel: `${etaMinutes} min`,
-    price: "Viešasis transportas",
-    description:
-      candidate.type === "transfer"
-        ? `Persėdimas ties ${candidate.transferStop.name}`
-        : "Tiesioginis viešojo transporto reisas",
-    route: candidate.routeId,
-    fromStop: candidate.originStop,
-    toStop: candidate.destinationStop,
-    transferStop: candidate.transferStop || null,
-    journeyBadges:
-      candidate.type === "transfer"
-        ? [
-            { icon: "walk", label: `Walk ${walkToOriginMinutes} min` },
-            { icon: "bus", label: candidate.firstVariant.routeLabel },
-            { icon: "swap-horizontal", label: `Transfer ${transferWalkMinutes} min` },
-            { icon: "bus", label: candidate.secondVariant.routeLabel },
-          ]
-        : [
-            { icon: "walk", label: `Walk ${walkToOriginMinutes} min` },
-            { icon: "bus", label: candidate.firstVariant.routeLabel },
-            { icon: "walk", label: `Walk ${walkFromDestinationMinutes} min` },
-          ],
-    summary: {
-      totalDurationMinutes,
-      walkToOriginMinutes,
-      rideMinutes:
-        candidate.type === "transfer"
-          ? firstRideMinutes + secondRideMinutes
-          : firstRideMinutes,
-      transferMinutes: transferWalkMinutes,
-      walkFromDestinationMinutes,
+    routeId: candidate.routeId,
+    summary,
+    originStop: {
+      ...candidate.originStop,
+      distanceMeters: candidate.originStop.distanceMeters,
+    },
+    destinationStop: {
+      ...candidate.destinationStop,
+      distanceMeters: candidate.destinationStop.distanceMeters,
     },
     liveVehicle: bestVehicle?.vehicle || null,
     previewPoints,
@@ -712,17 +883,17 @@ app.get("/", (_req, res) => {
 
 app.get("/health", async (_req, res) => {
   try {
-    const [news, gtfs] = await Promise.all([buildNewsFeed(), loadGtfsData()]);
+    const news = await buildNewsFeed();
 
     res.json({
       ok: true,
       service: "arbebus-backend",
+      mode: "klaipeda_stable",
       now: new Date().toISOString(),
       news: news.meta,
       leaveAlerts: {
         active: listActiveLeaveAlerts().length,
       },
-      gtfs: gtfs.meta,
     });
   } catch (error) {
     res.status(500).json({
@@ -750,38 +921,17 @@ app.get("/live-buses", async (_req, res) => {
   }
 });
 
-app.get("/transit/gtfs-status", async (req, res) => {
+app.get("/transit/gtfs-status", async (_req, res) => {
   try {
-    let loader;
-
-    try {
-      loader = require("./services/transit/gtfsLoader");
-    } catch (e) {
-      return res.json({
-        ok: false,
-        error: "Loader not found",
-      });
-    }
-
-    if (!loader || typeof loader.getStatus !== "function") {
-      return res.json({
-        ok: false,
-        error: "GTFS loader not initialized",
-      });
-    }
-
-    const status = loader.getStatus();
-
-    return res.json({
+    const gtfs = await loadGtfsData();
+    res.json({
       ok: true,
-      status,
+      gtfs: gtfs.meta,
     });
-  } catch (err) {
-    console.error("GTFS STATUS ERROR:", err);
-
-    return res.status(500).json({
+  } catch (error) {
+    res.status(500).json({
       ok: false,
-      error: err.message,
+      error: error.message,
     });
   }
 });
@@ -935,7 +1085,7 @@ app.get("/leave-alerts", (_req, res) => {
 try {
   startLeaveAlertEngine();
 } catch (error) {
-  console.error("startLeaveAlertEngine failed:", error);
+  console.error("startLeaveAlertEngine failed:", error?.message || error);
 }
 
 app.listen(PORT, HOST, () => {
