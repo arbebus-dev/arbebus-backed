@@ -351,7 +351,7 @@ function HomeBottomSheet({
       : selectedMode === "scooter"
       ? "Scooter"
       : selectedMode === "train"
-      ? "Train"
+      ? "Traukinys"
       : selectedMode === "airport"
       ? "Airport"
       : selectedMode === "walk"

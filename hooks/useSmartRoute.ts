@@ -11,7 +11,7 @@ import {
 } from "../core/services/notifications/transitNotificationService";
 import { LiveBus, TravelMode } from "../types/home";
 
-type AiMode = "bus" | "taxi" | "walk";
+type AiMode = "bus" | "taxi" | "walk" | "train";
 
 type Coordinate = {
   latitude: number;
@@ -527,6 +527,7 @@ function decideTransport({
 }): AiMode {
   if (distanceKm <= 1.2) return "walk";
   if (!transitPlan) return distanceKm > 3.5 ? "taxi" : "walk";
+  if ((transitPlan.summary.modes || []).includes("train") && !(transitPlan.summary.modes || []).includes("bus")) return "train";
   if (transitPlan.summary.totalDurationMinutes > 35 && distanceKm > 7) {
     return "taxi";
   }
@@ -676,12 +677,12 @@ export function useSmartRoute({
             ],
             notice: isRefreshing
               ? "Perskaičiuojama pagal gyvą lokaciją…"
-              : "GTFS maršrutas dar nerastas.",
+              : "GTFS maršrutas dar nerastas. Patikrink Render deploy ir ar backend jau importavo pilną LT feed su traukiniais.",
           };
 
       const busRecommendation: Recommendation = {
         id: transitPlan?.id || "bus",
-        mode: "bus",
+        mode: transitPlan?.mode === "train" ? "train" : "bus",
         icon: (transitPlan?.summary.modes || []).includes("train") ? "train" : "bus",
         title: getTransitRecommendationTitle(transitPlan),
         subtitle: `${busEta} min • ${formatPrice(busPrice)}`,
@@ -709,7 +710,7 @@ export function useSmartRoute({
 
           return {
             id: option.id || `bus-option-${index}`,
-            mode: "bus" as const,
+            mode: option.mode === "train" ? "train" as const : "bus" as const,
             icon: (option.summary.modes || []).includes("train") ? "train" : "bus",
             title: getTransitRecommendationTitle(option),
             subtitle: `${optionEta} min • ${formatPrice(busPrice)}`,

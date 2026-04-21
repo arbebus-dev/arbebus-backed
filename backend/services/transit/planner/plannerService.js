@@ -9,8 +9,9 @@ const { estimateWalkMinutes, getDistanceMeters } = require('./geo');
 const SEARCH_PROFILES = [
   { originRadius: 700, destinationRadius: 700, limit: 8, transferMaxSeconds: 3600 },
   { originRadius: 1500, destinationRadius: 1500, limit: 14, transferMaxSeconds: 5400 },
-  { originRadius: 4000, destinationRadius: 4000, limit: 18, transferMaxSeconds: 7200 },
-  { originRadius: 12000, destinationRadius: 12000, limit: 24, transferMaxSeconds: 10800 },
+  { originRadius: 4000, destinationRadius: 4000, limit: 20, transferMaxSeconds: 7200 },
+  { originRadius: 12000, destinationRadius: 12000, limit: 28, transferMaxSeconds: 10800 },
+  { originRadius: 30000, destinationRadius: 30000, limit: 36, transferMaxSeconds: 18000 },
 ];
 
 function toCoordinate(latitude, longitude) {
@@ -73,6 +74,7 @@ async function buildDirectPlan({ origin, destination, originStopMap, destination
   const rideMinutes = secondsToMinutes(Number(row.destination_arrival_seconds) - Number(row.origin_departure_seconds)) || Math.max(3, Number(row.stop_count || 1) * 2);
   const routeLabel = compactRouteLabel(row);
   const modes = [segmentMode];
+  const destinationTitle = destinationStop.name || row.destination_stop_name;
   return {
     id: `direct-${row.trip_id}-${row.origin_stop_id}-${row.destination_stop_id}`,
     mode: planModeFromModes(modes),
@@ -98,9 +100,9 @@ async function buildDirectPlan({ origin, destination, originStopMap, destination
     journeySteps: [
       uiStep('walk', 'Eik iki stotelės', `Iki „${originStop.name}“ • ${walkToStopMinutes} min pėsčiomis`, { type: 'walk', mode: 'walk', instruction: `Eik iki stotelės „${originStop.name}“` }),
       uiStep(segmentMode === 'train' ? 'train' : 'bus', boardTitle(segmentMode, routeLabel), row.trip_headsign || 'Tiesioginis maršrutas', { type: 'board', mode: segmentMode, stopId: originStop.id, stopName: originStop.name, routeId: row.route_id }),
-      uiStep(segmentMode === 'train' ? 'train' : 'bus', rideTitle(segmentMode), `Iki „${destinationStop.name}“ • ${rideMinutes} min`, { type: 'ride', mode: segmentMode, fromStopId: originStop.id, toStopId: destinationStop.id, stopCount: Number(row.stop_count || 0) }),
+      uiStep(segmentMode === 'train' ? 'train' : 'bus', rideTitle(segmentMode), `Iki „${destinationTitle}“ • ${rideMinutes} min • ${Number(row.stop_count || 0)} st.`, { type: 'ride', mode: segmentMode, fromStopId: originStop.id, toStopId: destinationStop.id, stopCount: Number(row.stop_count || 0) }),
       uiStep('flag-checkered', 'Išlipk', `„${destinationStop.name}“`, { type: 'alight', stopId: destinationStop.id, stopName: destinationStop.name }),
-      uiStep('walk', 'Eik iki tikslo', `${walkFromStopMinutes} min pėsčiomis`, { type: 'walk', mode: 'walk', instruction: 'Eik iki galutinio taško' }),
+      uiStep('walk', 'Eik iki tikslo', `${walkFromStopMinutes} min pėsčiomis nuo „${destinationStop.name}“`, { type: 'walk', mode: 'walk', instruction: 'Eik iki galutinio taško' }),
     ],
     liveVehicle: null,
   };
@@ -146,11 +148,11 @@ async function buildTransferPlan({ origin, destination, originStopMap, destinati
       uiStep('walk', 'Eik iki stotelės', `Iki „${originStop.name}“ • ${walkToStopMinutes} min pėsčiomis`, { type: 'walk', mode: 'walk', instruction: `Eik iki stotelės „${originStop.name}“` }),
       uiStep(firstMode === 'train' ? 'train' : 'bus', boardTitle(firstMode, firstRouteLabel), row.first_headsign || 'Pirmas segmentas', { type: 'board', mode: firstMode, stopId: originStop.id, stopName: originStop.name, routeId: row.first_route_id }),
       uiStep(firstMode === 'train' ? 'train' : 'bus', rideTitle(firstMode), `Iki „${transferStop.name}“ • ${firstRideMinutes} min`, { type: 'ride', mode: firstMode, fromStopId: originStop.id, toStopId: transferStop.id, stopCount: Number(row.stop_count_to_transfer || 0) }),
-      uiStep('swap-horizontal', 'Persėsk', `„${transferStop.name}“ • laukimas ${transferWaitMinutes} min`, { type: 'transfer', mode: 'transfer', stopId: transferStop.id, stopName: transferStop.name }),
+      uiStep('swap-horizontal', 'Persėsk', `„${transferStop.name}“ • laukimas ${transferWaitMinutes} min`, { type: 'transfer', mode: 'transfer', stopId: transferStop.id, stopName: transferStop.name, instruction: `Persėsk stotelėje „${transferStop.name}“` }),
       uiStep(secondMode === 'train' ? 'train' : 'bus', boardTitle(secondMode, secondRouteLabel), row.second_headsign || `Iki „${destinationStop.name}“`, { type: 'board', mode: secondMode, stopId: transferStop.id, stopName: transferStop.name, routeId: row.second_route_id }),
-      uiStep(secondMode === 'train' ? 'train' : 'bus', rideTitle(secondMode), `Iki „${destinationStop.name}“ • ${secondRideMinutes} min`, { type: 'ride', mode: secondMode, fromStopId: transferStop.id, toStopId: destinationStop.id, stopCount: Number(row.stop_count_from_transfer || 0) }),
+      uiStep(secondMode === 'train' ? 'train' : 'bus', rideTitle(secondMode), `Iki „${destinationStop.name}“ • ${secondRideMinutes} min • ${Number(row.stop_count_from_transfer || 0)} st.`, { type: 'ride', mode: secondMode, fromStopId: transferStop.id, toStopId: destinationStop.id, stopCount: Number(row.stop_count_from_transfer || 0) }),
       uiStep('flag-checkered', 'Išlipk', `„${destinationStop.name}“`, { type: 'alight', stopId: destinationStop.id, stopName: destinationStop.name }),
-      uiStep('walk', 'Eik iki tikslo', `${walkFromStopMinutes} min pėsčiomis`, { type: 'walk', mode: 'walk', instruction: 'Eik iki galutinio taško' }),
+      uiStep('walk', 'Eik iki tikslo', `${walkFromStopMinutes} min pėsčiomis nuo „${destinationStop.name}“`, { type: 'walk', mode: 'walk', instruction: 'Eik iki galutinio taško' }),
     ],
     liveVehicle: null,
   };
