@@ -1,47 +1,60 @@
-const express = require("express");
+const express = require('express');
+const cors = require('cors');
+const { env } = require('./config/env');
+const { handleTransitPlan } = require('./services/transit/planner/plannerController');
+const { fetchLiveVehicles } = require('./services/transit/klaipedaGateway');
+const { getPool } = require('./db/pool');
+
 const app = express();
 
-const PORT = process.env.PORT || 10000;
-const HOST = "0.0.0.0";
+if (env.ENABLE_CORS) {
+  app.use(cors());
+}
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
-app.get("/", (req, res) => {
-  res.send("Arbebus backend is running 🚀");
+app.get('/', (req, res) => {
+  res.send('Arbebus backend is running 🚀');
 });
 
-app.get("/health", (req, res) => {
+app.get('/health', async (req, res) => {
+  let dbOk = false;
+
+  try {
+    const pool = getPool();
+    await pool.query('SELECT 1');
+    dbOk = true;
+  } catch (error) {
+    dbOk = false;
+  }
+
   res.json({
     ok: true,
-    mode: "klaipeda_stable",
+    mode: 'db_transit_planner',
+    dbOk,
     time: new Date().toISOString(),
   });
 });
 
-// TEST ROUTING (stabilus, be RAM crash)
-app.get("/transit/plan", (req, res) => {
-  res.json({
-    ok: true,
-    route: [
-      {
-        type: "walk",
-        instruction: "Eik į stotelę",
-      },
-      {
-        type: "bus",
-        line: "8",
-        from: "Akropolis",
-        to: "Universitetas",
-        time: "5 min",
-      },
-      {
-        type: "walk",
-        instruction: "Eik iki galutinio taško",
-      },
-    ],
-  });
+app.get('/live-buses', async (req, res) => {
+  try {
+    const vehicles = await fetchLiveVehicles();
+    res.json({
+      ok: true,
+      vehicles,
+      count: vehicles.length,
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: error.message || 'Failed to fetch live vehicles',
+      vehicles: [],
+    });
+  }
 });
 
-app.listen(PORT, HOST, () => {
-  console.log(`Arbebus backend running on http://${HOST}:${PORT}`);
+app.post('/transit/plan', handleTransitPlan);
+
+app.listen(env.PORT, env.HOST, () => {
+  console.log(`Arbebus backend running on http://${env.HOST}:${env.PORT}`);
 });

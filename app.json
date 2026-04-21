@@ -2,17 +2,59 @@
   "expo": {
     "name": "Arbebus",
     "slug": "arbebus",
-    "version": "1.0.0",
-    "android": {
-      "package": "com.arbebus.app"
+    "scheme": "arbebus",
+    "version": "1.0.1",
+    "newArchEnabled": true,
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "icon": "./assets/icon.png",
+    "plugins": [
+      "expo-router",
+      "expo-apple-authentication",
+      "@react-native-google-signin/google-signin",
+      "expo-notifications"
+    ],
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#05070d"
     },
     "ios": {
-      "bundleIdentifier": "com.arbebus.app"
+      "bundleIdentifier": "com.arbebus.app",
+      "supportsTablet": true,
+      "usesAppleSignIn": true,
+      "buildNumber": "42",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": [
+          "location",
+          "fetch",
+          "remote-notification"
+        ],
+        "NSLocationWhenInUseUsageDescription": "Arbebus naudoja tavo lokaciją maršrutams, artimiausiems autobusams ir tiksliems leave alerts.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Arbebus gali naudoti lokaciją fone, kad perskaičiuotų leave alerts ir primintų kada išeiti.",
+        "NSUserNotificationsUsageDescription": "Arbebus siunčia leave alerts ir kelionės priminimus."
+      }
     },
-    "web": {
-      "output": "static"
+    "android": {
+      "package": "com.arbebus.app",
+      "versionCode": 6,
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "POST_NOTIFICATIONS"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#05070d"
+      }
     },
-    "scheme": "arbebus",
-    "plugins": ["expo-router"]
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c06c6105-b193-40a0-995d-18c86f91f089"
+      }
+    }
   }
 }

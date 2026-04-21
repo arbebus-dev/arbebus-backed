@@ -1,0 +1,33 @@
+{
+  "cli": {
+    "version": ">= 18.5.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "TAVO_SUPABASE_URL",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "TAVO_SUPABASE_ANON_KEY"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ysrglkpdjhewrzgzeveh.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_BcUl7xr71v7cqS826WJEGg_STQeVWgq"
+      }
+    },
+    "production": {
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ysrglkpdjhewrzgzeveh.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_BcUl7xr71v7cqS826WJEGg_STQeVWgq"
+      }
+    }
+  }
+}
+
+
+
+

@@ -1,0 +1,34 @@
+{
+  "items": [
+    {
+      "id": "world-fallback-1",
+      "type": "world",
+      "title": "World feed laikinai nepasiekiamas",
+      "subtitle": "Live pasaulio naujienų šaltinis laikinai neatsakė.",
+      "badge": "World",
+      "cta": "Atidaryti",
+      "accent": "#4DA3FF",
+      "icon": "globe-outline",
+      "iconLibrary": "ion",
+      "createdAt": "2026-04-16 20:00",
+      "source": "Arbebus fallback",
+      "url": "https://arbebus.com",
+      "isLive": false
+    },
+    {
+      "id": "update-1",
+      "type": "update",
+      "title": "Arbebus update",
+      "subtitle": "Čia vėliau galėsi rodyti savo produkto update naujienas.",
+      "badge": "Update",
+      "cta": "Atidaryti",
+      "accent": "#22C55E",
+      "icon": "rocket-outline",
+      "iconLibrary": "ion",
+      "createdAt": "2026-04-16 20:01",
+      "source": "Arbebus",
+      "url": "https://arbebus.com",
+      "isLive": false
+    }
+  ]
+}
