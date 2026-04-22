@@ -40,7 +40,10 @@ async function nearestStops(lat, lon) {
 
   return rows
     .map((s) => ({
-      ...s,
+      stop_id: s.stop_id,
+      stop_name: s.stop_name,
+      stop_lat: Number(s.stop_lat),
+      stop_lon: Number(s.stop_lon),
       distance: haversine(
         { lat, lon },
         { lat: Number(s.stop_lat), lon: Number(s.stop_lon) }
@@ -56,7 +59,7 @@ async function nearestStops(lat, lon) {
 // =======================
 
 function groupSegments(segments) {
-  if (!segments.length) return [];
+  if (!segments || !segments.length) return [];
 
   const rides = [];
   let current = { ...segments[0] };
@@ -67,6 +70,7 @@ function groupSegments(segments) {
     if (seg.trip_id === current.trip_id) {
       current.to = seg.to;
       current.arr = seg.arr;
+      current.to_sequence = seg.to_sequence;
     } else {
       rides.push(current);
       current = { ...seg };
@@ -75,6 +79,65 @@ function groupSegments(segments) {
 
   rides.push(current);
   return rides;
+}
+
+// =======================
+// LOOKUP STOP NAMES
+// =======================
+
+async function getStopNames(stopIds) {
+  if (!stopIds.length) return {};
+
+  const pool = getPool();
+  const uniqueStopIds = [...new Set(stopIds)];
+
+  const { rows } = await pool.query(
+    `
+      SELECT stop_id, stop_name
+      FROM transit.stops
+      WHERE stop_id = ANY($1)
+    `,
+    [uniqueStopIds]
+  );
+
+  return rows.reduce((acc, row) => {
+    acc[row.stop_id] = row.stop_name;
+    return acc;
+  }, {});
+}
+
+// =======================
+// LOOKUP ROUTE LABELS BY TRIP
+// =======================
+
+async function getTripRouteLabels(tripIds) {
+  if (!tripIds.length) return {};
+
+  const pool = getPool();
+  const uniqueTripIds = [...new Set(tripIds)];
+
+  const { rows } = await pool.query(
+    `
+      SELECT
+        t.trip_id,
+        r.route_short_name,
+        r.route_long_name,
+        r.route_type
+      FROM transit.trips t
+      JOIN transit.routes r ON r.route_id = t.route_id
+      WHERE t.trip_id = ANY($1)
+    `,
+    [uniqueTripIds]
+  );
+
+  return rows.reduce((acc, row) => {
+    acc[row.trip_id] = {
+      routeLabel: row.route_short_name || row.route_long_name || row.trip_id,
+      routeType: row.route_type,
+      routeLongName: row.route_long_name || null,
+    };
+    return acc;
+  }, {});
 }
 
 // =======================
@@ -104,7 +167,6 @@ async function planRoute(origin, destination) {
     secondsNow()
   );
 
-  // ❗ ČIA buvo tavo bugas
   if (!result || !result.segments || result.segments.length === 0) {
     return {
       ok: false,
@@ -115,10 +177,25 @@ async function planRoute(origin, destination) {
           text: "No transit route found",
         },
       ],
+      meta: {
+        originStopsChecked: originStops.length,
+        destinationStopsChecked: destStops.length,
+      },
     };
   }
 
   const rides = groupSegments(result.segments);
+
+  const stopIds = [
+    ...rides.flatMap((r) => [r.from, r.to]),
+    originStops[0]?.stop_id,
+    destStops[0]?.stop_id,
+  ].filter(Boolean);
+
+  const tripIds = rides.map((r) => r.trip_id).filter(Boolean);
+
+  const stopNames = await getStopNames(stopIds);
+  const tripRouteLabels = await getTripRouteLabels(tripIds);
 
   const steps = [];
 
@@ -130,17 +207,40 @@ async function planRoute(origin, destination) {
     distance: Math.round(originStops[0].distance),
   });
 
-  // RIDES
-  for (const ride of rides) {
+  // RIDES + TRANSFERS
+  rides.forEach((ride, index) => {
+    const tripMeta = tripRouteLabels[ride.trip_id] || {};
+    const fromStopName = stopNames[ride.from] || ride.from;
+    const toStopName = stopNames[ride.to] || ride.to;
+
     steps.push({
       type: "ride",
       tripId: ride.trip_id,
+      routeLabel: tripMeta.routeLabel || ride.trip_id,
+      routeType: tripMeta.routeType ?? 3,
       fromStopId: ride.from,
       toStopId: ride.to,
+      fromStopName,
+      toStopName,
       departure: ride.dep,
       arrival: ride.arr,
     });
-  }
+
+    const nextRide = rides[index + 1];
+    if (nextRide) {
+      const transferFromName = stopNames[ride.to] || ride.to;
+      const transferToName = stopNames[nextRide.from] || nextRide.from;
+
+      if (ride.to !== nextRide.from) {
+        steps.push({
+          type: "walk",
+          from: transferFromName,
+          to: transferToName,
+          distance: 100,
+        });
+      }
+    }
+  });
 
   // WALK TO DESTINATION
   steps.push({
@@ -158,6 +258,8 @@ async function planRoute(origin, destination) {
       destStops: destStops.length,
       rides: rides.length,
       arrivalTime: result.arrivalTime,
+      firstBoardStop: originStops[0]?.stop_name || null,
+      finalAlightStop: destStops[0]?.stop_name || null,
     },
   };
 }
