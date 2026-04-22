@@ -387,29 +387,93 @@ function buildTransitMeta({
             : "ETA live",
       },
     ],
-    journeySteps:
-      transitPlan.journeySteps || [
-        {
-          icon: "map-marker",
-          title: pickup.title || pickup.subtitle || "Current location",
-          subtitle: `Eik iki ${transitPlan.summary.boardStopName}`,
-        },
-        {
-          icon: includesTrain ? "train" : "bus",
-          title: transitPlan.summary.routeLabel,
-          subtitle: `${routeDirection} • ${etaLabel}`,
-        },
-        {
-          icon: "flag-checkered",
-          title:
-            destinationPlace.title || destinationPlace.subtitle || "Destination",
-          subtitle: `Išlipk ${transitPlan.summary.alightStopName}`,
-        },
-      ],
+    journeySteps: normalizeJourneySteps(
+      transitPlan,
+      pickup,
+      destinationPlace,
+      includesTrain,
+      routeDirection,
+      etaLabel
+    ),
     notice: `${
       alertNotice || transitPlan.summary.journeyMessage || etaLabel
     } • ${routeDirection}${transferText}${multimodalText}${nextStopText}. Rasti ${transitOptionsCount} variantai.${missedStopText}${refreshText}`,
   };
+}
+
+
+function getJourneyStepIcon(step: any, fallbackMode: "bus" | "train" | "walk") {
+  const explicitIcon = typeof step?.icon === "string" ? step.icon : null;
+  if (explicitIcon) return explicitIcon;
+
+  const type = String(step?.type || step?.mode || "").toLowerCase();
+  if (type.includes("board") || type === "bus") return fallbackMode === "train" ? "train" : "bus";
+  if (type.includes("train")) return "train";
+  if (type.includes("transfer")) return "swap-horizontal";
+  if (type.includes("alight") || type.includes("destination")) return "flag-checkered";
+  if (type.includes("walk")) return "walk";
+  return "map-marker";
+}
+
+function normalizeJourneySteps(
+  transitPlan: TransitPlan,
+  pickup: PlaceLike,
+  destinationPlace: PlaceLike,
+  includesTrain: boolean,
+  routeDirection: string,
+  etaLabel: string
+) {
+  const rawSteps = Array.isArray(transitPlan.journeySteps)
+    ? transitPlan.journeySteps
+    : [];
+
+  if (rawSteps.length) {
+    return rawSteps.map((step) => ({
+      icon: getJourneyStepIcon(step, includesTrain ? "train" : "bus"),
+      title:
+        step.title ||
+        step.stopName ||
+        step.instruction ||
+        transitPlan.summary.routeLabel ||
+        "Journey step",
+      subtitle:
+        step.subtitle ||
+        step.instruction ||
+        (step.stopName ? `Stotelė ${step.stopName}` : ""),
+    }));
+  }
+
+  return [
+    {
+      icon: "map-marker",
+      title: pickup.title || pickup.subtitle || "Current location",
+      subtitle: `Eik iki ${transitPlan.summary.boardStopName}`,
+    },
+    {
+      icon: includesTrain ? "train" : "bus",
+      title: transitPlan.summary.routeLabel,
+      subtitle: `${routeDirection} • ${etaLabel}`,
+    },
+    {
+      icon: "flag-checkered",
+      title: destinationPlace.title || destinationPlace.subtitle || "Destination",
+      subtitle: `Išlipk ${transitPlan.summary.alightStopName}`,
+    },
+  ];
+}
+
+function normalizeTransitOptions(plan: TransitPlan | null, options: TransitPlan[]) {
+  const merged = [...(Array.isArray(options) ? options : [])];
+  if (plan?.id && !merged.some((item) => item?.id === plan.id)) {
+    merged.unshift(plan);
+  } else if (plan && merged.length === 0) {
+    merged.push(plan);
+  }
+
+  return merged.filter(Boolean).filter((item, index, arr) => {
+    if (!item?.id) return index === 0;
+    return arr.findIndex((candidate) => candidate?.id === item.id) === index;
+  });
 }
 
 async function fetchRoute(
@@ -932,10 +996,15 @@ export function useSmartRoute({
         const chosenRecommendation = locked || preserved || primary;
         const chosenId = chosenRecommendation?.id || primary.id;
 
+        const chosenTransitOption =
+          chosenRecommendation.mode === "bus" || chosenRecommendation.mode === "train"
+            ? nextTransitOptions.find((option) => option.id === chosenRecommendation.id) ||
+              nextTransitPlan
+            : null;
+
         const finalBusPolyline =
-          nextTransitPlan?.previewPoints?.length &&
-          chosenRecommendation.mode === "bus"
-            ? nextTransitPlan.previewPoints
+          chosenTransitOption?.previewPoints?.length
+            ? chosenTransitOption.previewPoints
             : nextTransitPlan?.previewPoints?.length
             ? nextTransitPlan.previewPoints
             : drivingRoute.coords.length
@@ -944,7 +1013,7 @@ export function useSmartRoute({
 
         const nextAlerts = nextTransitPlan?.summary?.alertSignals || [];
 
-        setTransitPlan(nextTransitPlan);
+        setTransitPlan(chosenTransitOption || nextTransitPlan);
         setTransitOptions(nextTransitOptions);
         setDrivingRouteCoords(drivingRoute.coords);
         setWalkingRouteCoords(walkingRoute.coords);
@@ -954,7 +1023,9 @@ export function useSmartRoute({
         setBestBusId(
           chosenRecommendation.mode === "bus"
             ? String(
-                nextTransitPlan?.liveVehicle?.vehicleId ||
+                chosenTransitOption?.liveVehicle?.vehicleId ||
+                  chosenTransitOption?.liveVehicle?.id ||
+                  nextTransitPlan?.liveVehicle?.vehicleId ||
                   nextTransitPlan?.liveVehicle?.id ||
                   selectedBus?.id ||
                   liveBuses[0]?.id ||
@@ -1000,7 +1071,9 @@ export function useSmartRoute({
           bestBusId:
             chosenRecommendation.mode === "bus"
               ? String(
-                  nextTransitPlan?.liveVehicle?.vehicleId ||
+                  chosenTransitOption?.liveVehicle?.vehicleId ||
+                    chosenTransitOption?.liveVehicle?.id ||
+                    nextTransitPlan?.liveVehicle?.vehicleId ||
                     nextTransitPlan?.liveVehicle?.id ||
                     selectedBus?.id ||
                     liveBuses[0]?.id ||
@@ -1125,8 +1198,11 @@ export function useSmartRoute({
           ? transitOptions.find((option) => option.id === id) || transitPlan
           : transitPlan;
 
-      if (picked.mode === "bus" && pickedTransitOption) {
+      if ((picked.mode === "bus" || picked.mode === "train") && pickedTransitOption) {
         setTransitPlan(pickedTransitOption);
+        if (pickedTransitOption.previewPoints?.length) {
+          setRouteCoords(pickedTransitOption.previewPoints);
+        }
       }
 
       setLockedRecommendationId(id);
@@ -1166,6 +1242,7 @@ export function useSmartRoute({
       recommendations,
       routeCoords,
       selectedBus,
+      transitOptions,
       transitPlan,
       walkingRouteCoords,
     ]

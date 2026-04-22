@@ -375,6 +375,12 @@ function HomeBottomSheet({
     })) || [];
 
   const journeySteps = selectedRecommendation?.journeySteps || [];
+  const selectedBusLabel = selectedBus?.number || selectedBus?.vehicleLabel || null;
+  const selectedBusDirection = selectedBus?.directionName || null;
+  const summarySubtitle =
+    selectedRecommendation?.description ||
+    routeSummaryText ||
+    [pickupLabel, destinationLabel].filter(Boolean).join(" → ");
 
   const primaryLabel = isPro
     ? getPrimaryButtonLabel({
@@ -547,7 +553,9 @@ function HomeBottomSheet({
                 />
                 <Text style={styles.noticeText}>
                   {selectedRecommendation?.notice ||
-                    "Kelionė paruošta. Pasirink veiksmą apačioje."}
+                    (selectedBusLabel
+                      ? `Pasirinktas autobusas ${selectedBusLabel}${selectedBusDirection ? ` • ${selectedBusDirection}` : ""}`
+                      : "Kelionė paruošta. Pasirink veiksmą apačioje.")}
                 </Text>
               </View>
 

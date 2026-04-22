@@ -24,22 +24,50 @@ export async function fetchTransitPlanFromApi({
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        origin,
-        destination,
-        userLocation,
+        origin: {
+          latitude: origin.latitude,
+          longitude: origin.longitude,
+        },
+        destination: {
+          latitude: destination.latitude,
+          longitude: destination.longitude,
+        },
+        userLocation: userLocation
+          ? {
+              latitude: userLocation.latitude,
+              longitude: userLocation.longitude,
+            }
+          : null,
         serviceDate,
       }),
     });
 
-    if (!response.ok) {
-      return { plan: null, options: [], meta: { reason: "HTTP_ERROR" } };
+    let data: TransitPlannerResponse | null = null;
+
+    try {
+      data = (await response.json()) as TransitPlannerResponse;
+    } catch {
+      data = null;
     }
 
-    const data = (await response.json()) as TransitPlannerResponse;
+    if (!response.ok) {
+      console.log("fetchTransitPlanFromApi HTTP error:", response.status, data);
+      return {
+        plan: null,
+        options: [],
+        meta: data?.meta || { reason: "HTTP_ERROR" },
+      };
+    }
+
+    const normalizedOptions = Array.isArray(data?.options)
+      ? data.options
+      : data?.plan
+      ? [data.plan]
+      : [];
 
     return {
-      plan: data?.plan || null,
-      options: Array.isArray(data?.options) ? data.options : [],
+      plan: data?.plan || normalizedOptions[0] || null,
+      options: normalizedOptions,
       meta: data?.meta,
     };
   } catch (error) {
