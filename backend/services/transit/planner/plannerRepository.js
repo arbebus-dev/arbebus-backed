@@ -1,4 +1,9 @@
-const { query } = require('../../../db/pool');
+const { getPool } = require('../../../db/pool');
+
+function dbQuery(sql, params = []) {
+  const pool = getPool();
+  return pool.query(sql, params);
+}
 
 async function getNearbyStops(point, radiusMeters, limit = 8) {
   const sql = `
@@ -21,7 +26,13 @@ async function getNearbyStops(point, radiusMeters, limit = 8) {
     LIMIT $4
   `;
 
-  const result = await query(sql, [point.longitude, point.latitude, radiusMeters, limit]);
+  const result = await dbQuery(sql, [
+    point.longitude,
+    point.latitude,
+    radiusMeters,
+    limit,
+  ]);
+
   return result.rows;
 }
 
@@ -59,7 +70,7 @@ async function getWalkingTransfers(stopIds, radiusMeters = 350, limitPerStop = 2
     ORDER BY from_stop_id ASC, walk_meters ASC
   `;
 
-  const result = await query(sql, [stopIds, radiusMeters, limitPerStop]);
+  const result = await dbQuery(sql, [stopIds, radiusMeters, limitPerStop]);
   return result.rows;
 }
 
@@ -69,13 +80,16 @@ async function getCandidateBoardings(frontierEntries, serviceDate, perStopLimit 
   const values = [];
   const params = [serviceDate, perStopLimit, horizonSeconds];
   let paramIndex = params.length;
+
   for (const entry of frontierEntries) {
     paramIndex += 1;
     const stopParam = `$${paramIndex}`;
     params.push(entry.stopId);
+
     paramIndex += 1;
     const timeParam = `$${paramIndex}`;
     params.push(Math.max(0, Math.floor(Number(entry.earliestArrivalSeconds || 0))));
+
     values.push(`(${stopParam}::text, ${timeParam}::int)`);
   }
 
@@ -121,7 +135,7 @@ async function getCandidateBoardings(frontierEntries, serviceDate, perStopLimit 
     ORDER BY board_departure_seconds ASC, route_type ASC NULLS LAST
   `;
 
-  const result = await query(sql, params);
+  const result = await dbQuery(sql, params);
   return result.rows;
 }
 
@@ -136,15 +150,19 @@ async function getTripStopSequences(tripIds, minBoardSequenceByTrip = {}) {
     const tripSeqValues = [];
     params = [tripIds];
     let idx = 1;
+
     for (const tripId of boardTripIds) {
       idx += 1;
       const tripParam = `$${idx}`;
       params.push(tripId);
+
       idx += 1;
       const seqParam = `$${idx}`;
       params.push(Math.max(0, Number(minBoardSequenceByTrip[tripId] || 0)));
+
       tripSeqValues.push(`(${tripParam}::text, ${seqParam}::int)`);
     }
+
     sequenceFilter = `
       JOIN (VALUES ${tripSeqValues.join(', ')}) AS mins(trip_id, min_board_sequence)
         ON mins.trip_id = st.trip_id
@@ -178,7 +196,7 @@ async function getTripStopSequences(tripIds, minBoardSequenceByTrip = {}) {
     ORDER BY st.trip_id ASC, st.stop_sequence ASC
   `;
 
-  const result = await query(sql, params);
+  const result = await dbQuery(sql, params);
   return result.rows;
 }
 
@@ -195,7 +213,7 @@ async function getShapePoints(shapeId) {
     ORDER BY shape_pt_sequence ASC
   `;
 
-  const result = await query(sql, [shapeId]);
+  const result = await dbQuery(sql, [shapeId]);
   return result.rows;
 }
 
