@@ -7,11 +7,12 @@ const {
 const { estimateWalkMinutes, getDistanceMeters } = require('./geo');
 
 const SEARCH_PROFILES = [
-  { originRadius: 700, destinationRadius: 700, limit: 8, transferMaxSeconds: 3600 },
-  { originRadius: 1500, destinationRadius: 1500, limit: 14, transferMaxSeconds: 5400 },
-  { originRadius: 4000, destinationRadius: 4000, limit: 20, transferMaxSeconds: 7200 },
-  { originRadius: 12000, destinationRadius: 12000, limit: 28, transferMaxSeconds: 10800 },
-  { originRadius: 30000, destinationRadius: 30000, limit: 36, transferMaxSeconds: 18000 },
+  { originRadius: 700, destinationRadius: 700, limit: 8, transferMaxSeconds: 3600, transferStopRadius: 250 },
+  { originRadius: 1500, destinationRadius: 1500, limit: 14, transferMaxSeconds: 5400, transferStopRadius: 350 },
+  { originRadius: 4000, destinationRadius: 4000, limit: 22, transferMaxSeconds: 7200, transferStopRadius: 500 },
+  { originRadius: 12000, destinationRadius: 12000, limit: 32, transferMaxSeconds: 10800, transferStopRadius: 700 },
+  { originRadius: 30000, destinationRadius: 30000, limit: 48, transferMaxSeconds: 18000, transferStopRadius: 1200 },
+  { originRadius: 60000, destinationRadius: 60000, limit: 64, transferMaxSeconds: 21600, transferStopRadius: 1800 },
 ];
 
 function toCoordinate(latitude, longitude) {
@@ -177,7 +178,14 @@ async function planJourneyWithProfile({ origin, destination, serviceDate, profil
   const directRows = await getDirectJourneys({ originStopIds: nearbyOriginStops.map((stop) => stop.id), destinationStopIds: nearbyDestinationStops.map((stop) => stop.id), serviceDate, limit: 8 });
   const directOptions = [];
   for (const row of directRows) { const plan = await buildDirectPlan({ origin, destination, originStopMap, destinationStopMap, row }); if (plan) directOptions.push(plan); }
-  const transferRows = await getTransferJourneys({ originStopIds: nearbyOriginStops.map((stop) => stop.id), destinationStopIds: nearbyDestinationStops.map((stop) => stop.id), serviceDate, limit: 8, maxTransferWaitSeconds: profile.transferMaxSeconds });
+  const transferRows = await getTransferJourneys({
+    originStopIds: nearbyOriginStops.map((stop) => stop.id),
+    destinationStopIds: nearbyDestinationStops.map((stop) => stop.id),
+    serviceDate,
+    limit: 12,
+    maxTransferWaitSeconds: profile.transferMaxSeconds,
+    transferStopRadiusMeters: profile.transferStopRadius || 500,
+  });
   const transferOptions = [];
   for (const row of transferRows) { const plan = await buildTransferPlan({ origin, destination, originStopMap, destinationStopMap, row }); if (plan) transferOptions.push(plan); }
   const options = dedupePlans([...directOptions, ...transferOptions]).sort((a,b)=>Number(a.summary.totalDurationMinutes||9999)-Number(b.summary.totalDurationMinutes||9999)).slice(0,4);

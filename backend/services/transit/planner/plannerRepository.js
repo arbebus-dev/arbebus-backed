@@ -69,7 +69,7 @@ async function getDirectJourneys({ originStopIds, destinationStopIds, serviceDat
   return result.rows;
 }
 
-async function getTransferJourneys({ originStopIds, destinationStopIds, serviceDate, limit = 6, maxTransferWaitSeconds = 5400 }) {
+async function getTransferJourneys({ originStopIds, destinationStopIds, serviceDate, limit = 6, maxTransferWaitSeconds = 5400, transferStopRadiusMeters = 500 }) {
   if (!originStopIds.length || !destinationStopIds.length) return [];
 
   const sql = `
@@ -170,11 +170,18 @@ async function getTransferJourneys({ originStopIds, destinationStopIds, serviceD
       s_dest.stop_lat AS destination_stop_lat,
       s_dest.stop_lon AS destination_stop_lon
     FROM first_leg f
+    JOIN transit.stops s_transfer_from ON s_transfer_from.stop_id = f.transfer_stop_id
     JOIN second_leg s
-      ON s.transfer_stop_id = f.transfer_stop_id
-     AND s.route_id <> f.route_id
+      ON s.route_id <> f.route_id
      AND s.transfer_departure_seconds >= f.transfer_arrival_seconds
      AND s.transfer_departure_seconds <= f.transfer_arrival_seconds + $5
+    JOIN transit.stops s_transfer_to
+      ON s_transfer_to.stop_id = s.transfer_stop_id
+     AND ST_DWithin(
+       s_transfer_from.geom::geography,
+       s_transfer_to.geom::geography,
+       $6
+     )
     JOIN transit.stops s_origin ON s_origin.stop_id = f.origin_stop_id
     JOIN transit.stops s_transfer ON s_transfer.stop_id = f.transfer_stop_id
     JOIN transit.stops s_dest ON s_dest.stop_id = s.destination_stop_id
@@ -185,7 +192,7 @@ async function getTransferJourneys({ originStopIds, destinationStopIds, serviceD
     LIMIT $4
   `;
 
-  const result = await query(sql, [originStopIds, destinationStopIds, serviceDate, limit, maxTransferWaitSeconds]);
+  const result = await query(sql, [originStopIds, destinationStopIds, serviceDate, limit, maxTransferWaitSeconds, transferStopRadiusMeters]);
   return result.rows;
 }
 

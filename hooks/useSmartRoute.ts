@@ -563,6 +563,7 @@ export function useSmartRoute({
   >([]);
   const [transitPlan, setTransitPlan] = useState<TransitPlan | null>(null);
   const [transitOptions, setTransitOptions] = useState<TransitPlan[]>([]);
+  const [transitMeta, setTransitMeta] = useState<any>(null);
   const [activeTransitAlerts, setActiveTransitAlerts] = useState<
     JourneyAlertSignal[]
   >([]);
@@ -641,6 +642,10 @@ export function useSmartRoute({
         clampEta(drivingDurationMin * 1.2 + 7);
       const busPrice = distanceKm > 7 ? 1.2 : 0.8;
 
+      const originStopHint = transitMeta?.nearbyOriginStops?.[0]?.name;
+      const destinationStopHint = transitMeta?.nearbyDestinationStops?.[0]?.name;
+      const noJourneyReason = transitMeta?.reason;
+      const searchProfile = transitMeta?.searchProfile;
       const busJourney = transitPlan
         ? buildTransitMeta({
             pickup,
@@ -654,17 +659,23 @@ export function useSmartRoute({
             journeyBadges: [
               { icon: "bus", label: "Bus" },
               { icon: "clock-outline", label: "Live search" },
+              ...(transitMeta?.nearbyOriginStops?.length ? [{ icon: "map-marker-radius", label: `${transitMeta.nearbyOriginStops.length} stops` }] : []),
             ],
             journeySteps: [
               {
                 icon: "map-marker",
                 title: pickup.title || pickup.subtitle || "Current location",
-                subtitle: "Ieškome tikro GTFS maršruto",
+                subtitle: originStopHint ? `Artimiausia stotelė: ${originStopHint}` : "Ieškome artimiausių stotelių",
               },
               {
                 icon: "bus",
                 title: "Viešasis transportas",
-                subtitle: "Tikriname direct ir transfer variantus",
+                subtitle:
+                  noJourneyReason === "NO_NEARBY_STOPS"
+                    ? "Neradome pakankamai artimų stotelių šiam taškui"
+                    : searchProfile
+                      ? `Tikrinome iki ${Math.round(Math.max(searchProfile.originRadius || 0, searchProfile.destinationRadius || 0) / 1000)} km spinduliu`
+                      : "Tikriname direct ir transfer variantus",
               },
               {
                 icon: "flag-checkered",
@@ -672,12 +683,14 @@ export function useSmartRoute({
                   destinationPlace.title ||
                   destinationPlace.subtitle ||
                   "Destination",
-                subtitle: "Atvykimas į tikslą",
+                subtitle: destinationStopHint ? `Artimiausia stotelė: ${destinationStopHint}` : "Atvykimas į tikslą",
               },
             ],
             notice: isRefreshing
               ? "Perskaičiuojama pagal gyvą lokaciją…"
-              : "GTFS maršrutas dar nerastas. Patikrink Render deploy ir ar backend jau importavo pilną LT feed su traukiniais.",
+              : noJourneyReason === "NO_NEARBY_STOPS"
+                ? "Prie vieno iš taškų neradome tinkamų stotelių. Pabandyk tikslesnį adresą arba miesto stotį."
+                : "Šiuo metu neradome tinkamo GTFS varianto. Backend veikia, bet šitam maršrutui gali reikėti kito laiko arba tikslesnio taško.",
           };
 
       const busRecommendation: Recommendation = {

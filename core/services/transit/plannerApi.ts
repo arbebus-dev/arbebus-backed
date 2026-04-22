@@ -15,7 +15,7 @@ export async function fetchTransitPlanFromApi({
   destination: Coordinate;
   userLocation?: Coordinate | null;
   serviceDate?: string;
-}): Promise<{ plan: TransitPlan | null; options: TransitPlan[] }> {
+}): Promise<{ plan: TransitPlan | null; options: TransitPlan[]; meta?: TransitPlannerResponse["meta"] }> {
   try {
     const response = await fetch(`${API_BASE}/transit/plan`, {
       method: "POST",
@@ -31,7 +31,7 @@ export async function fetchTransitPlanFromApi({
     });
 
     if (!response.ok) {
-      return { plan: null, options: [] };
+      return { plan: null, options: [], meta: undefined };
     }
 
     const data = (await response.json()) as TransitPlannerResponse;
@@ -39,9 +39,10 @@ export async function fetchTransitPlanFromApi({
     return {
       plan: data?.plan || null,
       options: Array.isArray(data?.options) ? data.options : [],
+      meta: data?.meta,
     };
   } catch (error) {
     console.log("fetchTransitPlanFromApi error:", error);
-    return { plan: null, options: [] };
+    return { plan: null, options: [], meta: undefined };
   }
 }
