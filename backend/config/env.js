@@ -1,8 +1,10 @@
 const path = require('path');
 const dotenv = require('dotenv');
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-dotenv.config({ path: path.resolve(process.cwd(), 'app/.env') });
+const rootDir = process.cwd();
+dotenv.config({ path: path.resolve(rootDir, '.env') });
+dotenv.config({ path: path.resolve(rootDir, 'backend/.env') });
+dotenv.config({ path: path.resolve(rootDir, 'app/.env') });
 
 function readNumber(name, fallback) {
   const raw = process.env[name];
@@ -21,7 +23,8 @@ function readList(name, fallback = []) {
   const raw = String(process.env[name] ?? '').trim();
   if (!raw) return fallback;
   return raw
-    .split(/[\n,]/)
+    .split(/[
+,]/)
     .map((item) => item.trim())
     .filter(Boolean);
 }
@@ -38,6 +41,7 @@ module.exports = {
     PORT: readNumber('PORT', 10000),
     HOST: process.env.HOST || '0.0.0.0',
     DATABASE_URL: process.env.DATABASE_URL || '',
+    REDIS_URL: process.env.REDIS_URL || '',
     GTFS_IMPORT_TMP_DIR: process.env.GTFS_IMPORT_TMP_DIR || '/tmp/arbebus-gtfs',
     GTFS_SOURCE_URL: primaryGtfsSource,
     GTFS_SOURCE_URLS:
@@ -49,7 +53,10 @@ module.exports = {
     TRANSFER_RADIUS_METERS: readNumber('TRANSFER_RADIUS_METERS', 300),
     DEFAULT_ORIGIN_STOP_RADIUS_METERS: readNumber('DEFAULT_ORIGIN_STOP_RADIUS_METERS', 700),
     DEFAULT_DESTINATION_STOP_RADIUS_METERS: readNumber('DEFAULT_DESTINATION_STOP_RADIUS_METERS', 700),
+    MAX_WALKING_METERS: readNumber('MAX_WALKING_METERS', 500),
+    MAX_TRANSFERS: readNumber('MAX_TRANSFERS', 3),
     MAX_NEARBY_STOPS: readNumber('MAX_NEARBY_STOPS', 8),
+    LEAVE_ALERT_ENGINE_INTERVAL_MS: readNumber('LEAVE_ALERT_ENGINE_INTERVAL_MS', 30000),
     ENABLE_CORS: readBoolean('ENABLE_CORS', true),
     CORS_ORIGIN: process.env.CORS_ORIGIN || '*',
     GTFS_FEED_CODE: process.env.GTFS_FEED_CODE || 'lt_national',

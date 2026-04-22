@@ -666,6 +666,13 @@ export default function HomeScreen() {
             busAnimationsRef={busAnimationsRef}
             bestBusId={bestBusId}
             onBusPress={handleBusPress}
+            pickupTitle={
+              rideDraft.pickup?.title ||
+              rideDraft.pickup?.subtitle ||
+              pickupDisplayText ||
+              "Pickup"
+            }
+            pickupSubtitle={rideDraft.pickup?.subtitle}
             destinationTitle={
               rideDraft.destination?.title ||
               rideDraft.destination?.subtitle ||

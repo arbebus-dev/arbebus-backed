@@ -3,7 +3,15 @@ const cors = require('cors');
 const { env } = require('./config/env');
 const { fetchLiveVehicles } = require('./services/transit/klaipedaGateway');
 const { getPool } = require('./db/pool');
-const { planRoute } = require('./services/transitRouter');
+const { handleTransitPlan } = require('./services/transit/planner/plannerController');
+const { buildNewsFeed } = require('./services/newsService');
+const {
+  startLeaveAlertEngine,
+  registerExpoPushToken,
+  createOrReplaceLeaveAlert,
+  cancelLeaveAlert,
+  listActiveLeaveAlerts,
+} = require('./services/leaveAlertEngine');
 
 const app = express();
 
@@ -27,24 +35,23 @@ app.get('/health', async (_req, res) => {
   try {
     const pool = getPool();
 
-    const [routesRes, tripsRes, stopsRes, routeTypesRes, importRes] =
-      await Promise.all([
-        pool.query('SELECT COUNT(*)::int AS count FROM transit.routes'),
-        pool.query('SELECT COUNT(*)::int AS count FROM transit.trips'),
-        pool.query('SELECT COUNT(*)::int AS count FROM transit.stops'),
-        pool.query(`
-          SELECT COALESCE(route_type, -1)::text AS route_type, COUNT(*)::int AS count
-          FROM transit.routes
-          GROUP BY COALESCE(route_type, -1)
-          ORDER BY route_type
-        `),
-        pool.query(`
-          SELECT source_url, created_at
-          FROM transit.import_runs
-          ORDER BY created_at DESC
-          LIMIT 1
-        `),
-      ]);
+    const [routesRes, tripsRes, stopsRes, routeTypesRes, importRes] = await Promise.all([
+      pool.query('SELECT COUNT(*)::int AS count FROM transit.routes'),
+      pool.query('SELECT COUNT(*)::int AS count FROM transit.trips'),
+      pool.query('SELECT COUNT(*)::int AS count FROM transit.stops'),
+      pool.query(`
+        SELECT COALESCE(route_type, -1)::text AS route_type, COUNT(*)::int AS count
+        FROM transit.routes
+        GROUP BY COALESCE(route_type, -1)
+        ORDER BY route_type
+      `),
+      pool.query(`
+        SELECT source_url, created_at
+        FROM transit.import_runs
+        ORDER BY created_at DESC
+        LIMIT 1
+      `),
+    ]);
 
     const routeTypeCounts = routeTypesRes.rows.reduce((acc, row) => {
       acc[row.route_type] = Number(row.count || 0);
@@ -72,6 +79,9 @@ app.get('/health', async (_req, res) => {
         tripsCount: Number(tripsRes.rows[0]?.count || 0),
         routeTypeCounts,
       },
+      leaveAlerts: {
+        active: listActiveLeaveAlerts().length,
+      },
       warnings: hasRail
         ? []
         : ['GTFS feed currently has no route_type=2 (train) routes in database'],
@@ -91,172 +101,89 @@ app.get('/health', async (_req, res) => {
 app.get('/live-buses', async (_req, res) => {
   try {
     const vehicles = await fetchLiveVehicles();
-    res.json({
-      ok: true,
-      vehicles,
-      count: vehicles.length,
-    });
+    res.json(vehicles);
   } catch (error) {
+    res.status(500).json([]);
+  }
+});
+
+app.post('/transit/plan', handleTransitPlan);
+
+app.get('/news', async (_req, res) => {
+  try {
+    const payload = await buildNewsFeed();
+    res.json(payload);
+  } catch (error) {
+    console.error('GET /news error:', error.message);
     res.status(500).json({
       ok: false,
-      error: error.message || 'Failed to fetch live vehicles',
-      vehicles: [],
+      generatedAt: new Date().toISOString(),
+      meta: {
+        partial: true,
+        sections: {
+          world: 'error',
+          transport: 'fallback',
+          deal: 'fallback',
+          update: 'fallback',
+        },
+        errors: [{ section: 'news', message: error.message }],
+      },
+      items: [],
     });
   }
 });
 
-app.post('/transit/plan', async (req, res) => {
+app.post('/push/register', async (req, res) => {
   try {
-    const body = req.body || {};
+    const { deviceId, expoPushToken, platform } = req.body || {};
 
-    const origin = body.origin
-      ? {
-          lat: Number(body.origin.latitude ?? body.origin.lat),
-          lon: Number(body.origin.longitude ?? body.origin.lon),
-        }
-      : null;
-
-    const destination = body.destination
-      ? {
-          lat: Number(body.destination.latitude ?? body.destination.lat),
-          lon: Number(body.destination.longitude ?? body.destination.lon),
-        }
-      : null;
-
-    if (
-      !origin ||
-      !destination ||
-      !Number.isFinite(origin.lat) ||
-      !Number.isFinite(origin.lon) ||
-      !Number.isFinite(destination.lat) ||
-      !Number.isFinite(destination.lon)
-    ) {
+    if (!deviceId || !expoPushToken) {
       return res.status(400).json({
         ok: false,
-        error: 'Invalid origin/destination',
-        plan: null,
-        options: [],
+        error: 'deviceId and expoPushToken are required',
       });
     }
 
-    const result = await planRoute(origin, destination);
-
-    if (!result?.ok) {
-      return res.json({
-        ok: true,
-        plan: null,
-        options: [],
-        meta: {
-          reason: result?.reason || 'NO_ROUTE',
-        },
-      });
-    }
-
-    const walkSteps = result.steps.filter((s) => s.type === 'walk');
-    const rideSteps = result.steps.filter((s) => s.type === 'ride');
-
-    const firstWalk = walkSteps[0] || null;
-    const lastWalk = walkSteps[walkSteps.length - 1] || null;
-    const firstRide = rideSteps[0] || null;
-
-    const totalWalkDistance = walkSteps.reduce(
-      (sum, step) => sum + Number(step.distance || 0),
-      0
-    );
-    const totalWalkMinutes = Math.max(1, Math.round(totalWalkDistance / 80));
-
-    const totalDurationMinutes = result.meta?.arrivalTime
-      ? Math.max(1, Math.round(result.meta.arrivalTime / 60))
-      : 15;
-
-    const totalBusMinutes = Math.max(1, totalDurationMinutes - totalWalkMinutes);
-
-    const journeySteps = result.steps.map((step) => {
-      if (step.type === 'walk') {
-        return {
-          icon: 'walk',
-          title: step.to ? `Eik iki ${step.to}` : 'Eik pėsčiomis',
-          subtitle: step.distance ? `${step.distance} m` : undefined,
-          mode: 'walk',
-          type: 'walk',
-        };
-      }
-
-      return {
-        icon: 'bus',
-        title: `Važiuok ${step.tripId || 'transportu'}`,
-        subtitle: `${step.fromStopId || '?'} → ${step.toStopId || '?'}`,
-        mode: 'bus',
-        type: 'ride',
-        fromStopId: step.fromStopId,
-        toStopId: step.toStopId,
-        routeId: step.tripId,
-      };
+    const tokenRecord = await registerExpoPushToken({
+      deviceId,
+      expoPushToken,
+      platform: platform || 'unknown',
     });
 
-    const plan = {
-      id: `csa-${Date.now()}`,
-      mode: 'bus',
-      routeId: firstRide?.tripId || 'transit',
-      summary: {
-        totalDurationMinutes,
-        totalWalkMinutes,
-        totalBusMinutes,
-        boardStopName: firstWalk?.to || 'Board stop',
-        alightStopName: lastWalk?.from || 'Arrival stop',
-        routeLabel: firstRide?.tripId || 'Transit',
-        etaMinutes: null,
-        stopCount: result.meta?.rides || 1,
-        transfersCount: Math.max(0, (result.meta?.rides || 1) - 1),
-        modes: ['bus'],
-      },
-      originStop: {
-        id: 'origin-stop',
-        name: firstWalk?.to || 'Origin stop',
-        latitude: origin.lat,
-        longitude: origin.lon,
-        distanceMeters: firstWalk?.distance || 0,
-      },
-      destinationStop: {
-        id: 'destination-stop',
-        name: lastWalk?.from || 'Destination stop',
-        latitude: destination.lat,
-        longitude: destination.lon,
-        distanceMeters: lastWalk?.distance || 0,
-      },
-      previewPoints: [
-        {
-          latitude: origin.lat,
-          longitude: origin.lon,
-        },
-        {
-          latitude: destination.lat,
-          longitude: destination.lon,
-        },
-      ],
-      journeySteps,
-    };
-
-    return res.json({
-      ok: true,
-      plan,
-      options: [],
-      meta: {
-        reason: 'CSA_OK',
-        ...result.meta,
-      },
-    });
+    res.json({ ok: true, token: tokenRecord });
   } catch (error) {
-    console.error('CSA transit route error:', error);
-    return res.status(500).json({
-      ok: false,
-      error: error.message || 'CSA route failed',
-      plan: null,
-      options: [],
-    });
+    console.error('POST /push/register error:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
   }
 });
 
+app.post('/leave-alerts', async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const result = await createOrReplaceLeaveAlert(payload);
+    res.json({ ok: true, alert: result });
+  } catch (error) {
+    console.error('POST /leave-alerts error:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.delete('/leave-alerts/:alertId', async (req, res) => {
+  try {
+    const removed = await cancelLeaveAlert(req.params.alertId);
+    res.json({ ok: true, removed });
+  } catch (error) {
+    console.error('DELETE /leave-alerts/:alertId error:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.get('/leave-alerts', (_req, res) => {
+  res.json({ ok: true, items: listActiveLeaveAlerts() });
+});
+
+startLeaveAlertEngine();
+
 app.listen(env.PORT, env.HOST, () => {
-  console.log(`Arbebus backend running on http://${env.HOST}:${env.PORT}`);
+  console.log(`🚀 Running on http://${env.HOST}:${env.PORT}`);
 });
