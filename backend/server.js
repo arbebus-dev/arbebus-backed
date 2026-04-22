@@ -4,6 +4,7 @@ const { env } = require('./config/env');
 const { handleTransitPlan } = require('./services/transit/planner/plannerController');
 const { fetchLiveVehicles } = require('./services/transit/klaipedaGateway');
 const { getPool } = require('./db/pool');
+const { planRoute } = require("./services/transitRouter");
 
 const app = express();
 
@@ -12,6 +13,19 @@ if (env.ENABLE_CORS) {
 }
 
 app.use(express.json({ limit: '1mb' }));
+
+
+
+app.post("/transit/plan", async (req, res) => {
+  const { origin, destination } = req.body;
+
+  const result = await planRoute(origin, destination);
+
+  res.json({ ok: true, result });
+});
+
+
+
 
 app.get('/', (_req, res) => {
   res.send('Arbebus backend is running 🚀');
