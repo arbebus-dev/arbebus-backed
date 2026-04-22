@@ -7,12 +7,11 @@ const {
 const { estimateWalkMinutes, getDistanceMeters } = require('./geo');
 
 const SEARCH_PROFILES = [
-  { originRadius: 700, destinationRadius: 700, limit: 8, transferMaxSeconds: 3600, transferStopRadius: 250 },
-  { originRadius: 1500, destinationRadius: 1500, limit: 14, transferMaxSeconds: 5400, transferStopRadius: 350 },
-  { originRadius: 4000, destinationRadius: 4000, limit: 22, transferMaxSeconds: 7200, transferStopRadius: 500 },
-  { originRadius: 12000, destinationRadius: 12000, limit: 32, transferMaxSeconds: 10800, transferStopRadius: 700 },
-  { originRadius: 30000, destinationRadius: 30000, limit: 48, transferMaxSeconds: 18000, transferStopRadius: 1200 },
-  { originRadius: 60000, destinationRadius: 60000, limit: 64, transferMaxSeconds: 21600, transferStopRadius: 1800 },
+  { originRadius: 700, destinationRadius: 700, limit: 8, transferMaxSeconds: 3600 },
+  { originRadius: 1500, destinationRadius: 1500, limit: 14, transferMaxSeconds: 5400 },
+  { originRadius: 4000, destinationRadius: 4000, limit: 20, transferMaxSeconds: 7200 },
+  { originRadius: 12000, destinationRadius: 12000, limit: 28, transferMaxSeconds: 10800 },
+  { originRadius: 30000, destinationRadius: 30000, limit: 36, transferMaxSeconds: 18000 },
 ];
 
 function toCoordinate(latitude, longitude) {
@@ -112,6 +111,7 @@ async function buildTransferPlan({ origin, destination, originStopMap, destinati
   const originStop = originStopMap.get(row.origin_stop_id);
   const destinationStop = destinationStopMap.get(row.destination_stop_id);
   const transferStop = { id: row.transfer_stop_id, name: row.transfer_stop_name, latitude: Number(row.transfer_stop_lat), longitude: Number(row.transfer_stop_lon), distanceMeters: 0 };
+  const secondTransferStop = row.second_transfer_stop_id ? { id: row.second_transfer_stop_id, name: row.second_transfer_stop_name || row.transfer_stop_name, latitude: Number(row.second_transfer_stop_lat || row.transfer_stop_lat), longitude: Number(row.second_transfer_stop_lon || row.transfer_stop_lon), distanceMeters: Number(row.transfer_walk_meters || 0) } : transferStop;
   if (!originStop || !destinationStop) return null;
   const firstMode = modeFromRouteType(row.first_route_type);
   const secondMode = modeFromRouteType(row.second_route_type);
@@ -128,8 +128,8 @@ async function buildTransferPlan({ origin, destination, originStopMap, destinati
     mode: planModeFromModes(modes),
     routeId: row.first_route_id,
     summary: {
-      totalDurationMinutes: walkToStopMinutes + firstRideMinutes + transferWaitMinutes + secondRideMinutes + walkFromStopMinutes,
-      totalWalkMinutes: walkToStopMinutes + walkFromStopMinutes,
+      totalDurationMinutes: walkToStopMinutes + firstRideMinutes + transferWalkMinutes + transferWaitMinutes + secondRideMinutes + walkFromStopMinutes,
+      totalWalkMinutes: walkToStopMinutes + transferWalkMinutes + walkFromStopMinutes,
       totalBusMinutes: firstRideMinutes + secondRideMinutes,
       boardStopName: originStop.name,
       alightStopName: destinationStop.name,
@@ -149,8 +149,9 @@ async function buildTransferPlan({ origin, destination, originStopMap, destinati
       uiStep('walk', 'Eik iki stotelės', `Iki „${originStop.name}“ • ${walkToStopMinutes} min pėsčiomis`, { type: 'walk', mode: 'walk', instruction: `Eik iki stotelės „${originStop.name}“` }),
       uiStep(firstMode === 'train' ? 'train' : 'bus', boardTitle(firstMode, firstRouteLabel), row.first_headsign || 'Pirmas segmentas', { type: 'board', mode: firstMode, stopId: originStop.id, stopName: originStop.name, routeId: row.first_route_id }),
       uiStep(firstMode === 'train' ? 'train' : 'bus', rideTitle(firstMode), `Iki „${transferStop.name}“ • ${firstRideMinutes} min`, { type: 'ride', mode: firstMode, fromStopId: originStop.id, toStopId: transferStop.id, stopCount: Number(row.stop_count_to_transfer || 0) }),
-      uiStep('swap-horizontal', 'Persėsk', `„${transferStop.name}“ • laukimas ${transferWaitMinutes} min`, { type: 'transfer', mode: 'transfer', stopId: transferStop.id, stopName: transferStop.name, instruction: `Persėsk stotelėje „${transferStop.name}“` }),
-      uiStep(secondMode === 'train' ? 'train' : 'bus', boardTitle(secondMode, secondRouteLabel), row.second_headsign || `Iki „${destinationStop.name}“`, { type: 'board', mode: secondMode, stopId: transferStop.id, stopName: transferStop.name, routeId: row.second_route_id }),
+      ...(secondTransferStop.id !== transferStop.id ? [uiStep('walk', 'Pereik iki kitos stotelės', `Nuo „${transferStop.name}“ iki „${secondTransferStop.name}“ • ${transferWalkMinutes} min`, { type: 'walk', mode: 'walk', instruction: `Pereik iš „${transferStop.name}“ į „${secondTransferStop.name}“` })] : []),
+      uiStep('swap-horizontal', 'Persėsk', `„${secondTransferStop.name}“ • laukimas ${transferWaitMinutes} min`, { type: 'transfer', mode: 'transfer', stopId: secondTransferStop.id, stopName: secondTransferStop.name, instruction: `Persėsk stotelėje „${secondTransferStop.name}“` }),
+      uiStep(secondMode === 'train' ? 'train' : 'bus', boardTitle(secondMode, secondRouteLabel), row.second_headsign || `Iki „${destinationStop.name}“`, { type: 'board', mode: secondMode, stopId: secondTransferStop.id, stopName: secondTransferStop.name, routeId: row.second_route_id }),
       uiStep(secondMode === 'train' ? 'train' : 'bus', rideTitle(secondMode), `Iki „${destinationStop.name}“ • ${secondRideMinutes} min • ${Number(row.stop_count_from_transfer || 0)} st.`, { type: 'ride', mode: secondMode, fromStopId: transferStop.id, toStopId: destinationStop.id, stopCount: Number(row.stop_count_from_transfer || 0) }),
       uiStep('flag-checkered', 'Išlipk', `„${destinationStop.name}“`, { type: 'alight', stopId: destinationStop.id, stopName: destinationStop.name }),
       uiStep('walk', 'Eik iki tikslo', `${walkFromStopMinutes} min pėsčiomis nuo „${destinationStop.name}“`, { type: 'walk', mode: 'walk', instruction: 'Eik iki galutinio taško' }),
@@ -178,14 +179,7 @@ async function planJourneyWithProfile({ origin, destination, serviceDate, profil
   const directRows = await getDirectJourneys({ originStopIds: nearbyOriginStops.map((stop) => stop.id), destinationStopIds: nearbyDestinationStops.map((stop) => stop.id), serviceDate, limit: 8 });
   const directOptions = [];
   for (const row of directRows) { const plan = await buildDirectPlan({ origin, destination, originStopMap, destinationStopMap, row }); if (plan) directOptions.push(plan); }
-  const transferRows = await getTransferJourneys({
-    originStopIds: nearbyOriginStops.map((stop) => stop.id),
-    destinationStopIds: nearbyDestinationStops.map((stop) => stop.id),
-    serviceDate,
-    limit: 12,
-    maxTransferWaitSeconds: profile.transferMaxSeconds,
-    transferStopRadiusMeters: profile.transferStopRadius || 500,
-  });
+  const transferRows = await getTransferJourneys({ originStopIds: nearbyOriginStops.map((stop) => stop.id), destinationStopIds: nearbyDestinationStops.map((stop) => stop.id), serviceDate, limit: 8, maxTransferWaitSeconds: profile.transferMaxSeconds });
   const transferOptions = [];
   for (const row of transferRows) { const plan = await buildTransferPlan({ origin, destination, originStopMap, destinationStopMap, row }); if (plan) transferOptions.push(plan); }
   const options = dedupePlans([...directOptions, ...transferOptions]).sort((a,b)=>Number(a.summary.totalDurationMinutes||9999)-Number(b.summary.totalDurationMinutes||9999)).slice(0,4);

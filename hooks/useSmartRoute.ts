@@ -484,7 +484,7 @@ async function fetchTransitPlan(
   origin: Coordinate,
   destination: Coordinate,
   userLocation: Coordinate | null
-): Promise<{ plan: TransitPlan | null; options: TransitPlan[] }> {
+): Promise<{ plan: TransitPlan | null; options: TransitPlan[]; meta?: { reason?: string; nearbyOriginStops?: Array<{ name: string; distanceMeters?: number }>; nearbyDestinationStops?: Array<{ name: string; distanceMeters?: number }> } }> {
   return fetchTransitPlanFromApi({
     origin,
     destination,
@@ -563,7 +563,6 @@ export function useSmartRoute({
   >([]);
   const [transitPlan, setTransitPlan] = useState<TransitPlan | null>(null);
   const [transitOptions, setTransitOptions] = useState<TransitPlan[]>([]);
-  const [transitMeta, setTransitMeta] = useState<any>(null);
   const [activeTransitAlerts, setActiveTransitAlerts] = useState<
     JourneyAlertSignal[]
   >([]);
@@ -620,6 +619,7 @@ export function useSmartRoute({
       selectedBus,
       isRefreshing,
       transitOptionsCount,
+      transitMeta,
     }: {
       distanceKm: number;
       drivingDurationMin: number;
@@ -630,6 +630,11 @@ export function useSmartRoute({
       selectedBus: LiveBus | null;
       isRefreshing: boolean;
       transitOptionsCount: number;
+      transitMeta?: {
+        reason?: string;
+        nearbyOriginStops?: Array<{ name: string; distanceMeters?: number }>;
+        nearbyDestinationStops?: Array<{ name: string; distanceMeters?: number }>;
+      };
     }): Recommendation[] => {
       const walkingEta = clampEta((distanceKm / 4.8) * 60);
       const taxiEta = clampEta(Math.max(4, drivingDurationMin * 0.78));
@@ -642,10 +647,6 @@ export function useSmartRoute({
         clampEta(drivingDurationMin * 1.2 + 7);
       const busPrice = distanceKm > 7 ? 1.2 : 0.8;
 
-      const originStopHint = transitMeta?.nearbyOriginStops?.[0]?.name;
-      const destinationStopHint = transitMeta?.nearbyDestinationStops?.[0]?.name;
-      const noJourneyReason = transitMeta?.reason;
-      const searchProfile = transitMeta?.searchProfile;
       const busJourney = transitPlan
         ? buildTransitMeta({
             pickup,
@@ -659,23 +660,23 @@ export function useSmartRoute({
             journeyBadges: [
               { icon: "bus", label: "Bus" },
               { icon: "clock-outline", label: "Live search" },
-              ...(transitMeta?.nearbyOriginStops?.length ? [{ icon: "map-marker-radius", label: `${transitMeta.nearbyOriginStops.length} stops` }] : []),
             ],
             journeySteps: [
               {
                 icon: "map-marker",
                 title: pickup.title || pickup.subtitle || "Current location",
-                subtitle: originStopHint ? `Artimiausia stotelė: ${originStopHint}` : "Ieškome artimiausių stotelių",
+                subtitle:
+                  transitMeta?.nearbyOriginStops?.[0]
+                    ? `Artimiausia stotelė: ${transitMeta.nearbyOriginStops[0].name}`
+                    : "Ieškome artimiausių stotelių",
               },
               {
                 icon: "bus",
                 title: "Viešasis transportas",
                 subtitle:
-                  noJourneyReason === "NO_NEARBY_STOPS"
-                    ? "Neradome pakankamai artimų stotelių šiam taškui"
-                    : searchProfile
-                      ? `Tikrinome iki ${Math.round(Math.max(searchProfile.originRadius || 0, searchProfile.destinationRadius || 0) / 1000)} km spinduliu`
-                      : "Tikriname direct ir transfer variantus",
+                  transitMeta?.reason === "NO_NEARBY_STOPS"
+                    ? "Šalia taško neradome tinkamų stotelių"
+                    : "Tikriname direct ir transfer variantus",
               },
               {
                 icon: "flag-checkered",
@@ -683,14 +684,17 @@ export function useSmartRoute({
                   destinationPlace.title ||
                   destinationPlace.subtitle ||
                   "Destination",
-                subtitle: destinationStopHint ? `Artimiausia stotelė: ${destinationStopHint}` : "Atvykimas į tikslą",
+                subtitle:
+                  transitMeta?.nearbyDestinationStops?.[0]
+                    ? `Tikslui artimiausia: ${transitMeta.nearbyDestinationStops[0].name}`
+                    : "Atvykimas į tikslą",
               },
             ],
             notice: isRefreshing
               ? "Perskaičiuojama pagal gyvą lokaciją…"
-              : noJourneyReason === "NO_NEARBY_STOPS"
-                ? "Prie vieno iš taškų neradome tinkamų stotelių. Pabandyk tikslesnį adresą arba miesto stotį."
-                : "Šiuo metu neradome tinkamo GTFS varianto. Backend veikia, bet šitam maršrutui gali reikėti kito laiko arba tikslesnio taško.",
+              : transitMeta?.reason === "NO_NEARBY_STOPS"
+              ? "Šiuo tašku neradome pakankamai arti esančių GTFS stotelių. Pabandyk tikslesnį adresą arba stotelę." 
+              : "Šiuo metu neradome tinkamo GTFS varianto. Backend veikia, bet šitam maršrutui gali reikėti kito laiko arba tikslesnio taško.",
           };
 
       const busRecommendation: Recommendation = {
@@ -898,6 +902,7 @@ export function useSmartRoute({
 
         const nextTransitPlan = transitResult.plan;
         const nextTransitOptions = transitResult.options;
+        const nextTransitMeta = transitResult.meta;
 
         const recommendations = buildRecommendations({
           distanceKm: drivingRoute.distanceKm,
@@ -909,6 +914,7 @@ export function useSmartRoute({
           selectedBus,
           isRefreshing: silent,
           transitOptionsCount: nextTransitOptions.length,
+          transitMeta: nextTransitMeta,
         });
 
         const previousSelectedId = selectedRecommendationIdRef.current;

@@ -69,7 +69,7 @@ async function getDirectJourneys({ originStopIds, destinationStopIds, serviceDat
   return result.rows;
 }
 
-async function getTransferJourneys({ originStopIds, destinationStopIds, serviceDate, limit = 6, maxTransferWaitSeconds = 5400, transferStopRadiusMeters = 500 }) {
+async function getTransferJourneys({ originStopIds, destinationStopIds, serviceDate, limit = 6, maxTransferWaitSeconds = 5400 }) {
   if (!originStopIds.length || !destinationStopIds.length) return [];
 
   const sql = `
@@ -84,7 +84,7 @@ async function getTransferJourneys({ originStopIds, destinationStopIds, serviceD
         r1.route_long_name,
         r1.route_type,
         os.stop_id AS origin_stop_id,
-        xfer.stop_id AS transfer_stop_id,
+        xfer.stop_id AS first_transfer_stop_id,
         os.stop_sequence AS origin_sequence,
         xfer.stop_sequence AS transfer_sequence,
         os.departure_seconds AS origin_departure_seconds,
@@ -113,7 +113,7 @@ async function getTransferJourneys({ originStopIds, destinationStopIds, serviceD
         r2.route_short_name,
         r2.route_long_name,
         r2.route_type,
-        xfer.stop_id AS transfer_stop_id,
+        xfer.stop_id AS second_transfer_stop_id,
         ds.stop_id AS destination_stop_id,
         xfer.stop_sequence AS transfer_sequence,
         ds.stop_sequence AS destination_sequence,
@@ -132,6 +132,21 @@ async function getTransferJourneys({ originStopIds, destinationStopIds, serviceD
         ON sd2.service_id = t2.service_id
        AND sd2.service_date = $3::date
       WHERE ds.stop_id = ANY($2::text[])
+    ),
+    transfer_pairs AS (
+      SELECT
+        s1.stop_id AS first_transfer_stop_id,
+        s2.stop_id AS second_transfer_stop_id,
+        s1.stop_name AS first_transfer_stop_name,
+        s1.stop_lat AS first_transfer_stop_lat,
+        s1.stop_lon AS first_transfer_stop_lon,
+        s2.stop_name AS second_transfer_stop_name,
+        s2.stop_lat AS second_transfer_stop_lat,
+        s2.stop_lon AS second_transfer_stop_lon,
+        ST_DistanceSphere(s1.geom, s2.geom) AS transfer_walk_meters
+      FROM transit.stops s1
+      JOIN transit.stops s2
+        ON ST_DWithin(s1.geom::geography, s2.geom::geography, 450)
     )
     SELECT
       f.trip_id AS first_trip_id,
@@ -143,7 +158,15 @@ async function getTransferJourneys({ originStopIds, destinationStopIds, serviceD
       f.direction_id AS first_direction_id,
       f.shape_id AS first_shape_id,
       f.origin_stop_id,
-      f.transfer_stop_id,
+      tp.first_transfer_stop_id AS transfer_stop_id,
+      tp.second_transfer_stop_id,
+      tp.first_transfer_stop_name AS transfer_stop_name,
+      tp.first_transfer_stop_lat AS transfer_stop_lat,
+      tp.first_transfer_stop_lon AS transfer_stop_lon,
+      tp.second_transfer_stop_name,
+      tp.second_transfer_stop_lat,
+      tp.second_transfer_stop_lon,
+      tp.transfer_walk_meters,
       s.transfer_departure_seconds,
       f.transfer_arrival_seconds,
       f.origin_departure_seconds,
@@ -163,36 +186,28 @@ async function getTransferJourneys({ originStopIds, destinationStopIds, serviceD
       s_origin.stop_name AS origin_stop_name,
       s_origin.stop_lat AS origin_stop_lat,
       s_origin.stop_lon AS origin_stop_lon,
-      s_transfer.stop_name AS transfer_stop_name,
-      s_transfer.stop_lat AS transfer_stop_lat,
-      s_transfer.stop_lon AS transfer_stop_lon,
       s_dest.stop_name AS destination_stop_name,
       s_dest.stop_lat AS destination_stop_lat,
       s_dest.stop_lon AS destination_stop_lon
     FROM first_leg f
-    JOIN transit.stops s_transfer_from ON s_transfer_from.stop_id = f.transfer_stop_id
+    JOIN transfer_pairs tp
+      ON tp.first_transfer_stop_id = f.first_transfer_stop_id
     JOIN second_leg s
-      ON s.route_id <> f.route_id
-     AND s.transfer_departure_seconds >= f.transfer_arrival_seconds
+      ON s.second_transfer_stop_id = tp.second_transfer_stop_id
+     AND s.route_id <> f.route_id
+     AND s.transfer_departure_seconds >= f.transfer_arrival_seconds + LEAST(1800, GREATEST(0, ROUND(tp.transfer_walk_meters / 1.2)))
      AND s.transfer_departure_seconds <= f.transfer_arrival_seconds + $5
-    JOIN transit.stops s_transfer_to
-      ON s_transfer_to.stop_id = s.transfer_stop_id
-     AND ST_DWithin(
-       s_transfer_from.geom::geography,
-       s_transfer_to.geom::geography,
-       $6
-     )
     JOIN transit.stops s_origin ON s_origin.stop_id = f.origin_stop_id
-    JOIN transit.stops s_transfer ON s_transfer.stop_id = f.transfer_stop_id
     JOIN transit.stops s_dest ON s_dest.stop_id = s.destination_stop_id
     ORDER BY
       CASE WHEN COALESCE(f.route_type, 3) = 2 OR COALESCE(s.route_type, 3) = 2 THEN 0 ELSE 1 END,
+      COALESCE(tp.transfer_walk_meters, 0) ASC,
       total_stop_count ASC,
       f.origin_departure_seconds ASC NULLS LAST
     LIMIT $4
   `;
 
-  const result = await query(sql, [originStopIds, destinationStopIds, serviceDate, limit, maxTransferWaitSeconds, transferStopRadiusMeters]);
+  const result = await query(sql, [originStopIds, destinationStopIds, serviceDate, limit, maxTransferWaitSeconds]);
   return result.rows;
 }
 
