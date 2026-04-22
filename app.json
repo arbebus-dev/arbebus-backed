@@ -23,7 +23,7 @@
       "bundleIdentifier": "com.arbebus.app",
       "supportsTablet": true,
       "usesAppleSignIn": true,
-      "buildNumber": "48",
+      "buildNumber": "49",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [

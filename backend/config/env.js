@@ -23,8 +23,7 @@ function readList(name, fallback = []) {
   const raw = String(process.env[name] ?? '').trim();
   if (!raw) return fallback;
   return raw
-    .split(/[
-,]/)
+    .split(/[\r\n,]+/)
     .map((item) => item.trim())
     .filter(Boolean);
 }
