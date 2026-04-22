@@ -73,6 +73,12 @@ export type TransitPlannerMeta = {
   reason?: string;
   nearbyOriginStops?: TransitNearbyStop[];
   nearbyDestinationStops?: TransitNearbyStop[];
+  searchProfile?: {
+    originRadius?: number;
+    destinationRadius?: number;
+    limit?: number;
+    transferMaxSeconds?: number;
+  };
 };
 
 export type TransitPlannerResponse = {

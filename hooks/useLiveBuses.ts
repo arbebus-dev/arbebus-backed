@@ -166,7 +166,12 @@ export function useLiveBuses({
         throw new Error(`HTTP ${response.status}`);
       }
 
-      const data: RawBus[] = await response.json();
+      const payload = await response.json();
+      const data: RawBus[] = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.vehicles)
+        ? payload.vehicles
+        : [];
 
       if (!Array.isArray(data)) {
         throw new Error("Invalid /live-buses payload");

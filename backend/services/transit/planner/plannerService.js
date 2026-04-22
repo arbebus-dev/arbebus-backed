@@ -54,6 +54,54 @@ function compactRouteLabel(row, prefix = '') {
 }
 function uniqueModes(modes) { return Array.from(new Set((modes || []).filter(Boolean))); }
 function planModeFromModes(modes) { const m = uniqueModes(modes); return m.length > 1 ? 'mixed' : (m[0] || 'bus'); }
+function buildWalkOnlyPlan({ origin, destination, destinationLabel = 'Destination' }) {
+  const distanceMeters = getDistanceMeters(origin, destination);
+  const walkMinutes = estimateWalkMinutes(distanceMeters);
+  return {
+    id: `walk-${Math.round(distanceMeters)}`,
+    mode: 'bus',
+    routeId: 'walk-only',
+    summary: {
+      totalDurationMinutes: walkMinutes,
+      totalWalkMinutes: walkMinutes,
+      totalBusMinutes: 0,
+      boardStopName: 'Current location',
+      alightStopName: destinationLabel,
+      routeLabel: 'Pėsčiomis',
+      etaMinutes: walkMinutes,
+      stopCount: 0,
+      transfersCount: 0,
+      directionCode: null,
+      headsign: null,
+      journeyMessage: `Eik pėsčiomis iki „${destinationLabel}“`,
+      modes: [],
+    },
+    originStop: {
+      id: 'origin',
+      name: 'Current location',
+      latitude: Number(origin.latitude),
+      longitude: Number(origin.longitude),
+      distanceMeters: 0,
+    },
+    destinationStop: {
+      id: 'destination',
+      name: destinationLabel,
+      latitude: Number(destination.latitude),
+      longitude: Number(destination.longitude),
+      distanceMeters: 0,
+    },
+    previewPoints: dedupeCoords([origin, destination]),
+    journeySteps: [
+      uiStep('walk', 'Eik iki tikslo', `${walkMinutes} min pėsčiomis`, {
+        type: 'walk',
+        mode: 'walk',
+        instruction: `Eik iki „${destinationLabel}“`,
+      }),
+    ],
+    liveVehicle: null,
+  };
+}
+
 async function buildPreviewPoints({ origin, destination, stops = [], shapeIds = [] }) {
   const segments = [origin];
   for (const stop of stops) segments.push(stopToCoord(stop));
@@ -119,6 +167,7 @@ async function buildTransferPlan({ origin, destination, originStopMap, destinati
   const walkFromStopMinutes = estimateWalkMinutes(getDistanceMeters(destinationStop, destination));
   const firstRideMinutes = secondsToMinutes(Number(row.transfer_arrival_seconds) - Number(row.origin_departure_seconds)) || Math.max(3, Number(row.stop_count_to_transfer || 1) * 2);
   const secondRideMinutes = secondsToMinutes(Number(row.destination_arrival_seconds) - Number(row.transfer_departure_seconds)) || Math.max(3, Number(row.stop_count_from_transfer || 1) * 2);
+  const transferWalkMinutes = estimateWalkMinutes(Number(row.transfer_walk_meters || 0));
   const transferWaitMinutes = secondsToMinutes(Number(row.transfer_departure_seconds) - Number(row.transfer_arrival_seconds)) || 1;
   const firstRouteLabel = compactRouteLabel(row, 'first_');
   const secondRouteLabel = compactRouteLabel(row, 'second_');
@@ -192,6 +241,26 @@ async function planJourney({ origin, destination, serviceDate }) {
     lastResult = result;
     if (result.options.length) return result;
   }
+
+  const straightDistance = getDistanceMeters(origin, destination);
+  if (straightDistance <= 2200) {
+    const walkPlan = buildWalkOnlyPlan({
+      origin,
+      destination,
+      destinationLabel: lastResult?.meta?.nearbyDestinationStops?.[0]?.name || 'Destination',
+    });
+
+    return {
+      plan: walkPlan,
+      options: [walkPlan],
+      meta: {
+        ...(lastResult?.meta || {}),
+        serviceDate,
+        reason: 'WALK_ONLY_BETTER',
+      },
+    };
+  }
+
   return lastResult || { plan: null, options: [], meta: { serviceDate, reason: 'NO_JOURNEY_FOUND', nearbyOriginStops: [], nearbyDestinationStops: [] } };
 }
 function validateCoordinate(point) { return point && Number.isFinite(Number(point.latitude)) && Number.isFinite(Number(point.longitude)); }

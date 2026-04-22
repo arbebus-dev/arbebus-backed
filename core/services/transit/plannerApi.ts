@@ -15,7 +15,7 @@ export async function fetchTransitPlanFromApi({
   destination: Coordinate;
   userLocation?: Coordinate | null;
   serviceDate?: string;
-}): Promise<{ plan: TransitPlan | null; options: TransitPlan[] }> {
+}): Promise<{ plan: TransitPlan | null; options: TransitPlan[]; meta?: import('./plannerTypes').TransitPlannerMeta }> {
   try {
     const response = await fetch(`${API_BASE}/transit/plan`, {
       method: "POST",
