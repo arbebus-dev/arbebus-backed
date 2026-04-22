@@ -158,6 +158,7 @@ export default function HomeScreen() {
     longitude: number;
   } | null>(null);
   const lastRerouteAtRef = useRef<number>(0);
+  const lastAutoSmartRouteKeyRef = useRef<string | null>(null);
 
   const polylineCoords = useMemo(() => {
     return rideDraft.route?.polyline ?? [];
@@ -578,6 +579,54 @@ export default function HomeScreen() {
     await runSmartRoute();
     animateSheet(SHEET_OPEN_Y);
   }, [selectSmartMode, requireProOrAlert, runSmartRoute, animateSheet]);
+
+  useEffect(() => {
+    const canAutoRun =
+      startupReady &&
+      Boolean(effectivePickupPlace?.coordinate) &&
+      Boolean(rideDraft.destination?.coordinate) &&
+      (selectedMode === "smart"
+        ? isPro
+        : selectedMode === "bus" || selectedMode === "train");
+
+    if (!canAutoRun) {
+      return;
+    }
+
+    const pickup = effectivePickupPlace?.coordinate;
+    const destinationCoordinate = rideDraft.destination?.coordinate;
+
+    if (!pickup || !destinationCoordinate) {
+      return;
+    }
+
+    const nextKey = [
+      selectedMode,
+      pickup.latitude.toFixed(5),
+      pickup.longitude.toFixed(5),
+      destinationCoordinate.latitude.toFixed(5),
+      destinationCoordinate.longitude.toFixed(5),
+    ].join(":");
+
+    if (lastAutoSmartRouteKeyRef.current === nextKey) {
+      return;
+    }
+
+    lastAutoSmartRouteKeyRef.current = nextKey;
+
+    const timer = setTimeout(() => {
+      void runSmartRoute();
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [
+    startupReady,
+    effectivePickupPlace,
+    rideDraft.destination,
+    selectedMode,
+    isPro,
+    runSmartRoute,
+  ]);
 
   useEffect(() => {
     initializeRideBooking();

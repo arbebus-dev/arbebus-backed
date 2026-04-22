@@ -33,14 +33,6 @@ export function usePrimaryAction({
     }
 
     if (selectedMode === "smart" && isPro) {
-      if (
-        finalMode &&
-        finalMode !== "smart"
-      ) {
-        await handleTransportResult(String(finalMode));
-        return;
-      }
-
       await runSmartRoute();
       animateSheet(SHEET_OPEN_Y);
       return;

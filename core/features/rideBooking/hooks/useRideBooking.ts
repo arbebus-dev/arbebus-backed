@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { placeSearchService } from "../../../services/places/placeSearchService";
 import { routingService } from "../../../services/routing/routingService";
-import { useSmartRoute } from "../../smartRoute/useSmartRoute";
 import type { Place } from "../models/place";
 import type { PlaceSuggestion } from "../models/placeSuggestion";
 
@@ -123,36 +122,28 @@ export function useRideBooking() {
   const [driverHeading] = useState(0);
   const [driverRoutePoints] = useState<RoutePoint[]>([]);
 
-  const smartRoute = useSmartRoute({
-    from: rideDraft.pickup?.coordinate ?? mapState.userCoordinate ?? null,
-    to: rideDraft.destination?.coordinate ?? null,
-  });
-
   const etaBadgeText = useMemo(() => {
-    if (smartRoute?.best?.eta) {
-      return `${smartRoute.best.eta} min`;
-    }
-
     const points = rideDraft.route?.polyline?.length ?? 0;
     if (!points) return null;
 
-    return "7 min";
-  }, [rideDraft.route, smartRoute]);
+    return "Route ready";
+  }, [rideDraft.route]);
 
   const routeSummaryText = useMemo(() => {
-    if (smartRoute?.best) {
-      const modeLabel =
-        smartRoute.best.mode.charAt(0).toUpperCase() +
-        smartRoute.best.mode.slice(1);
+    const pickupLabel = formatPlaceLabel(rideDraft.pickup, "Current location");
+    const destinationLabel = formatPlaceLabel(rideDraft.destination, "Choose destination");
+    const polyline = rideDraft.route?.polyline ?? [];
 
-      return `${modeLabel} • ${smartRoute.best.eta} min • €${smartRoute.best.price}`;
+    if (!rideDraft.destination) {
+      return "Pasirink kelionės tikslą";
     }
 
-    const polyline = rideDraft.route?.polyline ?? [];
-    if (polyline.length < 2) return "No route";
+    if (polyline.length >= 2) {
+      return `${pickupLabel} → ${destinationLabel}`;
+    }
 
-    return "Route ready";
-  }, [rideDraft.route, smartRoute]);
+    return "Maršrutas ruošiamas";
+  }, [rideDraft.pickup, rideDraft.destination, rideDraft.route]);
 
   const pickupDisplayText = useMemo(() => {
     return formatPlaceLabel(rideDraft.pickup, "Current location");
@@ -466,7 +457,6 @@ export function useRideBooking() {
     driverRoutePoints,
     driverInfo: null,
 
-    smartRoute,
 
     isSearchExpanded,
     searchResults,
