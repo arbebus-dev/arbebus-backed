@@ -70,14 +70,16 @@ export type TransitPlan = {
 
 export type TransitPlannerMeta = {
   serviceDate?: string;
+  departureSeconds?: number;
   reason?: string;
   nearbyOriginStops?: TransitNearbyStop[];
   nearbyDestinationStops?: TransitNearbyStop[];
   searchProfile?: {
     originRadius?: number;
     destinationRadius?: number;
-    limit?: number;
-    transferMaxSeconds?: number;
+    stopLimit?: number;
+    transferRadius?: number;
+    maxTransfers?: number;
   };
 };
 
