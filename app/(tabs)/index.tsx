@@ -240,6 +240,10 @@ export default function HomeScreen() {
     selectedRecommendationId,
     recommendations,
     selectedRecommendation,
+    currentStepIndex,
+    currentStep,
+    dynamicPrimaryLabel,
+    dynamicPrimaryIcon,
     setAiSuggestion,
     setEta,
     setSelectedRecommendationId,
@@ -414,6 +418,13 @@ export default function HomeScreen() {
     animateSheet,
     handleOpenProPaywall,
     handleTransportResult,
+    selectedRecommendation,
+    pickupCoordinate: effectivePickupPlace?.coordinate || userLocation || null,
+    destinationCoordinate: rideDraft.destination?.coordinate || null,
+    routeCoords,
+    currentStep,
+    dynamicPrimaryLabel,
+    dynamicPrimaryIcon,
   });
 
   const floatingAiCopy = getFloatingAiCopy({
@@ -774,6 +785,10 @@ export default function HomeScreen() {
           selectedRecommendation={selectedRecommendation}
           recommendations={recommendations}
           selectedRecommendationId={selectedRecommendationId}
+          currentStepIndex={currentStepIndex}
+          currentStep={currentStep}
+          dynamicPrimaryLabel={dynamicPrimaryLabel}
+          dynamicPrimaryIcon={dynamicPrimaryIcon}
           onSelectRecommendation={selectRecommendation}
           homeLocation={homeLocation}
           workLocation={workLocation}

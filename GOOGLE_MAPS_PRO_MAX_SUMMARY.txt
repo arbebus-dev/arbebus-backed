@@ -1,0 +1,24 @@
+Arbebus PRO MAX Google-style package
+
+Included in this package:
+- current step progress in HomeBottomSheet timeline
+- active step highlighting (CURRENT STEP x/y)
+- automatic CTA switching based on GPS proximity to boarding/alighting/destination
+- real-time CTA labels:
+  - Eiti iki stotelės
+  - Lauk autobuso
+  - Lipk dabar
+  - Išlipk dabar
+  - Eiti iki tikslo
+- current-step map focus from useSmartRoute:
+  - walk to stop -> focus user -> boarding stop
+  - ride/alight -> focus transit preview
+  - final walk -> focus alight stop -> destination
+- dynamic primary action opens walking navigation for walking steps
+- for boarding/ride/alight states CTA collapses sheet to show the map better
+
+Main edited files:
+- hooks/useSmartRoute.ts
+- hooks/usePrimaryAction.ts
+- components/home/HomeBottomSheet.tsx
+- app/(tabs)/index.tsx

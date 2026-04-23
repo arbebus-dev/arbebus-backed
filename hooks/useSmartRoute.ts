@@ -34,6 +34,9 @@ export type JourneyStep = {
   icon: string;
   title: string;
   subtitle: string;
+  kind?: "walk_to_stop" | "wait_board" | "ride" | "alight" | "walk_to_destination" | "info";
+  targetCoordinate?: Coordinate | null;
+  targetRadiusMeters?: number;
 };
 
 export type Recommendation = {
@@ -415,6 +418,106 @@ function getJourneyStepIcon(step: any, fallbackMode: "bus" | "train" | "walk") {
   return "map-marker";
 }
 
+function inferStepKind(step: any) {
+  const text = `${step?.title || ""} ${step?.subtitle || ""} ${step?.instruction || ""} ${step?.type || ""} ${step?.mode || ""}`.toLowerCase();
+  if (text.includes("išlipk") || text.includes("alight")) return "alight" as const;
+  if (text.includes("važiuok") || text.includes("ride") || text.includes("bus") || text.includes("train")) return "ride" as const;
+  if (text.includes("lipk") || text.includes("board") || text.includes("lauk")) return "wait_board" as const;
+  if (text.includes("tiksl") || text.includes("destination")) return "walk_to_destination" as const;
+  if (text.includes("eik") || text.includes("walk") || text.includes("stotel")) return "walk_to_stop" as const;
+  return "info" as const;
+}
+
+function buildCurrentStepProgress({
+  journeySteps,
+  pickup,
+  destinationPlace,
+  transitPlan,
+  etaMinutes,
+}: {
+  journeySteps: JourneyStep[];
+  pickup: PlaceLike | null;
+  destinationPlace: PlaceLike | null;
+  transitPlan: TransitPlan | null;
+  etaMinutes: number | null;
+}) {
+  if (!journeySteps.length) {
+    return {
+      currentStepIndex: 0,
+      currentStep: null,
+      dynamicPrimaryLabel: null,
+      dynamicPrimaryIcon: null,
+      focusPolyline: [] as Coordinate[],
+    };
+  }
+
+  const userCoordinate = pickup?.coordinate || null;
+  const boardCoordinate = transitPlan?.originStop
+    ? { latitude: transitPlan.originStop.latitude, longitude: transitPlan.originStop.longitude }
+    : null;
+  const alightCoordinate = transitPlan?.destinationStop
+    ? { latitude: transitPlan.destinationStop.latitude, longitude: transitPlan.destinationStop.longitude }
+    : null;
+  const destinationCoordinate = destinationPlace?.coordinate || null;
+
+  const distanceToBoard = userCoordinate && boardCoordinate ? getDistanceMeters(userCoordinate, boardCoordinate) : Infinity;
+  const distanceToAlight = userCoordinate && alightCoordinate ? getDistanceMeters(userCoordinate, alightCoordinate) : Infinity;
+  const distanceToDestination = userCoordinate && destinationCoordinate ? getDistanceMeters(userCoordinate, destinationCoordinate) : Infinity;
+
+  let currentStepIndex = 0;
+
+  if (distanceToDestination <= 45) {
+    currentStepIndex = Math.max(0, journeySteps.length - 1);
+  } else if (distanceToAlight <= 70 && journeySteps.some((s) => s.kind === "walk_to_destination")) {
+    currentStepIndex = journeySteps.findIndex((s) => s.kind === "walk_to_destination");
+  } else if (distanceToBoard <= 70) {
+    const waitIndex = journeySteps.findIndex((s) => s.kind === "wait_board");
+    const rideIndex = journeySteps.findIndex((s) => s.kind === "ride");
+    currentStepIndex = etaMinutes != null && etaMinutes <= 1 && rideIndex >= 0 ? rideIndex : (waitIndex >= 0 ? waitIndex : Math.max(0, rideIndex));
+  } else {
+    const walkIndex = journeySteps.findIndex((s) => s.kind === "walk_to_stop");
+    currentStepIndex = walkIndex >= 0 ? walkIndex : 0;
+  }
+
+  const currentStep = journeySteps[Math.max(0, currentStepIndex)] || journeySteps[0] || null;
+
+  let dynamicPrimaryLabel: string | null = null;
+  let dynamicPrimaryIcon: string | null = null;
+  if (currentStep?.kind === "walk_to_stop") {
+    dynamicPrimaryLabel = "Eiti iki stotelės";
+    dynamicPrimaryIcon = "walk";
+  } else if (currentStep?.kind === "wait_board") {
+    dynamicPrimaryLabel = etaMinutes != null && etaMinutes <= 1 ? "Lipk dabar" : "Lauk autobuso";
+    dynamicPrimaryIcon = etaMinutes != null && etaMinutes <= 1 ? "bus-clock" : "bus";
+  } else if (currentStep?.kind === "ride") {
+    dynamicPrimaryLabel = distanceToAlight <= 180 ? "Išlipk dabar" : "Rodyti maršrutą";
+    dynamicPrimaryIcon = distanceToAlight <= 180 ? "flag-checkered" : "bus";
+  } else if (currentStep?.kind === "alight") {
+    dynamicPrimaryLabel = "Išlipk dabar";
+    dynamicPrimaryIcon = "flag-checkered";
+  } else if (currentStep?.kind === "walk_to_destination") {
+    dynamicPrimaryLabel = "Eiti iki tikslo";
+    dynamicPrimaryIcon = "walk";
+  }
+
+  let focusPolyline: Coordinate[] = [];
+  if (currentStep?.kind === "walk_to_stop" && userCoordinate && boardCoordinate) {
+    focusPolyline = [userCoordinate, boardCoordinate];
+  } else if ((currentStep?.kind === "wait_board" || currentStep?.kind === "ride" || currentStep?.kind === "alight") && transitPlan?.previewPoints?.length) {
+    focusPolyline = transitPlan.previewPoints;
+  } else if (currentStep?.kind === "walk_to_destination" && alightCoordinate && destinationCoordinate) {
+    focusPolyline = [alightCoordinate, destinationCoordinate];
+  }
+
+  return {
+    currentStepIndex: Math.max(0, currentStepIndex),
+    currentStep,
+    dynamicPrimaryLabel,
+    dynamicPrimaryIcon,
+    focusPolyline,
+  };
+}
+
 function normalizeJourneySteps(
   transitPlan: TransitPlan,
   pickup: PlaceLike,
@@ -427,37 +530,91 @@ function normalizeJourneySteps(
     ? transitPlan.journeySteps
     : [];
 
+  const boardCoordinate = transitPlan.originStop
+    ? { latitude: transitPlan.originStop.latitude, longitude: transitPlan.originStop.longitude }
+    : null;
+  const alightCoordinate = transitPlan.destinationStop
+    ? { latitude: transitPlan.destinationStop.latitude, longitude: transitPlan.destinationStop.longitude }
+    : null;
+
   if (rawSteps.length) {
-    return rawSteps.map((step) => ({
-      icon: getJourneyStepIcon(step, includesTrain ? "train" : "bus"),
-      title:
-        step.title ||
-        step.stopName ||
-        step.instruction ||
-        transitPlan.summary.routeLabel ||
-        "Journey step",
-      subtitle:
-        step.subtitle ||
-        step.instruction ||
-        (step.stopName ? `Stotelė ${step.stopName}` : ""),
-    }));
+    return rawSteps.map((step) => {
+      const kind = inferStepKind(step);
+      const targetCoordinate =
+        kind === "walk_to_stop" || kind === "wait_board"
+          ? boardCoordinate
+          : kind === "ride" || kind === "alight"
+          ? alightCoordinate
+          : kind === "walk_to_destination"
+          ? destinationPlace.coordinate
+          : null;
+
+      return {
+        icon: getJourneyStepIcon(step, includesTrain ? "train" : "bus"),
+        title:
+          step.title ||
+          step.stopName ||
+          step.instruction ||
+          transitPlan.summary.routeLabel ||
+          "Journey step",
+        subtitle:
+          step.subtitle ||
+          step.instruction ||
+          (step.stopName ? `Stotelė ${step.stopName}` : ""),
+        kind,
+        targetCoordinate,
+        targetRadiusMeters:
+          kind === "walk_to_stop" || kind === "wait_board"
+            ? 70
+            : kind === "ride" || kind === "alight"
+            ? 120
+            : kind === "walk_to_destination"
+            ? 45
+            : 60,
+      };
+    });
   }
 
   return [
     {
-      icon: "map-marker",
-      title: pickup.title || pickup.subtitle || "Current location",
-      subtitle: `Eik iki ${transitPlan.summary.boardStopName}`,
+      icon: "walk",
+      title: `Eik iki stotelės`,
+      subtitle: `Iki „${transitPlan.summary.boardStopName}“ • ${transitPlan.summary.totalWalkMinutes} min pėsčiomis`,
+      kind: "walk_to_stop" as const,
+      targetCoordinate: boardCoordinate,
+      targetRadiusMeters: 70,
     },
     {
       icon: includesTrain ? "train" : "bus",
-      title: transitPlan.summary.routeLabel,
+      title: `Lipk į ${transitPlan.summary.routeLabel}`,
       subtitle: `${routeDirection} • ${etaLabel}`,
+      kind: "wait_board" as const,
+      targetCoordinate: boardCoordinate,
+      targetRadiusMeters: 70,
+    },
+    {
+      icon: includesTrain ? "train" : "bus",
+      title: includesTrain ? "Važiuok traukiniu" : "Važiuok autobusu",
+      subtitle: `Iki „${transitPlan.summary.alightStopName}“ • ${transitPlan.summary.totalBusMinutes} min • ${transitPlan.summary.stopCount} st.`,
+      kind: "ride" as const,
+      targetCoordinate: alightCoordinate,
+      targetRadiusMeters: 120,
     },
     {
       icon: "flag-checkered",
-      title: destinationPlace.title || destinationPlace.subtitle || "Destination",
-      subtitle: `Išlipk ${transitPlan.summary.alightStopName}`,
+      title: "Išlipk",
+      subtitle: `„${transitPlan.summary.alightStopName}“`,
+      kind: "alight" as const,
+      targetCoordinate: alightCoordinate,
+      targetRadiusMeters: 70,
+    },
+    {
+      icon: "walk",
+      title: "Eik iki tikslo",
+      subtitle: destinationPlace.title || destinationPlace.subtitle || "Paskutinis žingsnis pėsčiomis",
+      kind: "walk_to_destination" as const,
+      targetCoordinate: destinationPlace.coordinate,
+      targetRadiusMeters: 45,
     },
   ];
 }
@@ -474,6 +631,51 @@ function normalizeTransitOptions(plan: TransitPlan | null, options: TransitPlan[
     if (!item?.id) return index === 0;
     return arr.findIndex((candidate) => candidate?.id === item.id) === index;
   });
+}
+
+
+function buildFocusedTransitPolyline({
+  transitPlan,
+  pickup,
+  destinationPlace,
+  walkingPolyline,
+}: {
+  transitPlan: TransitPlan | null;
+  pickup: PlaceLike;
+  destinationPlace: PlaceLike;
+  walkingPolyline: Coordinate[];
+}) {
+  if (!transitPlan) {
+    return walkingPolyline.length
+      ? walkingPolyline
+      : [pickup.coordinate, destinationPlace.coordinate];
+  }
+
+  const boardStop = transitPlan.originStop;
+  const startWalkDistance = boardStop
+    ? getDistanceMeters(pickup.coordinate, {
+        latitude: boardStop.latitude,
+        longitude: boardStop.longitude,
+      })
+    : 0;
+
+  if (boardStop && startWalkDistance > 70) {
+    return [
+      pickup.coordinate,
+      {
+        latitude: boardStop.latitude,
+        longitude: boardStop.longitude,
+      },
+    ];
+  }
+
+  if (transitPlan.previewPoints?.length) {
+    return transitPlan.previewPoints;
+  }
+
+  return walkingPolyline.length
+    ? walkingPolyline
+    : [pickup.coordinate, destinationPlace.coordinate];
 }
 
 async function fetchRoute(
@@ -1011,6 +1213,13 @@ export function useSmartRoute({
             ? drivingRoute.coords
             : [pickup.coordinate, destinationPlace.coordinate];
 
+        const focusedTransitPolyline = buildFocusedTransitPolyline({
+          transitPlan: chosenTransitOption || nextTransitPlan,
+          pickup,
+          destinationPlace,
+          walkingPolyline: walkingRoute.coords,
+        });
+
         const nextAlerts = nextTransitPlan?.summary?.alertSignals || [];
 
         setTransitPlan(chosenTransitOption || nextTransitPlan);
@@ -1045,7 +1254,10 @@ export function useSmartRoute({
           pickedMode: chosenRecommendation.mode,
           pickup,
           destinationPlace,
-          busPolyline: finalBusPolyline,
+          busPolyline:
+            chosenRecommendation.mode === "bus" || chosenRecommendation.mode === "train"
+              ? focusedTransitPolyline
+              : finalBusPolyline,
           drivingPolyline: drivingRoute.coords,
           walkingPolyline: walkingRoute.coords,
         });
@@ -1188,6 +1400,16 @@ export function useSmartRoute({
     recommendations.find((item) => item.id === selectedRecommendationId) ||
     recommendations[0];
 
+  const currentStepProgress = useMemo(() => {
+    return buildCurrentStepProgress({
+      journeySteps: selectedRecommendation?.journeySteps || [],
+      pickup,
+      destinationPlace,
+      transitPlan,
+      etaMinutes: eta,
+    });
+  }, [selectedRecommendation, pickup, destinationPlace, transitPlan, eta]);
+
   const selectRecommendation = useCallback(
     (id: string) => {
       const picked = recommendations.find((item) => item.id === id);
@@ -1226,7 +1448,14 @@ export function useSmartRoute({
         pickup,
         destinationPlace,
         busPolyline:
-          pickedTransitOption?.previewPoints?.length && picked.mode === "bus"
+          picked.mode === "bus" || picked.mode === "train"
+            ? buildFocusedTransitPolyline({
+                transitPlan: pickedTransitOption || transitPlan,
+                pickup,
+                destinationPlace,
+                walkingPolyline: walkingRouteCoords,
+              })
+            : pickedTransitOption?.previewPoints?.length && picked.mode === "bus"
             ? pickedTransitOption.previewPoints
             : routeCoords,
         drivingPolyline: drivingRouteCoords,
@@ -1267,6 +1496,43 @@ export function useSmartRoute({
 
     return () => clearInterval(interval);
   }, [destinationPlace?.coordinate, pickup?.coordinate, performSmartRoute]);
+
+  useEffect(() => {
+    if (!pickup || !destinationPlace || !selectedRecommendation) return;
+
+    const finalMode = selectedRecommendation.mode;
+    if (!(finalMode === "bus" || finalMode === "train" || finalMode === "smart")) return;
+
+    const focusedPolyline = currentStepProgress.focusPolyline.length
+      ? currentStepProgress.focusPolyline
+      : buildFocusedTransitPolyline({
+          transitPlan,
+          pickup,
+          destinationPlace,
+          walkingPolyline: walkingRouteCoords,
+        });
+
+    if (focusedPolyline.length) {
+      setRouteCoords(focusedPolyline);
+      applyExternalRouteForMode({
+        pickedMode: finalMode,
+        pickup,
+        destinationPlace,
+        busPolyline: focusedPolyline,
+        drivingPolyline: drivingRouteCoords,
+        walkingPolyline: walkingRouteCoords,
+      });
+    }
+  }, [
+    applyExternalRouteForMode,
+    currentStepProgress.focusPolyline,
+    destinationPlace,
+    drivingRouteCoords,
+    pickup,
+    selectedRecommendation,
+    transitPlan,
+    walkingRouteCoords,
+  ]);
 
   useEffect(() => {
     if (!pickup?.coordinate || !destinationPlace?.coordinate) return;
@@ -1339,6 +1605,10 @@ export function useSmartRoute({
     getFinalMode,
     fetchRoute,
     selectRecommendation,
+    currentStepIndex: currentStepProgress.currentStepIndex,
+    currentStep: currentStepProgress.currentStep,
+    dynamicPrimaryLabel: currentStepProgress.dynamicPrimaryLabel,
+    dynamicPrimaryIcon: currentStepProgress.dynamicPrimaryIcon,
   };
 }
 

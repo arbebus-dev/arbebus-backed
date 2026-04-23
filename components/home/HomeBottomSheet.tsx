@@ -76,6 +76,15 @@ type Props = {
   selectedRecommendation?: Recommendation | null;
   recommendations?: Recommendation[];
   selectedRecommendationId?: string;
+  currentStepIndex?: number;
+  currentStep?: {
+    icon?: string | null;
+    title?: string | null;
+    subtitle?: string | null;
+    kind?: string | null;
+  } | null;
+  dynamicPrimaryLabel?: string | null;
+  dynamicPrimaryIcon?: string | null;
   onSelectRecommendation?: (id: string) => void;
   homeLocation: string | null;
   workLocation: string | null;
@@ -219,6 +228,80 @@ function getModeAccent(mode?: Recommendation["mode"] | TravelMode | null) {
   return "#60A5FA";
 }
 
+
+function getActionNow(step?: { title?: string; subtitle?: string } | null) {
+  if (!step) {
+    return {
+      title: "Pasirink tikslą",
+      subtitle: "Įvesk adresą arba vietą ir parodysime pirmą žingsnį.",
+    };
+  }
+
+  return {
+    title: step.title || "Ką daryti dabar",
+    subtitle: step.subtitle || "Sek pirmą žingsnį žemėlapyje.",
+  };
+}
+
+
+function getDynamicPrimaryCta({
+  selectedMode,
+  selectedRecommendation,
+  currentStep,
+  dynamicPrimaryLabel,
+  dynamicPrimaryIcon,
+  fallbackLabel,
+  fallbackIcon,
+}: {
+  selectedMode: TravelMode;
+  selectedRecommendation?: Recommendation | null;
+  currentStep?: Recommendation["journeySteps"] extends (infer T)[] ? T | null : any;
+  dynamicPrimaryLabel?: string | null;
+  dynamicPrimaryIcon?: string | null;
+  fallbackLabel: string;
+  fallbackIcon: keyof typeof MaterialCommunityIcons.glyphMap;
+}) {
+  if (!(selectedMode === "smart" || selectedMode === "bus" || selectedMode === "train")) {
+    return { label: fallbackLabel, icon: fallbackIcon };
+  }
+
+  if (dynamicPrimaryLabel) {
+    return {
+      label: dynamicPrimaryLabel,
+      icon: (dynamicPrimaryIcon || fallbackIcon) as keyof typeof MaterialCommunityIcons.glyphMap,
+    };
+  }
+
+  const firstStep = currentStep || selectedRecommendation?.journeySteps?.[0];
+  const text = `${firstStep?.title || ""} ${firstStep?.subtitle || ""}`.toLowerCase();
+
+  if (!firstStep) {
+    return { label: fallbackLabel, icon: fallbackIcon };
+  }
+
+  if (text.includes("eik") || text.includes("walk") || text.includes("stotel")) {
+    return { label: "Eiti iki stotelės", icon: "walk" as const };
+  }
+
+  if (text.includes("lauk")) {
+    return { label: "Lauk autobuso", icon: "bus-clock" as const };
+  }
+
+  if (text.includes("lipk") || text.includes("board") || text.includes("autobus")) {
+    return { label: "Lipk dabar", icon: "bus-clock" as const };
+  }
+
+  if (text.includes("išlipk") || text.includes("alight")) {
+    return { label: "Išlipk dabar", icon: "flag-checkered" as const };
+  }
+
+  if (text.includes("tiksl") || text.includes("destination")) {
+    return { label: "Eiti iki tikslo", icon: "walk" as const };
+  }
+
+  return { label: fallbackLabel, icon: fallbackIcon };
+}
+
 function Badge({
   icon,
   label,
@@ -250,22 +333,24 @@ function TimelineStep({
   subtitle,
   accent,
   isLast,
+  isActive,
 }: {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   title: string;
   subtitle?: string;
   accent: string;
   isLast?: boolean;
+  isActive?: boolean;
 }) {
   return (
-    <View style={styles.timelineRow}>
+    <View style={[styles.timelineRow, isActive && styles.timelineRowActive]}>
       <View style={styles.timelineLeft}>
         <View
           style={[
             styles.timelineDot,
             {
-              borderColor: `${accent}35`,
-              backgroundColor: `${accent}14`,
+              borderColor: isActive ? `${accent}80` : `${accent}35`,
+              backgroundColor: isActive ? `${accent}24` : `${accent}14`,
             },
           ]}
         >
@@ -303,6 +388,10 @@ function HomeBottomSheet({
   selectedRecommendation,
   recommendations = [],
   selectedRecommendationId,
+  currentStepIndex = 0,
+  currentStep,
+  dynamicPrimaryLabel,
+  dynamicPrimaryIcon,
   onSelectRecommendation,
   homeLocation,
   workLocation,
@@ -375,6 +464,7 @@ function HomeBottomSheet({
     })) || [];
 
   const journeySteps = selectedRecommendation?.journeySteps || [];
+  const actionNow = getActionNow((currentStep as any) || journeySteps[currentStepIndex] || journeySteps[0]);
   const selectedBusLabel = selectedBus?.number || selectedBus?.vehicleLabel || null;
   const selectedBusDirection = selectedBus?.directionName || null;
   const summarySubtitle =
@@ -401,6 +491,16 @@ function HomeBottomSheet({
         getFinalMode,
       })
     : "crown-outline") as keyof typeof MaterialCommunityIcons.glyphMap;
+
+  const dynamicCta = getDynamicPrimaryCta({
+    selectedMode,
+    selectedRecommendation,
+    currentStep: (currentStep as any) || journeySteps[currentStepIndex] || journeySteps[0],
+    dynamicPrimaryLabel,
+    dynamicPrimaryIcon,
+    fallbackLabel: primaryLabel,
+    fallbackIcon: primaryIcon,
+  });
 
   return (
     <Animated.View
@@ -528,6 +628,37 @@ function HomeBottomSheet({
                 </View>
               </View>
 
+              <View
+                style={[
+                  styles.noticeBox,
+                  {
+                    marginTop: 14,
+                    borderColor: `${accent}35`,
+                    backgroundColor: `${accent}12`,
+                  },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name="navigation-variant"
+                  size={16}
+                  color={accent}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[
+                      styles.noticeText,
+                      { color: "#EAF2FF", fontWeight: "800", marginBottom: 4 },
+                    ]}
+                  >
+                    KĄ DARYTI DABAR
+                  </Text>
+                  <Text style={styles.noticeText}>
+                    {actionNow.title}
+                    {actionNow.subtitle ? ` • ${actionNow.subtitle}` : ""}
+                  </Text>
+                </View>
+              </View>
+
               {journeyBadges.length > 0 ? (
                 <ScrollView
                   horizontal
@@ -561,6 +692,10 @@ function HomeBottomSheet({
 
               {journeySteps.length > 0 ? (
                 <View style={styles.timelineCard}>
+                  <View style={styles.progressHeader}>
+                    <Text style={styles.progressEyebrow}>CURRENT STEP</Text>
+                    <Text style={styles.progressCount}>{Math.min(currentStepIndex + 1, journeySteps.length)}/{journeySteps.length}</Text>
+                  </View>
                   {journeySteps.map((step, index) => (
                     <TimelineStep
                       key={`${step.title || "step"}-${index}`}
@@ -572,6 +707,7 @@ function HomeBottomSheet({
                       subtitle={step.subtitle || ""}
                       accent={accent}
                       isLast={index === journeySteps.length - 1}
+                      isActive={index === currentStepIndex}
                     />
                   ))}
                 </View>
@@ -666,12 +802,12 @@ function HomeBottomSheet({
                   ]}
                 >
                   <MaterialCommunityIcons
-                    name={primaryIcon}
+                    name={dynamicCta.icon}
                     size={18}
                     color="#fff"
                     style={{ marginRight: 8 }}
                   />
-                  <Text style={styles.ctaText}>{primaryLabel}</Text>
+                  <Text style={styles.ctaText}>{dynamicCta.label}</Text>
                 </Animated.View>
               </UltraPressable>
             </View>
@@ -961,9 +1097,32 @@ const styles = StyleSheet.create({
     padding: 12,
     backgroundColor: "rgba(255,255,255,0.04)",
   },
+  progressHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  progressEyebrow: {
+    color: "#9EC5FF",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.1,
+  },
+  progressCount: {
+    color: "#EAF2FF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
   timelineRow: {
     flexDirection: "row",
     alignItems: "stretch",
+    borderRadius: 14,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  timelineRowActive: {
+    backgroundColor: "rgba(96,165,250,0.10)",
   },
   timelineLeft: {
     width: 34,

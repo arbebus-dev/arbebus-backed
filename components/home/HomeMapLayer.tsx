@@ -53,7 +53,7 @@ export default function HomeMapLayer({
   destinationTitle,
   destinationSubtitle,
 }: Props) {
-  const routeToRender = polylineCoords.length > 1 ? polylineCoords : routeCoords;
+  const routeToRender = polylineCoords.length > 1 ? polylineCoords : [];
 
   return (
     <MapView
