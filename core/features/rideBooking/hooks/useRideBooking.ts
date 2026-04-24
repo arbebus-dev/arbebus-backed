@@ -44,7 +44,7 @@ const DEFAULT_PRODUCTS = [
   { id: "smart" },
   { id: "taxi" },
   { id: "bus" },
-  { id: "scooter" },
+  { id: "walk" },
 ];
 
 function isValidCoordinate(value: any): value is Coordinate {
@@ -162,14 +162,11 @@ export function useRideBooking() {
     setFlowState("searching");
   }, []);
 
-  const setExternalRoute = useCallback((polyline: RoutePoint[]) => {
+  const setExternalRoute = useCallback((route: { polyline: RoutePoint[] } | RoutePoint[]) => {
+    const polyline = Array.isArray(route) ? route : route?.polyline ?? [];
     setRideDraft((prev) => ({
       ...prev,
-      route: polyline?.length
-        ? {
-            polyline,
-          }
-        : null,
+      route: polyline.length ? { polyline } : null,
     }));
   }, []);
 
@@ -402,6 +399,55 @@ export function useRideBooking() {
     ]
   );
 
+
+  const applyFavoriteRoute = useCallback(
+    async ({ fromQueryValue, toQueryValue }: { fromQueryValue: string; toQueryValue: string }) => {
+      try {
+        const [fromResults, toResults] = await Promise.all([
+          placeSearchService.autocomplete(fromQueryValue),
+          placeSearchService.autocomplete(toQueryValue),
+        ]);
+
+        const fromFirst = Array.isArray(fromResults) ? fromResults[0] : null;
+        const toFirst = Array.isArray(toResults) ? toResults[0] : null;
+        if (!fromFirst || !toFirst) return;
+
+        const fromPlace = await resolveSuggestionToPlace(fromFirst as any);
+        const toPlace = await resolveSuggestionToPlace(toFirst as any);
+        if (!fromPlace || !toPlace) return;
+
+        const route = await buildRealRouteOrFallback(
+          fromPlace.coordinate,
+          toPlace.coordinate,
+          "driving-car"
+        );
+
+        setFromQuery(fromPlace.title || fromPlace.subtitle || fromQueryValue);
+        setToQuery(toPlace.title || toPlace.subtitle || toQueryValue);
+        setRideDraft((prev) => ({
+          ...prev,
+          pickup: fromPlace,
+          destination: toPlace,
+          route: { polyline: route },
+          selectedProductId: prev.selectedProductId ?? DEFAULT_PRODUCTS[0].id,
+        }));
+        setMapState((prev) => ({
+          ...prev,
+          userCoordinate: fromPlace.coordinate,
+          pickupCoordinate: fromPlace.coordinate,
+          destinationCoordinate: toPlace.coordinate,
+        }));
+        setSearchResults([]);
+        setActiveField(null);
+        setFlowState("routePreview");
+        setRideStatus("idle");
+      } catch (error) {
+        console.log("applyFavoriteRoute error:", error);
+      }
+    },
+    [resolveSuggestionToPlace]
+  );
+
   const swapPlaces = useCallback(async () => {
     const nextPickup = rideDraft.destination;
     const nextDestination = rideDraft.pickup;
@@ -470,6 +516,7 @@ export function useRideBooking() {
     selectSuggestion,
     clearField,
     swapPlaces,
+    applyFavoriteRoute,
 
     pickupDisplayText,
     destinationDisplayText,

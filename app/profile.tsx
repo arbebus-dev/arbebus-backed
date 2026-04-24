@@ -50,8 +50,8 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     if (user) {
-      setName(user.name);
-      setEmail(user.email);
+      setName(user.fullName ?? "Guest User");
+      setEmail(user.email ?? "guest@arbebus.app");
     }
   }, [user]);
 
@@ -65,9 +65,13 @@ export default function ProfileScreen() {
 
   const saveProfile = async () => {
     try {
+      const trimmedName = name.trim();
+      const parts = trimmedName.split(/\s+/).filter(Boolean);
+
       await updateUserProfile({
-        name: name.trim(),
-        email: email.trim(),
+        fullName: trimmedName || null,
+        firstName: parts[0] ?? null,
+        lastName: parts.length > 1 ? parts.slice(1).join(" ") : null,
       });
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

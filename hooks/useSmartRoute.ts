@@ -34,9 +34,6 @@ export type JourneyStep = {
   icon: string;
   title: string;
   subtitle: string;
-  kind?: "walk_to_stop" | "wait_board" | "ride" | "alight" | "walk_to_destination" | "info";
-  targetCoordinate?: Coordinate | null;
-  targetRadiusMeters?: number;
 };
 
 export type Recommendation = {
@@ -127,12 +124,6 @@ function estimateTaxiPrice(distanceKm: number, durationMin: number) {
   return base + distanceKm * perKm + durationMin * perMin;
 }
 
-function estimateScooterPrice(durationMin: number) {
-  const unlock = 0.5;
-  const perMin = 0.22;
-  return unlock + durationMin * perMin;
-}
-
 function pointToSegmentDistanceMeters(
   point: Coordinate,
   start: Coordinate,
@@ -218,40 +209,6 @@ function buildTaxiJourneyMeta({
       },
     ],
     notice: "Taxi užsakymas atidaromas per Bolt arba kitą ride-hailing flow.",
-  };
-}
-
-function buildScooterJourneyMeta({
-  pickup,
-  destinationPlace,
-}: {
-  pickup: PlaceLike;
-  destinationPlace: PlaceLike;
-}) {
-  return {
-    journeyBadges: [
-      { icon: "scooter", label: "Scooter" },
-      { icon: "walk", label: "Walk 2 min" },
-    ],
-    journeySteps: [
-      {
-        icon: "map-marker",
-        title: pickup.title || pickup.subtitle || "Current location",
-        subtitle: "Rask artimiausią paspirtuką",
-      },
-      {
-        icon: "scooter",
-        title: "Scooter ride",
-        subtitle: "Lankstus miesto maršrutas be tvarkaraščio",
-      },
-      {
-        icon: "flag-checkered",
-        title:
-          destinationPlace.title || destinationPlace.subtitle || "Destination",
-        subtitle: "Pastatyk ir užbaik kelionę",
-      },
-    ],
-    notice: "Kaina gali keistis pagal operatorių, unlock mokestį ir laiką.",
   };
 }
 
@@ -418,106 +375,6 @@ function getJourneyStepIcon(step: any, fallbackMode: "bus" | "train" | "walk") {
   return "map-marker";
 }
 
-function inferStepKind(step: any) {
-  const text = `${step?.title || ""} ${step?.subtitle || ""} ${step?.instruction || ""} ${step?.type || ""} ${step?.mode || ""}`.toLowerCase();
-  if (text.includes("išlipk") || text.includes("alight")) return "alight" as const;
-  if (text.includes("važiuok") || text.includes("ride") || text.includes("bus") || text.includes("train")) return "ride" as const;
-  if (text.includes("lipk") || text.includes("board") || text.includes("lauk")) return "wait_board" as const;
-  if (text.includes("tiksl") || text.includes("destination")) return "walk_to_destination" as const;
-  if (text.includes("eik") || text.includes("walk") || text.includes("stotel")) return "walk_to_stop" as const;
-  return "info" as const;
-}
-
-function buildCurrentStepProgress({
-  journeySteps,
-  pickup,
-  destinationPlace,
-  transitPlan,
-  etaMinutes,
-}: {
-  journeySteps: JourneyStep[];
-  pickup: PlaceLike | null;
-  destinationPlace: PlaceLike | null;
-  transitPlan: TransitPlan | null;
-  etaMinutes: number | null;
-}) {
-  if (!journeySteps.length) {
-    return {
-      currentStepIndex: 0,
-      currentStep: null,
-      dynamicPrimaryLabel: null,
-      dynamicPrimaryIcon: null,
-      focusPolyline: [] as Coordinate[],
-    };
-  }
-
-  const userCoordinate = pickup?.coordinate || null;
-  const boardCoordinate = transitPlan?.originStop
-    ? { latitude: transitPlan.originStop.latitude, longitude: transitPlan.originStop.longitude }
-    : null;
-  const alightCoordinate = transitPlan?.destinationStop
-    ? { latitude: transitPlan.destinationStop.latitude, longitude: transitPlan.destinationStop.longitude }
-    : null;
-  const destinationCoordinate = destinationPlace?.coordinate || null;
-
-  const distanceToBoard = userCoordinate && boardCoordinate ? getDistanceMeters(userCoordinate, boardCoordinate) : Infinity;
-  const distanceToAlight = userCoordinate && alightCoordinate ? getDistanceMeters(userCoordinate, alightCoordinate) : Infinity;
-  const distanceToDestination = userCoordinate && destinationCoordinate ? getDistanceMeters(userCoordinate, destinationCoordinate) : Infinity;
-
-  let currentStepIndex = 0;
-
-  if (distanceToDestination <= 45) {
-    currentStepIndex = Math.max(0, journeySteps.length - 1);
-  } else if (distanceToAlight <= 70 && journeySteps.some((s) => s.kind === "walk_to_destination")) {
-    currentStepIndex = journeySteps.findIndex((s) => s.kind === "walk_to_destination");
-  } else if (distanceToBoard <= 70) {
-    const waitIndex = journeySteps.findIndex((s) => s.kind === "wait_board");
-    const rideIndex = journeySteps.findIndex((s) => s.kind === "ride");
-    currentStepIndex = etaMinutes != null && etaMinutes <= 1 && rideIndex >= 0 ? rideIndex : (waitIndex >= 0 ? waitIndex : Math.max(0, rideIndex));
-  } else {
-    const walkIndex = journeySteps.findIndex((s) => s.kind === "walk_to_stop");
-    currentStepIndex = walkIndex >= 0 ? walkIndex : 0;
-  }
-
-  const currentStep = journeySteps[Math.max(0, currentStepIndex)] || journeySteps[0] || null;
-
-  let dynamicPrimaryLabel: string | null = null;
-  let dynamicPrimaryIcon: string | null = null;
-  if (currentStep?.kind === "walk_to_stop") {
-    dynamicPrimaryLabel = "Eiti iki stotelės";
-    dynamicPrimaryIcon = "walk";
-  } else if (currentStep?.kind === "wait_board") {
-    dynamicPrimaryLabel = etaMinutes != null && etaMinutes <= 1 ? "Lipk dabar" : "Lauk autobuso";
-    dynamicPrimaryIcon = etaMinutes != null && etaMinutes <= 1 ? "bus-clock" : "bus";
-  } else if (currentStep?.kind === "ride") {
-    dynamicPrimaryLabel = distanceToAlight <= 180 ? "Išlipk dabar" : "Rodyti maršrutą";
-    dynamicPrimaryIcon = distanceToAlight <= 180 ? "flag-checkered" : "bus";
-  } else if (currentStep?.kind === "alight") {
-    dynamicPrimaryLabel = "Išlipk dabar";
-    dynamicPrimaryIcon = "flag-checkered";
-  } else if (currentStep?.kind === "walk_to_destination") {
-    dynamicPrimaryLabel = "Eiti iki tikslo";
-    dynamicPrimaryIcon = "walk";
-  }
-
-  let focusPolyline: Coordinate[] = [];
-  if (currentStep?.kind === "walk_to_stop" && userCoordinate && boardCoordinate) {
-    focusPolyline = [userCoordinate, boardCoordinate];
-  } else if ((currentStep?.kind === "wait_board" || currentStep?.kind === "ride" || currentStep?.kind === "alight") && transitPlan?.previewPoints?.length) {
-    focusPolyline = transitPlan.previewPoints;
-  } else if (currentStep?.kind === "walk_to_destination" && alightCoordinate && destinationCoordinate) {
-    focusPolyline = [alightCoordinate, destinationCoordinate];
-  }
-
-  return {
-    currentStepIndex: Math.max(0, currentStepIndex),
-    currentStep,
-    dynamicPrimaryLabel,
-    dynamicPrimaryIcon,
-    focusPolyline,
-  };
-}
-
 function normalizeJourneySteps(
   transitPlan: TransitPlan,
   pickup: PlaceLike,
@@ -530,91 +387,37 @@ function normalizeJourneySteps(
     ? transitPlan.journeySteps
     : [];
 
-  const boardCoordinate = transitPlan.originStop
-    ? { latitude: transitPlan.originStop.latitude, longitude: transitPlan.originStop.longitude }
-    : null;
-  const alightCoordinate = transitPlan.destinationStop
-    ? { latitude: transitPlan.destinationStop.latitude, longitude: transitPlan.destinationStop.longitude }
-    : null;
-
   if (rawSteps.length) {
-    return rawSteps.map((step) => {
-      const kind = inferStepKind(step);
-      const targetCoordinate =
-        kind === "walk_to_stop" || kind === "wait_board"
-          ? boardCoordinate
-          : kind === "ride" || kind === "alight"
-          ? alightCoordinate
-          : kind === "walk_to_destination"
-          ? destinationPlace.coordinate
-          : null;
-
-      return {
-        icon: getJourneyStepIcon(step, includesTrain ? "train" : "bus"),
-        title:
-          step.title ||
-          step.stopName ||
-          step.instruction ||
-          transitPlan.summary.routeLabel ||
-          "Journey step",
-        subtitle:
-          step.subtitle ||
-          step.instruction ||
-          (step.stopName ? `Stotelė ${step.stopName}` : ""),
-        kind,
-        targetCoordinate,
-        targetRadiusMeters:
-          kind === "walk_to_stop" || kind === "wait_board"
-            ? 70
-            : kind === "ride" || kind === "alight"
-            ? 120
-            : kind === "walk_to_destination"
-            ? 45
-            : 60,
-      };
-    });
+    return rawSteps.map((step) => ({
+      icon: getJourneyStepIcon(step, includesTrain ? "train" : "bus"),
+      title:
+        step.title ||
+        step.stopName ||
+        step.instruction ||
+        transitPlan.summary.routeLabel ||
+        "Journey step",
+      subtitle:
+        step.subtitle ||
+        step.instruction ||
+        (step.stopName ? `Stotelė ${step.stopName}` : ""),
+    }));
   }
 
   return [
     {
-      icon: "walk",
-      title: `Eik iki stotelės`,
-      subtitle: `Iki „${transitPlan.summary.boardStopName}“ • ${transitPlan.summary.totalWalkMinutes} min pėsčiomis`,
-      kind: "walk_to_stop" as const,
-      targetCoordinate: boardCoordinate,
-      targetRadiusMeters: 70,
+      icon: "map-marker",
+      title: pickup.title || pickup.subtitle || "Current location",
+      subtitle: `Eik iki ${transitPlan.summary.boardStopName}`,
     },
     {
       icon: includesTrain ? "train" : "bus",
-      title: `Lipk į ${transitPlan.summary.routeLabel}`,
+      title: transitPlan.summary.routeLabel,
       subtitle: `${routeDirection} • ${etaLabel}`,
-      kind: "wait_board" as const,
-      targetCoordinate: boardCoordinate,
-      targetRadiusMeters: 70,
-    },
-    {
-      icon: includesTrain ? "train" : "bus",
-      title: includesTrain ? "Važiuok traukiniu" : "Važiuok autobusu",
-      subtitle: `Iki „${transitPlan.summary.alightStopName}“ • ${transitPlan.summary.totalBusMinutes} min • ${transitPlan.summary.stopCount} st.`,
-      kind: "ride" as const,
-      targetCoordinate: alightCoordinate,
-      targetRadiusMeters: 120,
     },
     {
       icon: "flag-checkered",
-      title: "Išlipk",
-      subtitle: `„${transitPlan.summary.alightStopName}“`,
-      kind: "alight" as const,
-      targetCoordinate: alightCoordinate,
-      targetRadiusMeters: 70,
-    },
-    {
-      icon: "walk",
-      title: "Eik iki tikslo",
-      subtitle: destinationPlace.title || destinationPlace.subtitle || "Paskutinis žingsnis pėsčiomis",
-      kind: "walk_to_destination" as const,
-      targetCoordinate: destinationPlace.coordinate,
-      targetRadiusMeters: 45,
+      title: destinationPlace.title || destinationPlace.subtitle || "Destination",
+      subtitle: `Išlipk ${transitPlan.summary.alightStopName}`,
     },
   ];
 }
@@ -631,51 +434,6 @@ function normalizeTransitOptions(plan: TransitPlan | null, options: TransitPlan[
     if (!item?.id) return index === 0;
     return arr.findIndex((candidate) => candidate?.id === item.id) === index;
   });
-}
-
-
-function buildFocusedTransitPolyline({
-  transitPlan,
-  pickup,
-  destinationPlace,
-  walkingPolyline,
-}: {
-  transitPlan: TransitPlan | null;
-  pickup: PlaceLike;
-  destinationPlace: PlaceLike;
-  walkingPolyline: Coordinate[];
-}) {
-  if (!transitPlan) {
-    return walkingPolyline.length
-      ? walkingPolyline
-      : [pickup.coordinate, destinationPlace.coordinate];
-  }
-
-  const boardStop = transitPlan.originStop;
-  const startWalkDistance = boardStop
-    ? getDistanceMeters(pickup.coordinate, {
-        latitude: boardStop.latitude,
-        longitude: boardStop.longitude,
-      })
-    : 0;
-
-  if (boardStop && startWalkDistance > 70) {
-    return [
-      pickup.coordinate,
-      {
-        latitude: boardStop.latitude,
-        longitude: boardStop.longitude,
-      },
-    ];
-  }
-
-  if (transitPlan.previewPoints?.length) {
-    return transitPlan.previewPoints;
-  }
-
-  return walkingPolyline.length
-    ? walkingPolyline
-    : [pickup.coordinate, destinationPlace.coordinate];
 }
 
 async function fetchRoute(
@@ -885,7 +643,6 @@ export function useSmartRoute({
       selectedBus,
       isRefreshing,
       transitOptionsCount,
-      transitMeta,
     }: {
       distanceKm: number;
       drivingDurationMin: number;
@@ -904,172 +661,98 @@ export function useSmartRoute({
     }): Recommendation[] => {
       const walkingEta = clampEta((distanceKm / 4.8) * 60);
       const taxiEta = clampEta(Math.max(4, drivingDurationMin * 0.78));
-      const scooterEta = clampEta(Math.max(5, (distanceKm / 18) * 60));
       const taxiPrice = estimateTaxiPrice(distanceKm, drivingDurationMin);
-      const scooterPrice = estimateScooterPrice(scooterEta);
+      const taxiJourney = buildTaxiJourneyMeta({ pickup, destinationPlace });
+      const walkJourney = buildWalkJourneyMeta({ pickup, destinationPlace, walkingEta });
 
-      const busEta =
-        transitPlan?.summary.totalDurationMinutes ??
-        clampEta(drivingDurationMin * 1.2 + 7);
-      const busPrice = distanceKm > 7 ? 1.2 : 0.8;
+      const taxiRecommendation: Recommendation = {
+        id: 'taxi',
+        mode: 'taxi',
+        icon: 'taxi',
+        title: 'Taxi',
+        subtitle: `${taxiEta} min • ${formatPrice(taxiPrice)}`,
+        price: formatPrice(taxiPrice),
+        etaLabel: `${taxiEta} min`,
+        description: 'Bolt / taxi • Greičiausias tiesioginis variantas',
+        accent: '#facc15',
+        rightIcons: ['taxi', 'open-in-new'],
+        ...taxiJourney,
+      };
 
-      const busJourney = transitPlan
+      const walkRecommendation: Recommendation = {
+        id: 'walk',
+        mode: 'walk',
+        icon: 'walk',
+        title: 'Pėsčiomis',
+        subtitle: `${walkingEta} min • €0.00`,
+        price: '€0.00',
+        etaLabel: `${walkingEta} min`,
+        description: 'Tiesiausias maršrutas pėsčiomis',
+        accent: '#22c55e',
+        rightIcons: ['walk', 'map-marker-path'],
+        ...walkJourney,
+      };
+
+      const primaryPlan = transitPlan || transitOptions[0] || null;
+      const transitMetaBuilt = primaryPlan
         ? buildTransitMeta({
             pickup,
             destinationPlace,
-            transitPlan,
+            transitPlan: primaryPlan,
             selectedBus,
             isRefreshing,
-            transitOptionsCount,
+            transitOptionsCount: Math.max(1, transitOptionsCount),
           })
-        : {
-            journeyBadges: [
-              { icon: "bus", label: "Bus" },
-              { icon: "clock-outline", label: "Live search" },
-            ],
-            journeySteps: [
-              {
-                icon: "map-marker",
-                title: pickup.title || pickup.subtitle || "Current location",
-                subtitle:
-                  transitMeta?.nearbyOriginStops?.[0]
-                    ? `Artimiausia stotelė: ${transitMeta.nearbyOriginStops[0].name}`
-                    : "Ieškome artimiausių stotelių",
-              },
-              {
-                icon: "bus",
-                title: "Viešasis transportas",
-                subtitle:
-                  transitMeta?.reason === "NO_NEARBY_STOPS"
-                    ? "Šalia taško neradome tinkamų stotelių"
-                    : "Tikriname direct ir transfer variantus",
-              },
-              {
-                icon: "flag-checkered",
-                title:
-                  destinationPlace.title ||
-                  destinationPlace.subtitle ||
-                  "Destination",
-                subtitle:
-                  transitMeta?.nearbyDestinationStops?.[0]
-                    ? `Tikslui artimiausia: ${transitMeta.nearbyDestinationStops[0].name}`
-                    : "Atvykimas į tikslą",
-              },
-            ],
-            notice: isRefreshing
-              ? "Perskaičiuojama pagal gyvą lokaciją…"
-              : transitMeta?.reason === "NO_NEARBY_STOPS"
-              ? "Šiuo tašku neradome pakankamai arti esančių GTFS stotelių. Pabandyk tikslesnį adresą arba stotelę." 
-              : "Šiuo metu neradome tinkamo GTFS varianto. Backend veikia, bet šitam maršrutui gali reikėti kito laiko arba tikslesnio taško.",
-          };
+        : null;
 
       const busRecommendation: Recommendation = {
-        id: transitPlan?.id || "bus",
-        mode: transitPlan?.mode === "train" ? "train" : "bus",
-        icon: (transitPlan?.summary.modes || []).includes("train") ? "train" : "bus",
-        title: getTransitRecommendationTitle(transitPlan),
-        subtitle: `${busEta} min • ${formatPrice(busPrice)}`,
-        price: formatPrice(busPrice),
-        etaLabel: `${busEta} min`,
-        description: getTransitRecommendationDescription(transitPlan),
-        accent: "#60a5fa",
-        rightIcons: ["bus", "navigation-variant"],
-        ...busJourney,
+        id: primaryPlan?.id || 'bus',
+        mode: (primaryPlan?.summary.modes || []).includes('train') && !(primaryPlan?.summary.modes || []).includes('bus') ? 'train' : 'bus',
+        icon: (primaryPlan?.summary.modes || []).includes('train') ? 'train' : 'bus',
+        title: primaryPlan ? getTransitRecommendationTitle(primaryPlan) : 'Viešasis transportas',
+        subtitle: primaryPlan
+          ? `${primaryPlan.summary.totalDurationMinutes || clampEta(drivingDurationMin * 1.15)} min • ${primaryPlan.summary.routeLabel || 'Live'}`
+          : 'Ieškomas geriausias GTFS variantas',
+        price: '€0.00',
+        etaLabel: primaryPlan?.summary.etaMinutes != null ? `${primaryPlan.summary.etaMinutes} min` : `${clampEta(drivingDurationMin * 1.15)} min`,
+        description: getTransitRecommendationDescription(primaryPlan),
+        accent: '#2563eb',
+        rightIcons: [(primaryPlan?.summary.modes || []).includes('train') ? 'train' : 'bus', 'clock-outline'],
+        ...(transitMetaBuilt || {}),
       };
 
       const busVariantRecommendations: Recommendation[] = transitOptions
-        .filter((option) => option.id && option.id !== transitPlan?.id)
-        .slice(0, 2)
-        .map((option, index) => {
-          const optionEta = option.summary.totalDurationMinutes || busEta + index + 1;
-          const optionMeta = buildTransitMeta({
+        .filter((option) => option.id !== primaryPlan?.id)
+        .slice(0, 3)
+        .map((option, index) => ({
+          id: option.id,
+          mode: (option.summary.modes || []).includes('train') && !(option.summary.modes || []).includes('bus') ? 'train' : 'bus',
+          icon: (option.summary.modes || []).includes('train') ? 'train' : 'bus',
+          title: option.summary.routeLabel || `Variantas ${index + 2}`,
+          subtitle: `${option.summary.totalDurationMinutes || 0} min • ${option.summary.boardStopName || 'Stotelė'}`,
+          price: '€0.00',
+          etaLabel: option.summary.etaMinutes != null ? `${option.summary.etaMinutes} min` : `${option.summary.totalDurationMinutes || 0} min`,
+          description: getTransitRecommendationDescription(option),
+          accent: '#38bdf8',
+          rightIcons: [(option.summary.modes || []).includes('train') ? 'train' : 'bus'],
+          ...buildTransitMeta({
             pickup,
             destinationPlace,
             transitPlan: option,
             selectedBus,
             isRefreshing,
-            transitOptionsCount,
-          });
+            transitOptionsCount: Math.max(1, transitOptionsCount),
+          }),
+        }));
 
-          return {
-            id: option.id || `bus-option-${index}`,
-            mode: option.mode === "train" ? "train" as const : "bus" as const,
-            icon: (option.summary.modes || []).includes("train") ? "train" : "bus",
-            title: getTransitRecommendationTitle(option),
-            subtitle: `${optionEta} min • ${formatPrice(busPrice)}`,
-            price: formatPrice(busPrice),
-            etaLabel: `${optionEta} min`,
-            description: `${option.summary.routeLabel} • ${option.summary.boardStopName} → ${option.summary.alightStopName}`,
-            accent: "#60a5fa",
-            rightIcons: ["bus", option.summary.transfersCount ? "swap-horizontal" : "navigation-variant"],
-            ...optionMeta,
-          };
-        });
-
-      const taxiJourney = buildTaxiJourneyMeta({ pickup, destinationPlace });
-      const scooterJourney = buildScooterJourneyMeta({
-        pickup,
-        destinationPlace,
-      });
-      const walkJourney = buildWalkJourneyMeta({
-        pickup,
-        destinationPlace,
-        walkingEta,
-      });
-
-      const taxiRecommendation: Recommendation = {
-        id: "taxi",
-        mode: "taxi",
-        icon: "taxi",
-        title: "Taxi",
-        subtitle: `${taxiEta} min • ${formatPrice(taxiPrice)}`,
-        price: formatPrice(taxiPrice),
-        etaLabel: `${taxiEta} min`,
-        description: "Bolt / taxi • Greičiausias tiesioginis variantas",
-        accent: "#facc15",
-        rightIcons: ["taxi", "open-in-new"],
-        ...taxiJourney,
-      };
-
-      const scooterRecommendation: Recommendation = {
-        id: "scooter",
-        mode: "scooter",
-        icon: "scooter",
-        title: "Scooter",
-        subtitle: `${scooterEta} min • ${formatPrice(scooterPrice)}`,
-        price: formatPrice(scooterPrice),
-        etaLabel: `${scooterEta} min`,
-        description: "Paspirtukas • Lankstus variantas miestui",
-        accent: "#34d399",
-        rightIcons: ["scooter", "lightning-bolt"],
-        ...scooterJourney,
-      };
-
-      const walkRecommendation: Recommendation = {
-        id: "walk",
-        mode: "walk",
-        icon: "walk",
-        title: "Pėsčiomis",
-        subtitle: `${walkingEta} min • €0.00`,
-        price: "€0.00",
-        etaLabel: `${walkingEta} min`,
-        description: "Tiesiausias maršrutas pėsčiomis",
-        accent: "#22c55e",
-        rightIcons: ["walk", "map-marker-path"],
-        ...walkJourney,
-      };
-
-      const finalDecision = decideTransport({ distanceKm, transitPlan });
-
-      if (finalDecision === "walk") {
-        return [walkRecommendation, busRecommendation, ...busVariantRecommendations, taxiRecommendation];
+      const finalDecision = decideTransport({ distanceKm, transitPlan: primaryPlan });
+      if (finalDecision === 'walk') {
+        return [walkRecommendation, busRecommendation, ...busVariantRecommendations, taxiRecommendation].filter(Boolean);
       }
-
-      if (finalDecision === "taxi") {
-        return [taxiRecommendation, busRecommendation, ...busVariantRecommendations, scooterRecommendation];
+      if (finalDecision === 'taxi') {
+        return [taxiRecommendation, busRecommendation, ...busVariantRecommendations].filter(Boolean);
       }
-
-      return [busRecommendation, ...busVariantRecommendations, taxiRecommendation, scooterRecommendation];
+      return [busRecommendation, ...busVariantRecommendations, taxiRecommendation, walkRecommendation].filter(Boolean);
     },
     []
   );
@@ -1213,13 +896,6 @@ export function useSmartRoute({
             ? drivingRoute.coords
             : [pickup.coordinate, destinationPlace.coordinate];
 
-        const focusedTransitPolyline = buildFocusedTransitPolyline({
-          transitPlan: chosenTransitOption || nextTransitPlan,
-          pickup,
-          destinationPlace,
-          walkingPolyline: walkingRoute.coords,
-        });
-
         const nextAlerts = nextTransitPlan?.summary?.alertSignals || [];
 
         setTransitPlan(chosenTransitOption || nextTransitPlan);
@@ -1254,10 +930,7 @@ export function useSmartRoute({
           pickedMode: chosenRecommendation.mode,
           pickup,
           destinationPlace,
-          busPolyline:
-            chosenRecommendation.mode === "bus" || chosenRecommendation.mode === "train"
-              ? focusedTransitPolyline
-              : finalBusPolyline,
+          busPolyline: finalBusPolyline,
           drivingPolyline: drivingRoute.coords,
           walkingPolyline: walkingRoute.coords,
         });
@@ -1377,10 +1050,6 @@ export function useSmartRoute({
       return [computed.find((item) => item.id === "walk") || computed[0]];
     }
 
-    if (selectedMode === "scooter") {
-      return [computed.find((item) => item.id === "scooter") || computed[0]];
-    }
-
     return computed;
   }, [
     aiSuggestion,
@@ -1399,16 +1068,6 @@ export function useSmartRoute({
   const selectedRecommendation =
     recommendations.find((item) => item.id === selectedRecommendationId) ||
     recommendations[0];
-
-  const currentStepProgress = useMemo(() => {
-    return buildCurrentStepProgress({
-      journeySteps: selectedRecommendation?.journeySteps || [],
-      pickup,
-      destinationPlace,
-      transitPlan,
-      etaMinutes: eta,
-    });
-  }, [selectedRecommendation, pickup, destinationPlace, transitPlan, eta]);
 
   const selectRecommendation = useCallback(
     (id: string) => {
@@ -1448,14 +1107,7 @@ export function useSmartRoute({
         pickup,
         destinationPlace,
         busPolyline:
-          picked.mode === "bus" || picked.mode === "train"
-            ? buildFocusedTransitPolyline({
-                transitPlan: pickedTransitOption || transitPlan,
-                pickup,
-                destinationPlace,
-                walkingPolyline: walkingRouteCoords,
-              })
-            : pickedTransitOption?.previewPoints?.length && picked.mode === "bus"
+          pickedTransitOption?.previewPoints?.length && picked.mode === "bus"
             ? pickedTransitOption.previewPoints
             : routeCoords,
         drivingPolyline: drivingRouteCoords,
@@ -1496,43 +1148,6 @@ export function useSmartRoute({
 
     return () => clearInterval(interval);
   }, [destinationPlace?.coordinate, pickup?.coordinate, performSmartRoute]);
-
-  useEffect(() => {
-    if (!pickup || !destinationPlace || !selectedRecommendation) return;
-
-    const finalMode = selectedRecommendation.mode;
-    if (!(finalMode === "bus" || finalMode === "train" || finalMode === "smart")) return;
-
-    const focusedPolyline = currentStepProgress.focusPolyline.length
-      ? currentStepProgress.focusPolyline
-      : buildFocusedTransitPolyline({
-          transitPlan,
-          pickup,
-          destinationPlace,
-          walkingPolyline: walkingRouteCoords,
-        });
-
-    if (focusedPolyline.length) {
-      setRouteCoords(focusedPolyline);
-      applyExternalRouteForMode({
-        pickedMode: finalMode,
-        pickup,
-        destinationPlace,
-        busPolyline: focusedPolyline,
-        drivingPolyline: drivingRouteCoords,
-        walkingPolyline: walkingRouteCoords,
-      });
-    }
-  }, [
-    applyExternalRouteForMode,
-    currentStepProgress.focusPolyline,
-    destinationPlace,
-    drivingRouteCoords,
-    pickup,
-    selectedRecommendation,
-    transitPlan,
-    walkingRouteCoords,
-  ]);
 
   useEffect(() => {
     if (!pickup?.coordinate || !destinationPlace?.coordinate) return;
@@ -1605,10 +1220,6 @@ export function useSmartRoute({
     getFinalMode,
     fetchRoute,
     selectRecommendation,
-    currentStepIndex: currentStepProgress.currentStepIndex,
-    currentStep: currentStepProgress.currentStep,
-    dynamicPrimaryLabel: currentStepProgress.dynamicPrimaryLabel,
-    dynamicPrimaryIcon: currentStepProgress.dynamicPrimaryIcon,
   };
 }
 

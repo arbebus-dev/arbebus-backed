@@ -3,7 +3,7 @@ import * as AppleAuthentication from "expo-apple-authentication";
 import React, { createContext, useEffect, useMemo, useState } from "react";
 import { Platform } from "react-native";
 
-import { supabase } from "./lib/supabase";
+import { supabase, supabaseEnabled } from "./lib/supabase";
 import type { AuthContextType, AuthProvider, AuthUser } from "./types";
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -21,9 +21,7 @@ function mapSupabaseUser(user: User | null): AuthUser | null {
   const provider = (appMeta.provider ?? meta.provider ?? "guest") as AuthProvider;
   const firstName = (meta.first_name ?? meta.given_name ?? null) as string | null;
   const lastName = (meta.last_name ?? meta.family_name ?? null) as string | null;
-
   const computedFullName = [firstName, lastName].filter(Boolean).join(" ").trim();
-
   const fullName =
     (meta.full_name as string | undefined) ??
     (computedFullName.length > 0 ? computedFullName : null);
@@ -41,14 +39,13 @@ function mapSupabaseUser(user: User | null): AuthUser | null {
 }
 
 async function upsertProfile(user: User) {
+  if (!supabase) return;
+
   const meta = user.user_metadata ?? {};
   const appMeta = user.app_metadata ?? {};
-
   const firstName = (meta.first_name ?? meta.given_name ?? null) as string | null;
   const lastName = (meta.last_name ?? meta.family_name ?? null) as string | null;
-
   const computedFullName = [firstName, lastName].filter(Boolean).join(" ").trim();
-
   const fullName =
     (meta.full_name as string | undefined) ??
     (computedFullName.length > 0 ? computedFullName : null);
@@ -72,10 +69,18 @@ async function upsertProfile(user: User) {
 
 export function AuthProvider({ children }: Props) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(Boolean(supabaseEnabled));
 
   useEffect(() => {
     let mounted = true;
+
+    if (!supabase) {
+      setUser(null);
+      setIsLoading(false);
+      return () => {
+        mounted = false;
+      };
+    }
 
     const bootstrap = async () => {
       try {
@@ -123,20 +128,21 @@ export function AuthProvider({ children }: Props) {
   }, []);
 
   const continueAsGuest = async () => {
+    if (!supabase) return;
     const { error } = await supabase.auth.signInAnonymously();
-
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
   };
 
   const signInWithApple = async () => {
+    if (!supabase) {
+      throw new Error("Supabase neprijungtas. Patikrink EXPO_PUBLIC_SUPABASE_URL ir EXPO_PUBLIC_SUPABASE_ANON_KEY.");
+    }
+
     if (Platform.OS !== "ios") {
       throw new Error("Apple Sign In available only on iOS.");
     }
 
     const isAvailable = await AppleAuthentication.isAvailableAsync();
-
     if (!isAvailable) {
       throw new Error("Apple Sign In is not available on this device.");
     }
@@ -158,9 +164,7 @@ export function AuthProvider({ children }: Props) {
       access_token: credential.authorizationCode ?? undefined,
     });
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     if (credential.fullName) {
       await supabase.auth.updateUser({
@@ -181,14 +185,14 @@ export function AuthProvider({ children }: Props) {
   };
 
   const signOut = async () => {
+    if (!supabase) return;
     const { error } = await supabase.auth.signOut();
-
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
   };
 
   const updateUserProfile = async (updates: Partial<AuthUser>) => {
+    if (!supabase) return;
+
     const payload = {
       full_name: updates.fullName,
       first_name: updates.firstName,
@@ -196,13 +200,8 @@ export function AuthProvider({ children }: Props) {
       avatar_url: updates.avatar,
     };
 
-    const { error: authError } = await supabase.auth.updateUser({
-      data: payload,
-    });
-
-    if (authError) {
-      throw authError;
-    }
+    const { error: authError } = await supabase.auth.updateUser({ data: payload });
+    if (authError) throw authError;
 
     const {
       data: { user: currentUser },

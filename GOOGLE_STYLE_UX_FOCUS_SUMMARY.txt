@@ -1,9 +1,0 @@
-Arbebus Google-style UX focus round
-
-Pakeista:
-- hooks/useSmartRoute.ts: transit zemėlapio polyline fokusuojamas i pirma žingsnį (dažniausiai eiti iki stotelės), ne i visą overview maršrutą.
-- components/home/HomeBottomSheet.tsx: pridetas „KĄ DARYTI DABAR“ blokas su pirmu veiksmu.
-- components/home/HomeMapLayer.tsx: neberodo pilno overview maršruto kaip default transit režime.
-
-Tikslas:
-- elgsena arčiau Google Maps: pirmas žingsnis svarbiausias, žemėlapis rodo ką daryti dabar.

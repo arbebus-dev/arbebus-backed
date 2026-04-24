@@ -1,5 +1,0 @@
-Dynamic CTA package
-- CTA label/icon now follow first transit step
-- Walking first step opens external walking directions to focused first leg
-- Boarding first step closes sheet to show stop/map context
-- Non-transit modes keep existing behavior

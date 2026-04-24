@@ -98,6 +98,101 @@ function dedupeCoords(coords) {
   return result;
 }
 
+function formatClockTime(totalSeconds) {
+  if (!Number.isFinite(totalSeconds)) return null;
+  const normalized = ((Math.round(totalSeconds) % 86400) + 86400) % 86400;
+  const hours = String(Math.floor(normalized / 3600)).padStart(2, '0');
+  const minutes = String(Math.floor((normalized % 3600) / 60)).padStart(2, '0');
+  return `${hours}:${minutes}`;
+}
+
+function stopRowToTimelineStop(row, boardStopId, alightStopId) {
+  return {
+    stopId: row.stop_id,
+    stopName: row.stop_name,
+    sequence: Number(row.stop_sequence || 0),
+    latitude: Number(row.stop_lat),
+    longitude: Number(row.stop_lon),
+    arrivalTime: formatClockTime(row.arrival_seconds),
+    departureTime: formatClockTime(row.departure_seconds),
+    isBoardStop: row.stop_id === boardStopId,
+    isAlightStop: row.stop_id === alightStopId,
+  };
+}
+
+async function enrichRideLegStops(legs) {
+  const rideLegs = legs.filter((leg) => leg.type === 'ride' && leg.tripId && Number.isFinite(leg.boardSequence));
+  if (!rideLegs.length) return legs;
+
+  const minBoardSequenceByTrip = {};
+  for (const leg of rideLegs) {
+    const current = minBoardSequenceByTrip[leg.tripId];
+    if (!Number.isFinite(current) || leg.boardSequence < current) {
+      minBoardSequenceByTrip[leg.tripId] = leg.boardSequence;
+    }
+  }
+
+  const rows = await getTripStopSequences(rideLegs.map((leg) => leg.tripId), minBoardSequenceByTrip);
+  const tripMap = groupTripRows(rows);
+
+  for (const leg of rideLegs) {
+    const tripRows = tripMap.get(leg.tripId) || [];
+    const boardSequence = Number(leg.boardSequence || 0);
+    const filtered = tripRows.filter((row) => {
+      const seq = Number(row.stop_sequence || 0);
+      return seq >= boardSequence && seq <= boardSequence + Number(leg.stopCount || 0);
+    });
+
+    leg.stops = filtered.map((row) => stopRowToTimelineStop(row, leg.fromStop?.id, leg.toStop?.id));
+  }
+
+  return legs;
+}
+
+function buildSegmentsFromLegs(legs, origin, destination) {
+  return legs.map((leg, index) => {
+    if (leg.type === 'walk') {
+      const points = dedupeCoords([
+        leg.fromCoord || (leg.fromStop ? stopToCoord(leg.fromStop) : null),
+        leg.toCoord || (leg.toStop ? stopToCoord(leg.toStop) : null),
+      ]);
+      return {
+        id: `walk-${index}`,
+        type: 'walk',
+        mode: 'walk',
+        label: leg.walkKind === 'access' ? 'Eik iki stotelės' : leg.walkKind === 'egress' ? 'Eik iki tikslo' : 'Persėdimas pėsčiomis',
+        fromName: leg.fromStop?.name || (leg.fromCoord ? 'Pradžia' : null),
+        toName: leg.toStop?.name || (leg.toCoord ? 'Tikslas' : null),
+        durationMinutes: secondsToMinutes(leg.durationSeconds),
+        departureTime: null,
+        arrivalTime: null,
+        points,
+      };
+    }
+
+    const ridePoints = dedupeCoords([
+      leg.fromStop ? stopToCoord(leg.fromStop) : null,
+      ...(Array.isArray(leg.shapePoints) ? leg.shapePoints : []),
+      leg.toStop ? stopToCoord(leg.toStop) : null,
+    ]);
+
+    return {
+      id: `ride-${index}`,
+      type: 'ride',
+      mode: leg.mode,
+      label: leg.routeLabel,
+      fromName: leg.fromStop?.name || null,
+      toName: leg.toStop?.name || null,
+      durationMinutes: secondsToMinutes(leg.arrivalSeconds - leg.departureSeconds),
+      stopCount: Number(leg.stopCount || 0),
+      departureTime: formatClockTime(leg.departureSeconds),
+      arrivalTime: formatClockTime(leg.arrivalSeconds),
+      points: ridePoints,
+      stops: Array.isArray(leg.stops) ? leg.stops : [],
+    };
+  }).filter((segment) => Array.isArray(segment.points) && segment.points.length >= 2);
+}
+
 function shapeRowsToCoords(rows) {
   return rows.map((row) => ({ latitude: Number(row.latitude), longitude: Number(row.longitude) }));
 }
@@ -114,7 +209,11 @@ async function buildPreviewPoints({ origin, destination, legs }) {
     if (leg.type === 'ride') {
       if (leg.fromStop) points.push(stopToCoord(leg.fromStop));
       const shapeRows = await getShapePoints(leg.shapeId);
-      if (shapeRows.length) points.push(...shapeRowsToCoords(shapeRows));
+      if (shapeRows.length) {
+        const shapePoints = shapeRowsToCoords(shapeRows);
+        leg.shapePoints = shapePoints;
+        points.push(...shapePoints);
+      }
       if (leg.toStop) points.push(stopToCoord(leg.toStop));
     }
   }
@@ -275,6 +374,8 @@ function reconstructLegs(bestByStop, destinationCandidate, origin, destination) 
         routeId: prev.routeId,
         routeLabel: prev.routeLabel,
         headsign: prev.headsign,
+        tripId: prev.tripId,
+        boardSequence: prev.boardSequence,
         shapeId: prev.shapeId,
         departureSeconds: prev.boardDepartureSeconds,
         arrivalSeconds: state.arrivalSeconds,
@@ -331,20 +432,20 @@ function legsToJourneySteps(legs) {
     if (leg.type === 'walk') {
       const walkMinutes = secondsToMinutes(leg.durationSeconds) || 1;
       if (leg.walkKind === 'access') {
-        steps.push({ icon: 'walk', title: 'Eik iki stotelės', subtitle: `Iki „${leg.toStop.name}“ • ${walkMinutes} min pėsčiomis`, type: 'walk', mode: 'walk', stopId: leg.toStop.id, stopName: leg.toStop.name });
+        steps.push({ icon: 'walk', title: 'Eik iki stotelės', subtitle: `Iki „${leg.toStop.name}“ • ${walkMinutes} min pėsčiomis`, type: 'walk', mode: 'walk', stopId: leg.toStop.id, stopName: leg.toStop.name, arrivalTime: null });
       } else if (leg.walkKind === 'transfer') {
-        steps.push({ icon: 'walk', title: 'Pereik iki kitos stotelės', subtitle: `Iki „${leg.toStop.name}“ • ${walkMinutes} min pėsčiomis`, type: 'walk', mode: 'walk', stopId: leg.toStop.id, stopName: leg.toStop.name });
+        steps.push({ icon: 'walk', title: 'Pereik iki kitos stotelės', subtitle: `Iki „${leg.toStop.name}“ • ${walkMinutes} min pėsčiomis`, type: 'walk', mode: 'walk', stopId: leg.toStop.id, stopName: leg.toStop.name, arrivalTime: null });
       } else {
-        steps.push({ icon: 'walk', title: 'Eik iki tikslo', subtitle: `${walkMinutes} min pėsčiomis`, type: 'walk', mode: 'walk' });
+        steps.push({ icon: 'walk', title: 'Eik iki tikslo', subtitle: `${walkMinutes} min pėsčiomis`, type: 'walk', mode: 'walk', arrivalTime: null });
       }
       continue;
     }
 
     if (leg.type === 'ride') {
       const modeIcon = leg.mode === 'train' ? 'train' : 'bus';
-      steps.push({ icon: modeIcon, title: leg.mode === 'train' ? `Lipk į traukinį ${leg.routeLabel}` : `Lipk į autobusą ${leg.routeLabel}`, subtitle: leg.headsign || `Nuo „${leg.fromStop.name}“`, type: 'board', mode: leg.mode, stopId: leg.fromStop.id, stopName: leg.fromStop.name, routeId: leg.routeId });
-      steps.push({ icon: modeIcon, title: leg.mode === 'train' ? 'Važiuok traukiniu' : 'Važiuok autobusu', subtitle: `Iki „${leg.toStop.name}“ • ${secondsToMinutes(leg.arrivalSeconds - leg.departureSeconds) || 1} min • ${leg.stopCount} st.`, type: 'ride', mode: leg.mode, fromStopId: leg.fromStop.id, toStopId: leg.toStop.id, stopCount: leg.stopCount });
-      steps.push({ icon: 'flag-checkered', title: 'Išlipk', subtitle: `„${leg.toStop.name}“`, type: 'alight', stopId: leg.toStop.id, stopName: leg.toStop.name });
+      steps.push({ icon: modeIcon, title: leg.mode === 'train' ? `Lipk į traukinį ${leg.routeLabel}` : `Lipk į autobusą ${leg.routeLabel}`, subtitle: leg.headsign || `Nuo „${leg.fromStop.name}“`, type: 'board', mode: leg.mode, stopId: leg.fromStop.id, stopName: leg.fromStop.name, routeId: leg.routeId, routeLabel: leg.routeLabel, departureTime: formatClockTime(leg.departureSeconds) });
+      steps.push({ icon: modeIcon, title: leg.mode === 'train' ? 'Važiuok traukiniu' : 'Važiuok autobusu', subtitle: `Iki „${leg.toStop.name}“ • ${secondsToMinutes(leg.arrivalSeconds - leg.departureSeconds) || 1} min • ${leg.stopCount} st.`, type: 'ride', mode: leg.mode, fromStopId: leg.fromStop.id, toStopId: leg.toStop.id, stopCount: leg.stopCount, routeLabel: leg.routeLabel, departureTime: formatClockTime(leg.departureSeconds), arrivalTime: formatClockTime(leg.arrivalSeconds), stops: Array.isArray(leg.stops) ? leg.stops : [] });
+      steps.push({ icon: 'flag-checkered', title: 'Išlipk', subtitle: `„${leg.toStop.name}“`, type: 'alight', stopId: leg.toStop.id, stopName: leg.toStop.name, arrivalTime: formatClockTime(leg.arrivalSeconds) });
     }
   }
   return steps;
@@ -398,6 +499,7 @@ async function enrichPlanWithLiveVehicle(plan) {
 
 async function buildPlanFromDestinationCandidate({ origin, destination, destinationCandidate }) {
   const legs = reconstructLegs(destinationCandidate.bestByStop, destinationCandidate, origin, destination);
+  await enrichRideLegStops(legs);
   const rideLegs = legs.filter((leg) => leg.type === 'ride');
   const walkLegs = legs.filter((leg) => leg.type === 'walk');
   const modes = uniqueModes(rideLegs.map((leg) => leg.mode));
@@ -408,6 +510,7 @@ async function buildPlanFromDestinationCandidate({ origin, destination, destinat
   const totalDurationMinutes = totalWalkMinutes + totalRideMinutes;
   const previewPoints = await buildPreviewPoints({ origin, destination, legs });
   const journeySteps = legsToJourneySteps(legs);
+  const segments = buildSegmentsFromLegs(legs, origin, destination);
 
   const basePlan = {
     id: `plan-${firstRide?.routeId || 'walk'}-${destinationCandidate.stop.id}-${Math.round(destinationCandidate.totalArrivalSeconds)}`,
@@ -433,6 +536,7 @@ async function buildPlanFromDestinationCandidate({ origin, destination, destinat
     originStop: firstRide?.fromStop || destinationCandidate.state.stop,
     destinationStop: destinationCandidate.stop,
     previewPoints,
+    segments,
     journeySteps,
     liveVehicle: null,
   };
@@ -512,6 +616,8 @@ async function runTimedSearch({ origin, destination, serviceDate, departureSecon
             ridesUsed: rideCount + 1,
             prev: {
               type: 'ride',
+              tripId: boarding.trip_id,
+              boardSequence,
               routeId: boarding.route_id,
               routeLabel,
               routeType: boarding.route_type,

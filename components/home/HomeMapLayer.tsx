@@ -53,7 +53,7 @@ export default function HomeMapLayer({
   destinationTitle,
   destinationSubtitle,
 }: Props) {
-  const routeToRender = polylineCoords.length > 1 ? polylineCoords : [];
+  const routeToRender = polylineCoords.length > 1 ? polylineCoords : routeCoords;
 
   return (
     <MapView
@@ -121,7 +121,7 @@ export default function HomeMapLayer({
             coordinate={coordinate}
             source={isBest ? busBestImg : busImg}
             rotation={bus.heading ?? bus.bearing ?? animatedEntry?.rotation ?? 0}
-            label={bus.number}
+            label={(bus as any).route || bus.number || (bus as any).vehicleLabel || "?"}
             isBest={isBest}
             onPress={() => onBusPress(bus)}
           />

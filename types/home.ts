@@ -3,7 +3,6 @@
 export type TravelMode =
   | "smart"
   | "taxi"
-  | "scooter"
   | "bus"
   | "walk"
   | "train"

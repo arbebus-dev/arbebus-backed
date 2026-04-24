@@ -3,7 +3,6 @@ import { Dimensions } from "react-native";
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 
 export const FETCH_INTERVAL = 12000;
-export const PRO_PRICE = "€2.99 / mėn";
 
 export const ORS_API_KEY =
   "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6Ijc5NjcxMTM2YmE1MTQwMGNiYjcyY2U5M2VjOGRkZDkyIiwiaCI6Im11cm11cjY0In0=";
@@ -30,3 +29,4 @@ export const AIRPORTS = {
   vilnius: "Vilniaus oro uostas",
   kaunas: "Kauno oro uostas",
 };
+export const SHEET_HEIGHT = SHEET_CLOSED_Y;
