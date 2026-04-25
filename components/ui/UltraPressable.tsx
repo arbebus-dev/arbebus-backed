@@ -1,13 +1,15 @@
-import React, { useRef } from "react";
-import { Animated, Pressable } from "react-native";
+import React, { useRef, type ReactNode } from "react";
+import { Animated, Pressable, type GestureResponderEvent, type StyleProp, type ViewStyle } from "react-native";
 
-export default function UltraPressable({
-  onPress,
-  onLongPress,
-  disabled,
-  style,
-  children,
-}: any) {
+type Props = {
+  children?: ReactNode;
+  disabled?: boolean;
+  onPress?: (event: GestureResponderEvent) => void;
+  onLongPress?: (event: GestureResponderEvent) => void;
+  style?: StyleProp<ViewStyle>;
+};
+
+export default function UltraPressable({ onPress, onLongPress, disabled, style, children }: Props) {
   const scale = useRef(new Animated.Value(1)).current;
 
   const animateTo = (toValue: number) => {
@@ -28,9 +30,7 @@ export default function UltraPressable({
       onPressOut={() => animateTo(1)}
       style={style}
     >
-      <Animated.View style={{ transform: [{ scale }] }}>
-        {children}
-      </Animated.View>
+      <Animated.View style={{ transform: [{ scale }] }}>{children}</Animated.View>
     </Pressable>
   );
 }

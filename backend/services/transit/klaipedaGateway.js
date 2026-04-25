@@ -1,3 +1,4 @@
+const fetch = require("node-fetch");
 const {
   normalizeRouteId,
   normalizeVehicleId,
@@ -79,7 +80,7 @@ async function fetchLiveVehicles() {
         "User-Agent": "Mozilla/5.0 Arbebus/1.0",
         Accept: "text/plain,*/*",
       },
-      signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
+      timeout: 15000,
     });
 
     if (!res.ok) {

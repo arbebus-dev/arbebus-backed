@@ -1,263 +1,388 @@
-import { API_BASE } from "../../../../constants/api";
-import type { Coordinate, LiveBus, TransitPlan, TransitRouteOption, TransitStep, TransitStop } from "../models/transitRoute";
+import { API_ENDPOINTS } from "../../../../constants/api";
+import type {
+  Coordinate,
+  LiveBus,
+  PlaceSearchResult,
+  TransitRouteOption,
+  TransitStep,
+  TransitStepType,
+} from "../models/transitTypes";
 
-export const KLAIPEDA_DEFAULT_LOCATION: Coordinate = { latitude: 55.7033, longitude: 21.1443 };
+export type { LiveBus } from "../models/transitTypes";
+export type { TransitRouteOption };
+export type PlaceResult = PlaceSearchResult;
 
-const FALLBACK_STOPS: TransitStop[] = [
-  { id: "akropolis", title: "Akropolis", subtitle: "Taikos pr.", coordinate: { latitude: 55.68894, longitude: 21.15468 } },
-  { id: "atgimimo", title: "Atgimimo", subtitle: "Klaipėdos centras", coordinate: { latitude: 55.71046, longitude: 21.13146 } },
-  { id: "biblioteka", title: "Biblioteka", subtitle: "Herkaus Manto g.", coordinate: { latitude: 55.71433, longitude: 21.13093 } },
-  { id: "ligonine", title: "Klaipėdos ligoninė", subtitle: "Liepojos g.", coordinate: { latitude: 55.73594, longitude: 21.12555 } },
-  { id: "universitetas", title: "Universitetas", subtitle: "H. Manto g.", coordinate: { latitude: 55.73021, longitude: 21.12639 } },
-  { id: "senamiestis", title: "Senamiestis", subtitle: "Teatro a.", coordinate: { latitude: 55.70774, longitude: 21.13356 } },
-];
+async function safeJson<T>(response: Response): Promise<T> {
+  const text = await response.text();
 
-function toCoordinate(raw: any): Coordinate | null {
-  const latitude = Number(raw?.latitude ?? raw?.lat ?? raw?.stop_lat ?? raw?.y);
-  const longitude = Number(raw?.longitude ?? raw?.lng ?? raw?.lon ?? raw?.stop_lon ?? raw?.x);
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`Bad JSON response: ${text.slice(0, 200)}`);
+  }
+}
+
+function toCoordinate(input: any): Coordinate | null {
+  const latitude = Number(
+    input?.latitude ??
+      input?.lat ??
+      input?.stop_lat ??
+      input?.coordinate?.latitude
+  );
+
+  const longitude = Number(
+    input?.longitude ??
+      input?.lon ??
+      input?.lng ??
+      input?.stop_lon ??
+      input?.coordinate?.longitude
+  );
+
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
   return { latitude, longitude };
 }
 
-async function fetchJson<T>(path: string, options: RequestInit = {}, timeoutMs = 10000): Promise<T | null> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+function normalizeStep(raw: any, index: number): TransitStep {
+  const rawType = String(raw?.type ?? "bus");
 
-  try {
-    const response = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      signal: controller.signal,
-      headers: {
-        Accept: "application/json",
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
-        ...(options.headers ?? {}),
-      },
-    });
-    if (!response.ok) return null;
-    return (await response.json()) as T;
-  } catch (error) {
-    console.warn(`[Arbebus API] ${path} failed`, error);
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
+  const type: TransitStepType =
+    rawType === "walk" ||
+    rawType === "transfer" ||
+    rawType === "arrive"
+      ? rawType
+      : "bus";
+
+  const minutes = raw?.minutes ?? raw?.durationMinutes;
+
+  return {
+    id: String(raw?.id ?? index),
+    type,
+    title: String(
+      raw?.title ??
+        (type === "walk"
+          ? "Eik iki stotelės"
+          : type === "transfer"
+            ? "Persėdimas"
+            : "Važiuok autobusu")
+    ),
+    subtitle: raw?.subtitle,
+    description: raw?.description ?? raw?.subtitle,
+    routeNumber:
+      raw?.routeNumber != null
+        ? String(raw.routeNumber)
+        : raw?.route != null
+          ? String(raw.route)
+          : raw?.routeId != null
+            ? String(raw.routeId)
+            : undefined,
+    fromStopName: raw?.fromStopName ?? raw?.fromStop ?? raw?.from,
+    toStopName: raw?.toStopName ?? raw?.toStop ?? raw?.to,
+    stopCount: raw?.stopCount != null ? Number(raw.stopCount) : undefined,
+    minutes: minutes != null ? Number(minutes) : undefined,
+    durationMinutes: minutes != null ? Number(minutes) : undefined,
+    departureTime: raw?.departureTime ?? raw?.departureText,
+    arrivalTime: raw?.arrivalTime ?? raw?.arrivalText,
+    polyline: Array.isArray(raw?.polyline)
+      ? (raw.polyline.map(toCoordinate).filter(Boolean) as Coordinate[])
+      : undefined,
+  };
 }
 
-function normalizeStop(raw: any, index: number): TransitStop | null {
-  const coordinate = toCoordinate(raw);
-  if (!coordinate) return null;
-  const distanceMeters = Number(raw?.distanceMeters ?? raw?.distance_meters);
+function stopPoint(title: string, fallback: Coordinate, raw?: any) {
+  const coordinate = toCoordinate(raw) ?? fallback;
+
   return {
-    id: String(raw?.id ?? raw?.stop_id ?? raw?.stopId ?? `stop-${index}`),
-    title: String(raw?.title ?? raw?.name ?? raw?.stop_name ?? raw?.stopName ?? "Stotelė"),
-    subtitle: raw?.subtitle ?? raw?.address ?? raw?.description ?? (Number.isFinite(distanceMeters) ? `${Math.round(distanceMeters)} m` : undefined),
+    id: raw?.id != null ? String(raw.id) : undefined,
+    title: String(raw?.title ?? raw?.name ?? title),
+    name: String(raw?.name ?? raw?.title ?? title),
+    latitude: coordinate.latitude,
+    longitude: coordinate.longitude,
     coordinate,
-    distanceMeters: Number.isFinite(distanceMeters) ? distanceMeters : undefined,
   };
 }
 
-function normalizeBus(raw: any, index: number): LiveBus | null {
-  const coordinate = toCoordinate(raw);
-  if (!coordinate) return null;
-  return {
-    id: String(raw?.id ?? raw?.vehicle_id ?? raw?.vehicleId ?? raw?.busId ?? `bus-${index}`),
-    routeNumber: String(raw?.routeNumber ?? raw?.route ?? raw?.routeId ?? raw?.line ?? raw?.nr ?? raw?.name ?? "BUS"),
-    coordinate,
-    bearing: Number.isFinite(Number(raw?.bearing ?? raw?.heading)) ? Number(raw?.bearing ?? raw?.heading) : undefined,
-    title: raw?.title ?? raw?.name,
-    updatedAt: raw?.updatedAt ?? raw?.updated_at ?? raw?.fetchedAtIso,
-  };
-}
+function normalizeRoute(
+  raw: any,
+  index: number,
+  fallbackFrom?: Coordinate,
+  fallbackTo?: Coordinate
+): TransitRouteOption {
+  const steps: TransitStep[] = Array.isArray(raw?.steps)
+    ? raw.steps.map(normalizeStep)
+    : [];
 
-function minutesFromSeconds(seconds: unknown): number | undefined {
-  const n = Number(seconds);
-  if (!Number.isFinite(n)) return undefined;
-  return Math.max(1, Math.round(n / 60));
-}
+  const routeNumbers = Array.isArray(raw?.routeNumbers)
+    ? raw.routeNumbers.map(String).filter(Boolean)
+    : Array.isArray(raw?.routes)
+      ? raw.routes.map(String).filter(Boolean)
+      : steps
+          .map((step) => step.routeNumber)
+          .filter(Boolean)
+          .map(String);
 
-function cleanRouteNumber(value: unknown): string | null {
-  const raw = String(value ?? "").trim();
-  if (!raw || raw === "Walk") return null;
-  return raw.split("•")[0].trim();
-}
+  const routeLabel = String(
+    raw?.routeLabel ?? raw?.routeNumber ?? routeNumbers[0] ?? "BUS"
+  );
 
-function routeNumbersFromBackendPlan(raw: any): string[] {
-  const fromSummary = String(raw?.summary?.routeLabel ?? "")
-    .split("→")
-    .map(cleanRouteNumber)
-    .filter(Boolean) as string[];
-  if (fromSummary.length) return Array.from(new Set(fromSummary));
+  const rawPolyline = raw?.previewPoints ?? raw?.polyline ?? raw?.coordinates;
 
-  const fromSteps = (raw?.journeySteps ?? [])
-    .map((step: any) => cleanRouteNumber(step.routeNumber ?? step.routeId ?? step.title?.replace(/.*?(\d+[A-Z]?).*/, "$1")))
-    .filter(Boolean) as string[];
-  return fromSteps.length ? Array.from(new Set(fromSteps)) : ["?"];
-}
+  const polyline = Array.isArray(rawPolyline)
+    ? (rawPolyline.map(toCoordinate).filter(Boolean) as Coordinate[])
+    : [];
 
-function normalizeJourneyStep(raw: any, index: number): TransitStep {
-  const title = String(raw?.title ?? "Kelionės žingsnis");
-  const subtitle = raw?.subtitle ? String(raw.subtitle) : undefined;
-  const routeNumber = cleanRouteNumber(raw?.routeNumber ?? raw?.routeId ?? title.replace(/.*?(\d+[A-Z]?).*/, "$1")) ?? undefined;
-
-  if (raw?.type === "board") {
-    return {
-      id: String(raw?.id ?? `step-${index}`),
-      type: "bus",
-      title: routeNumber ? `Lauk autobuso Nr. ${routeNumber}` : title,
-      description: subtitle ?? raw?.stopName ?? "Atvykimo laiką tikriname pagal tvarkaraštį ir live GPS.",
-      routeNumber,
-      fromStopName: raw?.stopName,
-      durationMinutes: minutesFromSeconds(raw?.durationSeconds),
+  const from =
+    toCoordinate(raw?.originStop) ??
+    polyline[0] ??
+    fallbackFrom ?? {
+      latitude: 55.7033,
+      longitude: 21.1443,
     };
-  }
 
-  if (raw?.type === "ride") {
-    return {
-      id: String(raw?.id ?? `step-${index}`),
-      type: "bus",
-      title: raw?.stopCount ? `Važiuok ${raw.stopCount} stotelių` : title,
-      description: subtitle ?? (raw?.toStopName ? `Iki „${raw.toStopName}“` : undefined),
-      routeNumber,
-      fromStopName: raw?.fromStopName,
-      toStopName: raw?.toStopName,
-      stopCount: Number.isFinite(Number(raw?.stopCount)) ? Number(raw.stopCount) : undefined,
-      durationMinutes: minutesFromSeconds(raw?.durationSeconds),
-    };
-  }
+  const to =
+    toCoordinate(raw?.destinationStop) ??
+    polyline[polyline.length - 1] ??
+    fallbackTo ??
+    from;
 
-  if (raw?.type === "alight") {
-    return {
-      id: String(raw?.id ?? `step-${index}`),
-      type: "arrive",
-      title: "Išlipk kitoje stotelėje",
-      description: subtitle ?? raw?.stopName,
-      toStopName: raw?.stopName,
-    };
-  }
+  const previewPoints = polyline.length >= 2 ? polyline : [from, to];
 
-  if (raw?.type === "transfer") {
-    return {
-      id: String(raw?.id ?? `step-${index}`),
-      type: "transfer",
-      title: routeNumber ? `Persėsk į autobusą Nr. ${routeNumber}` : title,
-      description: subtitle,
-      routeNumber,
-      durationMinutes: minutesFromSeconds(raw?.durationSeconds),
-    };
-  }
+  const firstBusStep = steps.find((step) => step.type === "bus");
 
-  const looksLikeTransfer = title.toLowerCase().includes("persė") || title.toLowerCase().includes("pereik");
-  return {
-    id: String(raw?.id ?? `step-${index}`),
-    type: looksLikeTransfer ? "transfer" : "walk",
-    title: looksLikeTransfer ? "Persėsk į kitą autobusą" : title,
-    description: subtitle,
-    routeNumber,
-    fromStopName: raw?.fromStopName,
-    toStopName: raw?.toStopName ?? raw?.stopName,
-    durationMinutes: minutesFromSeconds(raw?.durationSeconds),
-    polyline: Array.isArray(raw?.polyline) ? raw.polyline.map(toCoordinate).filter(Boolean) as Coordinate[] : undefined,
-  };
-}
+  const boardStopName = String(
+    raw?.boardStopName ?? firstBusStep?.fromStopName ?? "Artimiausia stotelė"
+  );
 
-function splitRideStepsForAppleMaps(steps: TransitStep[]): TransitStep[] {
-  const output: TransitStep[] = [];
-  steps.forEach((step, index) => {
-    if (step.type !== "bus") {
-      output.push(step);
-      return;
-    }
+  const alightStopName = String(
+    raw?.alightStopName ??
+      firstBusStep?.toStopName ??
+      raw?.destination?.title ??
+      "Tikslas"
+  );
 
-    const isRideInstruction = step.title.toLowerCase().includes("važiuok");
-    if (isRideInstruction) {
-      output.push({ ...step, id: `${step.id}-ride`, type: "bus" });
-      return;
-    }
+  const walkingMinutes = Number(
+    raw?.walkingMinutes ??
+      raw?.totalWalkMinutes ??
+      steps
+        .filter((step) => step.type === "walk")
+        .reduce((sum: number, step: TransitStep) => {
+          return sum + Number(step.minutes ?? 0);
+        }, 0)
+  );
 
-    output.push({ ...step, id: `${step.id}-wait`, type: "bus", title: step.routeNumber ? `Lauk autobuso Nr. ${step.routeNumber}` : step.title });
+  const totalMinutes = Number(
+    raw?.totalMinutes ??
+      raw?.minutes ??
+      raw?.totalDurationMinutes ??
+      steps.reduce((sum: number, step: TransitStep) => {
+        return sum + Number(step.minutes ?? step.durationMinutes ?? 0);
+      }, 0)
+  );
 
-    if (index === steps.length - 1 || !steps[index + 1]?.title.toLowerCase().includes("važiuok")) {
-      output.push({
-        ...step,
-        id: `${step.id}-onboard`,
-        type: "bus",
-        title: step.stopCount ? `Važiuok ${step.stopCount} stotelių` : "Važiuok autobusu",
-      });
-    }
-  });
-  return output;
-}
+  const transfers = Number(
+    raw?.transfers ?? raw?.transfersCount ?? Math.max(0, routeNumbers.length - 1)
+  );
 
-function fallbackSteps(origin: Coordinate, destination: Coordinate, routeNumber = "?"): TransitStep[] {
-  return [
-    { id: "walk-to-stop", type: "walk", title: "Eik iki stotelės", description: "Sek punktyrinę liniją žemėlapyje.", durationMinutes: 6, polyline: [origin] },
-    { id: "wait-bus", type: "bus", title: `Lauk autobuso Nr. ${routeNumber}`, description: "Stebėk live autobusą žemėlapyje.", routeNumber, durationMinutes: 4 },
-    { id: "ride-bus", type: "bus", title: "Važiuok 6 stoteles", description: "Arbebus pasakys kada ruoštis išlipti.", routeNumber, stopCount: 6, durationMinutes: 16, polyline: [origin, destination] },
-    { id: "arrive", type: "arrive", title: "Atvykai", description: "Tikslas pasiektas.", durationMinutes: 1, polyline: [destination] },
-  ];
-}
-
-function normalizeRoute(raw: any, index: number, origin: Coordinate, destination: Coordinate): TransitRouteOption {
-  const routeNumbers = routeNumbersFromBackendPlan(raw);
-  const rawPoints = raw?.previewPoints ?? raw?.polyline ?? raw?.shape ?? [];
-  const polyline = Array.isArray(rawPoints) ? rawPoints.map(toCoordinate).filter(Boolean) as Coordinate[] : [];
-  const rawSteps = Array.isArray(raw?.journeySteps) ? raw.journeySteps : Array.isArray(raw?.steps) ? raw.steps : [];
-  const steps = splitRideStepsForAppleMaps(rawSteps.map(normalizeJourneyStep));
-  const summary = raw?.summary ?? {};
+  const stopCount = Number(
+    raw?.stopCount ??
+      steps.reduce((sum: number, step: TransitStep) => {
+        return sum + Number(step.stopCount ?? 0);
+      }, 0)
+  );
 
   return {
-    id: String(raw?.id ?? raw?.routeId ?? `route-${index}`),
-    title: String(raw?.title ?? summary.routeLabel ?? `Autobusas ${routeNumbers.join(" + ")}`),
-    subtitle: String(raw?.subtitle ?? summary.journeyMessage ?? `${summary.boardStopName ?? "Stotelė"} → ${summary.alightStopName ?? "tikslas"}`),
-    totalMinutes: Math.max(1, Number(summary.totalDurationMinutes ?? raw?.totalMinutes ?? raw?.durationMinutes ?? raw?.duration ?? 24)),
-    walkingMinutes: Math.max(0, Number(summary.totalWalkMinutes ?? raw?.walkingMinutes ?? raw?.walkMinutes ?? 0)),
-    transfers: Math.max(0, Number(summary.transfersCount ?? raw?.transfers ?? raw?.transferCount ?? Math.max(0, routeNumbers.length - 1))),
+    id: String(raw?.id ?? index),
+    title: String(raw?.title ?? `Autobusas ${routeLabel}`),
+    subtitle: raw?.subtitle ?? raw?.summary ?? undefined,
+    routeLabel,
     routeNumbers,
-    polyline: polyline.length >= 2 ? polyline : [origin, destination],
-    steps: steps.length > 0 ? steps : fallbackSteps(origin, destination, routeNumbers[0]),
+    totalMinutes,
+    totalDurationMinutes: Number(raw?.totalDurationMinutes ?? totalMinutes),
+    walkingMinutes,
+    totalWalkMinutes: Number(raw?.totalWalkMinutes ?? walkingMinutes),
+    etaMinutes: raw?.etaMinutes != null ? Number(raw.etaMinutes) : null,
+    transfers,
+    transfersCount: transfers,
+    stopCount,
+    boardStopName,
+    alightStopName,
+    originStop: stopPoint(boardStopName, from, raw?.originStop),
+    destinationStop: stopPoint(alightStopName, to, raw?.destinationStop),
+    previewPoints,
+    polyline: previewPoints,
+    steps,
+    journeySteps: steps,
+    departureText: raw?.departureText,
+    arrivalText: raw?.arrivalText,
   };
 }
 
-function fallbackPlan(origin: Coordinate, destination: Coordinate, destinationLabel: string): TransitPlan {
-  const routes = [normalizeRoute({ id: "fallback-bus", summary: { routeLabel: "?", totalDurationMinutes: 24, totalWalkMinutes: 6, transfersCount: 0 } }, 0, origin, destination)];
-  return { origin, destination, destinationLabel, routes, selectedRouteId: routes[0].id };
-}
+export async function getLiveBuses(): Promise<LiveBus[]> {
+  const response = await fetch(API_ENDPOINTS.liveBuses);
 
-export async function searchTransitStops(query: string, origin?: Coordinate | null): Promise<TransitStop[]> {
-  const cleanQuery = query.trim();
-  if (cleanQuery.length < 2) return [];
-
-  const params = new URLSearchParams({ q: cleanQuery });
-  if (origin) {
-    params.set("lat", String(origin.latitude));
-    params.set("lng", String(origin.longitude));
+  if (!response.ok) {
+    throw new Error(`Live buses failed: ${response.status}`);
   }
 
-  const payload: any = await fetchJson<any>(`/stops/search?${params.toString()}`, {}, 8000);
-  const rawStops = Array.isArray(payload) ? payload : payload?.stops ?? payload?.results ?? [];
-  const normalized = Array.isArray(rawStops) ? rawStops.map(normalizeStop).filter(Boolean) as TransitStop[] : [];
-  if (normalized.length > 0) return normalized.slice(0, 10);
+  const data = await safeJson<any>(response);
+  const rawBuses = Array.isArray(data)
+    ? data
+    : Array.isArray(data.buses)
+      ? data.buses
+      : [];
 
-  return FALLBACK_STOPS.filter((stop) => `${stop.title} ${stop.subtitle ?? ""}`.toLowerCase().includes(cleanQuery.toLowerCase())).slice(0, 8);
+  return rawBuses
+    .map((bus: any, index: number): LiveBus | null => {
+      const coordinate = toCoordinate(bus);
+      if (!coordinate) return null;
+
+      const number = String(
+        bus.number ??
+          bus.route ??
+          bus.routeId ??
+          bus.line ??
+          bus.vehicleLabel ??
+          "BUS"
+      );
+
+      return {
+        id: String(bus.id ?? bus.vehicleId ?? bus.vehicleLabel ?? `${number}-${index}`),
+        number,
+        route: bus.route != null ? String(bus.route) : number,
+        routeId: bus.routeId != null ? String(bus.routeId) : undefined,
+        vehicleId: bus.vehicleId != null ? String(bus.vehicleId) : undefined,
+        vehicleLabel:
+          bus.vehicleLabel != null ? String(bus.vehicleLabel) : undefined,
+        latitude: coordinate.latitude,
+        longitude: coordinate.longitude,
+        coordinate,
+        speedKph: bus.speedKph != null ? Number(bus.speedKph) : undefined,
+        bearing: bus.bearing != null ? Number(bus.bearing) : undefined,
+        heading:
+          bus.heading != null
+            ? Number(bus.heading)
+            : bus.bearing != null
+              ? Number(bus.bearing)
+              : undefined,
+        tripStart: bus.tripStart,
+        delaySeconds:
+          bus.delaySeconds != null ? Number(bus.delaySeconds) : undefined,
+        directionName: bus.directionName,
+        fetchedAt: bus.fetchedAt,
+      };
+    })
+    .filter(Boolean) as LiveBus[];
 }
 
-export async function fetchLiveBuses(): Promise<LiveBus[]> {
-  const payload: any = await fetchJson<any>("/live-buses", {}, 7000);
-  const rawBuses = Array.isArray(payload) ? payload : payload?.buses ?? payload?.vehicles ?? [];
-  return Array.isArray(rawBuses) ? rawBuses.map(normalizeBus).filter(Boolean) as LiveBus[] : [];
+export async function searchPlaces(query: string): Promise<PlaceResult[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+
+  const urls = [
+    `${API_ENDPOINTS.placesSearch}?q=${encodeURIComponent(q)}`,
+    `${API_ENDPOINTS.stopsSearch}?q=${encodeURIComponent(q)}`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) continue;
+
+      const data = await safeJson<any>(response);
+
+      const rawResults =
+        data.results || data.places || data.stops || data.items || [];
+
+      if (!Array.isArray(rawResults) || !rawResults.length) continue;
+
+      return rawResults
+        .map((item: any, index: number): PlaceResult | null => {
+          const coordinate = toCoordinate(item);
+          if (!coordinate) return null;
+
+          return {
+            id: String(item.id ?? item.stop_id ?? index),
+            title: String(
+              item.title ?? item.name ?? item.stopName ?? item.stop_name ?? "Vieta"
+            ),
+            subtitle:
+              item.subtitle ??
+              item.address ??
+              item.description ??
+              item.stop_desc ??
+              "Klaipėda",
+            type:
+              item.type === "address"
+                ? "address"
+                : item.type === "stop" || item.stop_id
+                  ? "stop"
+                  : "place",
+            distanceMeters:
+              item.distanceMeters != null
+                ? Number(item.distanceMeters)
+                : undefined,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            coordinate,
+          };
+        })
+        .filter(Boolean) as PlaceResult[];
+    } catch {
+      // Try next endpoint.
+    }
+  }
+
+  return [];
 }
 
-export async function planTransitRoute(input: { origin: Coordinate; destination: Coordinate; destinationLabel: string }): Promise<TransitPlan> {
-  const payload: any = await fetchJson<any>("/transit/plan", {
+export async function planTransitRoute(params: {
+  from: Coordinate;
+  to: Coordinate;
+  destination?: PlaceResult;
+}): Promise<TransitRouteOption[]> {
+  const destination: PlaceResult =
+    params.destination ?? {
+      id: "destination",
+      title: "Tikslas",
+      subtitle: "",
+      type: "place",
+      distanceMeters: 0,
+      latitude: params.to.latitude,
+      longitude: params.to.longitude,
+      coordinate: params.to,
+    };
+
+  const response = await fetch(API_ENDPOINTS.transitPlan, {
     method: "POST",
-    body: JSON.stringify({ origin: input.origin, destination: input.destination }),
-  }, 15000);
+    headers: { "Content-Type": "application/json" },
 
-  const rawRoutes = Array.isArray(payload) ? payload : payload?.options ?? payload?.routes ?? payload?.plans ?? (payload?.plan ? [payload.plan] : []);
-  if (!Array.isArray(rawRoutes) || rawRoutes.length === 0) {
-    return fallbackPlan(input.origin, input.destination, input.destinationLabel);
+    // SVARBU:
+    // Siunčiam ir naują formatą, ir seną formatą,
+    // kad backend nebeatmestų su 400.
+    body: JSON.stringify({
+      origin: params.from,
+      from: params.from,
+
+      destination,
+      to: params.to,
+
+      userLocation: params.from,
+      selectedDestination: destination,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Transit plan failed: ${response.status}`);
   }
 
-  const routes = rawRoutes.map((route, index) => normalizeRoute(route, index, input.origin, input.destination));
-  return { origin: input.origin, destination: input.destination, destinationLabel: input.destinationLabel, routes, selectedRouteId: routes[0]?.id ?? "route-0" };
+  const data = await safeJson<any>(response);
+
+  const rawRoutes =
+    data.routes || data.options || data.plans || data.itineraries || [];
+
+  if (!Array.isArray(rawRoutes)) return [];
+
+  return rawRoutes.map((route: any, index: number) =>
+    normalizeRoute(route, index, params.from, params.to)
+  );
 }

@@ -1,1 +1,1 @@
-export { type TransitStop as PlaceResult } from "./transitRoute";
+export type { PlaceSearchResult } from "./transitTypes";

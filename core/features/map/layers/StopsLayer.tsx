@@ -1,31 +1,58 @@
 import React from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { Marker } from "react-native-maps";
-import type { TransitStop } from "../../transit/models/transitRoute";
+import type { TransitRouteOption } from "../../transit/models/transitTypes";
 
-type Props = { stops: TransitStop[]; selectedStop?: TransitStop | null };
+type Props = {
+  route: TransitRouteOption | null;
+};
 
-export default function StopsLayer({ stops, selectedStop }: Props) {
-  const allStops = selectedStop ? [selectedStop, ...stops.filter((stop) => stop.id !== selectedStop.id)] : stops;
+export default function StopsLayer({ route }: Props) {
+  if (!route) return null;
+
   return (
     <>
-      {allStops.map((stop) => {
-        const selected = selectedStop?.id === stop.id;
-        return (
-          <Marker key={stop.id} coordinate={stop.coordinate} title={stop.title} description={stop.subtitle} tracksViewChanges={false}>
-            <View style={[styles.stop, selected && styles.selectedStop]}>
-              <View style={[styles.inner, selected && styles.selectedInner]} />
-            </View>
-          </Marker>
-        );
-      })}
+      <Marker coordinate={route.originStop.coordinate} anchor={{ x: 0.5, y: 0.5 }}>
+        <View style={styles.stopIn}>
+          <Text style={styles.text}>IN</Text>
+        </View>
+      </Marker>
+
+      <Marker coordinate={route.destinationStop.coordinate} anchor={{ x: 0.5, y: 0.5 }}>
+        <View style={styles.stopOut}>
+          <Text style={styles.text}>OUT</Text>
+        </View>
+      </Marker>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  stop: { width: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(105,225,255,0.22)", borderWidth: 1, borderColor: "#69E1FF" },
-  selectedStop: { width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(105,255,150,0.26)", borderColor: "#6DFF8F" },
-  inner: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#69E1FF" },
-  selectedInner: { width: 12, height: 12, borderRadius: 6, backgroundColor: "#6DFF8F" },
+  stopIn: {
+    minWidth: 34,
+    height: 28,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#35F2B4",
+    borderWidth: 2,
+    borderColor: "white",
+  },
+  stopOut: {
+    minWidth: 40,
+    height: 28,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFB84D",
+    borderWidth: 2,
+    borderColor: "white",
+  },
+  text: {
+    color: "#07101F",
+    fontSize: 10,
+    fontWeight: "900",
+  },
 });

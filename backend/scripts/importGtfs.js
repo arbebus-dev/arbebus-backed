@@ -122,31 +122,7 @@ async function batchInsert(client, sqlPrefix, rows, chunkSize = 1000, conflictCl
   }
 }
 
-function hashDirectoryTxtFiles(dirPath) {
-  const hash = crypto.createHash('sha256');
-  const files = fs.readdirSync(dirPath)
-    .filter((name) => name.toLowerCase().endsWith('.txt'))
-    .sort();
-  for (const file of files) {
-    hash.update(file);
-    hash.update(fs.readFileSync(path.join(dirPath, file)));
-  }
-  return hash.digest('hex');
-}
-
 async function prepareFeed(sourceArg, index) {
-  const localPath = !isHttpUrl(sourceArg) ? resolveLocalPath(sourceArg) : null;
-
-  if (localPath && fs.existsSync(localPath) && fs.statSync(localPath).isDirectory()) {
-    console.log(`Using local GTFS folder [${index + 1}] ${localPath}`);
-    return {
-      sourceArg: localPath,
-      tempRoot: null,
-      extractDir: localPath,
-      sourceHash: hashDirectoryTxtFiles(localPath),
-    };
-  }
-
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), `arbebus-gtfs-${index}-`));
   const zipPath = path.join(tempRoot, 'feed.zip');
   const extractDir = path.join(tempRoot, 'feed');
@@ -157,7 +133,7 @@ async function prepareFeed(sourceArg, index) {
     await downloadFile(sourceArg, zipPath);
   } else {
     const localZip = resolveLocalPath(sourceArg);
-    if (!localZip || !fs.existsSync(localZip)) throw new Error(`Local GTFS file/folder not found: ${sourceArg}`);
+    if (!localZip || !fs.existsSync(localZip)) throw new Error(`Local GTFS file not found: ${sourceArg}`);
     fs.copyFileSync(localZip, zipPath);
     console.log(`Using local GTFS ZIP [${index + 1}] ${localZip}`);
   }
@@ -353,8 +329,7 @@ async function importSingleFeed(client, feed, counters) {
 
 async function main() {
   const sourceArg = process.argv[2];
-  const bundledGtfsDir = path.resolve(__dirname, '../services/data/gtfs');
-  const sources = splitSourceList(sourceArg || env.GTFS_SOURCE_URLS || env.GTFS_SOURCE_URL || (fs.existsSync(bundledGtfsDir) ? bundledGtfsDir : ''));
+  const sources = splitSourceList(sourceArg || env.GTFS_SOURCE_URLS || env.GTFS_SOURCE_URL);
   if (!sources.length) throw new Error('GTFS source is missing. Pass URL/path or set GTFS_SOURCE_URL or GTFS_SOURCE_URLS.');
 
   const preparedFeeds = [];
@@ -404,7 +379,7 @@ async function main() {
     client.release();
     await pool.end();
     for (const feed of preparedFeeds) {
-      if (feed.tempRoot) fs.rmSync(feed.tempRoot, { recursive: true, force: true });
+      fs.rmSync(feed.tempRoot, { recursive: true, force: true });
     }
   }
 }

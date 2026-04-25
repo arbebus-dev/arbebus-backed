@@ -1,1 +1,1 @@
-export { type TransitStep, type TransitStepType } from "./transitRoute";
+export type { TransitStep, TransitStepType } from "./transitTypes";

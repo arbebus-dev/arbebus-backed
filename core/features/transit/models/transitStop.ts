@@ -1,1 +1,1 @@
-export { type TransitStop } from "./transitRoute";
+export type { TransitStopPoint } from "./transitTypes";

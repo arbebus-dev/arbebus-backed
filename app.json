@@ -9,7 +9,10 @@
     "userInterfaceStyle": "dark",
     "icon": "./assets/icon.png",
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-apple-authentication",
+      "@react-native-google-signin/google-signin",
+      "expo-notifications"
     ],
     "splash": {
       "image": "./assets/splash.png",
@@ -19,10 +22,18 @@
     "ios": {
       "bundleIdentifier": "com.arbebus.app",
       "supportsTablet": true,
-      "buildNumber": "67",
+      "usesAppleSignIn": true,
+      "buildNumber": "69",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSLocationWhenInUseUsageDescription": "Arbebus naudoja tavo lokaciją autobusų maršrutams, artimiausioms stotelėms ir ETA."
+        "UIBackgroundModes": [
+          "location",
+          "fetch",
+          "remote-notification"
+        ],
+        "NSLocationWhenInUseUsageDescription": "Arbebus naudoja tavo lokaciją maršrutams, artimiausiems autobusams ir tiksliems leave alerts.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Arbebus gali naudoti lokaciją fone, kad perskaičiuotų leave alerts ir primintų kada išeiti.",
+        "NSUserNotificationsUsageDescription": "Arbebus siunčia leave alerts ir kelionės priminimus."
       }
     },
     "android": {
@@ -30,7 +41,9 @@
       "versionCode": 6,
       "permissions": [
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",

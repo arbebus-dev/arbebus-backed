@@ -1,8 +1,8 @@
 import React, { forwardRef } from "react";
 import { StyleSheet, View } from "react-native";
-import MapView, { PROVIDER_DEFAULT, Region } from "react-native-maps";
+import MapView, { PROVIDER_DEFAULT, type Region } from "react-native-maps";
 
-const KLAIPEDA_REGION: Region = {
+const INITIAL_REGION: Region = {
   latitude: 55.7033,
   longitude: 21.1443,
   latitudeDelta: 0.075,
@@ -11,23 +11,23 @@ const KLAIPEDA_REGION: Region = {
 
 type Props = {
   children?: React.ReactNode;
-  initialRegion?: Region;
+  onPress?: any;
 };
 
-const MapCanvas = forwardRef<MapView, Props>(({ children, initialRegion = KLAIPEDA_REGION }, ref) => {
+const MapCanvas = forwardRef<MapView, Props>(({ children, onPress }, ref) => {
   return (
     <View style={styles.container}>
       <MapView
         ref={ref}
         provider={PROVIDER_DEFAULT}
-        style={StyleSheet.absoluteFillObject}
-        initialRegion={initialRegion}
-        showsUserLocation
+        style={styles.map}
+        initialRegion={INITIAL_REGION}
+        onPress={onPress}
+        showsUserLocation={false}
         showsMyLocationButton={false}
         showsCompass={false}
-        showsBuildings
-        showsTraffic={false}
-        mapType="standard"
+        rotateEnabled
+        pitchEnabled
       >
         {children}
       </MapView>
@@ -38,10 +38,8 @@ const MapCanvas = forwardRef<MapView, Props>(({ children, initialRegion = KLAIPE
 MapCanvas.displayName = "MapCanvas";
 
 const styles = StyleSheet.create({
-  container: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#05070D",
-  },
+  container: { flex: 1 },
+  map: { flex: 1 },
 });
 
 export default MapCanvas;

@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
-import type { TransitStep } from "../transit/models/transitRoute";
+import type { TransitStep } from "../transit/models/transitTypes";
 
 type Props = { step: TransitStep };
 
@@ -16,7 +16,7 @@ export default function StepInstructionCard({ step }: Props) {
   return (
     <View style={styles.card}>
       <View style={styles.iconCircle}>
-        <MaterialCommunityIcons name={iconName(step.type)} color="#69E1FF" size={22} />
+        <MaterialCommunityIcons name={iconName(step.type) as any} color="#69E1FF" size={22} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.title}>{step.title}</Text>

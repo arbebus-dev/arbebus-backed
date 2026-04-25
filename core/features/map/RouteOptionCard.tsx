@@ -1,6 +1,6 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import type { TransitRouteOption } from "../transit/models/transitRoute";
+import type { TransitRouteOption } from "../transit/models/transitTypes";
 
 type Props = {
   route: TransitRouteOption;

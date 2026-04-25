@@ -1,169 +1,221 @@
-require('./config/env');
-
-const fs = require('fs');
-const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const { env } = require('./config/env');
+const { fetchLiveVehicles } = require('./services/transit/klaipedaGateway');
 const { getPool } = require('./db/pool');
 const { handleTransitPlan } = require('./services/transit/planner/plannerController');
-const { fetchLiveVehicles } = require('./services/transit/klaipedaGateway');
+const { buildNewsFeed } = require('./services/newsService');
+const {
+  startLeaveAlertEngine,
+  registerExpoPushToken,
+  createOrReplaceLeaveAlert,
+  cancelLeaveAlert,
+  listActiveLeaveAlerts,
+} = require('./services/leaveAlertEngine');
 
 const app = express();
 
 if (env.ENABLE_CORS) {
-  app.use(cors({ origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN }));
+  app.use(
+    cors({
+      origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN,
+    })
+  );
 }
 
 app.use(express.json({ limit: '1mb' }));
 
-function toNumber(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
-
-function normalizeStop(row, index = 0) {
-  const latitude = toNumber(row.latitude ?? row.stop_lat ?? row.lat);
-  const longitude = toNumber(row.longitude ?? row.stop_lon ?? row.lon ?? row.lng);
-  if (latitude === null || longitude === null) return null;
-  return {
-    id: String(row.id ?? row.stop_id ?? `stop-${index}`),
-    stop_id: String(row.stop_id ?? row.id ?? `stop-${index}`),
-    name: String(row.name ?? row.stop_name ?? row.title ?? 'Stotelė'),
-    stop_name: String(row.stop_name ?? row.name ?? row.title ?? 'Stotelė'),
-    latitude,
-    longitude,
-    distanceMeters: toNumber(row.distance_meters ?? row.distanceMeters) ?? undefined,
-  };
-}
-
-function loadFallbackStops(query) {
-  const files = [
-    path.resolve(__dirname, 'services/data/stops.json'),
-    path.resolve(__dirname, 'services/data/gtfs/stops.txt'),
-  ];
-
-  const q = String(query || '').trim().toLowerCase();
-
-  try {
-    if (fs.existsSync(files[0])) {
-      const raw = JSON.parse(fs.readFileSync(files[0], 'utf8'));
-      const list = Array.isArray(raw) ? raw : raw.stops || [];
-      return list
-        .map(normalizeStop)
-        .filter(Boolean)
-        .filter((stop) => !q || stop.name.toLowerCase().includes(q))
-        .slice(0, 20);
-    }
-  } catch (error) {
-    console.warn('Fallback stops.json failed:', error.message);
-  }
-
-  try {
-    if (!fs.existsSync(files[1])) return [];
-    const [headerLine, ...lines] = fs.readFileSync(files[1], 'utf8').split(/\r?\n/);
-    const headers = headerLine.split(',').map((h) => h.trim());
-    const idx = Object.fromEntries(headers.map((h, i) => [h, i]));
-    return lines
-      .filter(Boolean)
-      .map((line, i) => {
-        const cols = line.split(',');
-        return normalizeStop({
-          stop_id: cols[idx.stop_id],
-          stop_name: cols[idx.stop_name],
-          stop_lat: cols[idx.stop_lat],
-          stop_lon: cols[idx.stop_lon],
-        }, i);
-      })
-      .filter(Boolean)
-      .filter((stop) => !q || stop.name.toLowerCase().includes(q))
-      .slice(0, 20);
-  } catch (error) {
-    console.warn('Fallback GTFS stops failed:', error.message);
-    return [];
-  }
-}
-
 app.get('/', (_req, res) => {
-  res.json({ ok: true, service: 'Arbebus backend', version: 'v1-real-routes' });
+  res.send('Arbebus backend is running 🚀');
 });
 
 app.get('/health', async (_req, res) => {
+  const now = new Date().toISOString();
+
   try {
-    let database = 'not_checked';
-    if (process.env.DATABASE_URL) {
-      const result = await getPool().query('SELECT 1 AS ok');
-      database = result.rows[0]?.ok === 1 ? 'ok' : 'unknown';
-    }
-    res.json({ ok: true, database, time: new Date().toISOString() });
+    const pool = getPool();
+
+    const [routesRes, tripsRes, stopsRes, routeTypesRes, importRes] = await Promise.all([
+      pool.query('SELECT COUNT(*)::int AS count FROM transit.routes'),
+      pool.query('SELECT COUNT(*)::int AS count FROM transit.trips'),
+      pool.query('SELECT COUNT(*)::int AS count FROM transit.stops'),
+      pool.query(`
+        SELECT COALESCE(route_type, -1)::text AS route_type, COUNT(*)::int AS count
+        FROM transit.routes
+        GROUP BY COALESCE(route_type, -1)
+        ORDER BY route_type
+      `),
+      pool.query(`
+        SELECT source_url, created_at
+        FROM transit.import_runs
+        ORDER BY created_at DESC
+        LIMIT 1
+      `),
+    ]);
+
+    const routeTypeCounts = routeTypesRes.rows.reduce((acc, row) => {
+      acc[row.route_type] = Number(row.count || 0);
+      return acc;
+    }, {});
+
+    const sourceUrl = importRes.rows[0]?.source_url || env.GTFS_SOURCE_URL || null;
+    const hasRail = Object.prototype.hasOwnProperty.call(routeTypeCounts, '2');
+
+    res.json({
+      ok: true,
+      service: 'arbebus-backend',
+      mode: 'db_transit_planner',
+      now,
+      dbOk: true,
+      gtfs: {
+        feedCode: env.GTFS_FEED_CODE,
+        feedRegion: env.GTFS_FEED_REGION,
+        source: sourceUrl,
+        sources: env.GTFS_SOURCE_URLS,
+        importedAt: importRes.rows[0]?.created_at || null,
+        hasRail,
+        stopsCount: Number(stopsRes.rows[0]?.count || 0),
+        routesCount: Number(routesRes.rows[0]?.count || 0),
+        tripsCount: Number(tripsRes.rows[0]?.count || 0),
+        routeTypeCounts,
+      },
+      leaveAlerts: {
+        active: listActiveLeaveAlerts().length,
+      },
+      warnings: hasRail
+        ? []
+        : ['GTFS feed currently has no route_type=2 (train) routes in database'],
+    });
   } catch (error) {
-    res.status(503).json({ ok: false, error: error.message });
+    res.status(500).json({
+      ok: false,
+      service: 'arbebus-backend',
+      mode: 'db_transit_planner',
+      now,
+      dbOk: false,
+      error: error.message || 'Health check failed',
+    });
   }
 });
 
 app.get('/live-buses', async (_req, res) => {
-  const vehicles = await fetchLiveVehicles();
-  res.json({ ok: true, count: vehicles.length, buses: vehicles, vehicles });
+  try {
+    const vehicles = await fetchLiveVehicles();
+    res.json(vehicles);
+  } catch (error) {
+    res.status(500).json([]);
+  }
 });
 
 app.get('/stops/search', async (req, res) => {
   const q = String(req.query.q || '').trim();
-  const lat = toNumber(req.query.lat);
-  const lng = toNumber(req.query.lng);
-  const limit = Math.min(30, Math.max(1, Number(req.query.limit || 12)));
-
-  if (!q || q.length < 2) {
-    return res.json({ ok: true, stops: [] });
-  }
-
+  const lat = Number(req.query.lat);
+  const lon = Number(req.query.lon);
+  const limit = Math.min(Math.max(Number(req.query.limit || 12), 1), 30);
+  if (q.length < 2) return res.json({ ok: true, items: [] });
   try {
     const pool = getPool();
-    const params = [`%${q}%`, q, limit];
-    let distanceSelect = 'NULL::double precision AS distance_meters';
-    let orderBy = `CASE WHEN stop_name ILIKE $1 THEN 0 ELSE 1 END, stop_name ASC`;
-
-    if (lat !== null && lng !== null) {
-      params.push(lng, lat);
-      distanceSelect = `ST_DistanceSphere(geom, ST_SetSRID(ST_MakePoint($4, $5), 4326)) AS distance_meters`;
-      orderBy = `CASE WHEN stop_name ILIKE $1 THEN 0 ELSE 1 END, distance_meters ASC NULLS LAST, stop_name ASC`;
-    }
-
-    const result = await pool.query(`
-      SELECT stop_id, stop_name, stop_lat AS latitude, stop_lon AS longitude, ${distanceSelect}
+    const hasPoint = Number.isFinite(lat) && Number.isFinite(lon);
+    const params = hasPoint ? [q, lon, lat, limit] : [q, limit];
+    const sql = hasPoint ? `
+      SELECT stop_id AS id, stop_name AS name, stop_lat AS latitude, stop_lon AS longitude,
+        ST_DistanceSphere(geom, ST_SetSRID(ST_MakePoint($2, $3), 4326)) AS distance_meters
       FROM transit.stops
-      WHERE stop_name ILIKE $1 OR stop_code ILIKE $1 OR to_tsvector('simple', stop_name) @@ plainto_tsquery('simple', $2)
-      ORDER BY ${orderBy}
-      LIMIT $3
-    `, params);
-
-    return res.json({ ok: true, stops: result.rows.map(normalizeStop).filter(Boolean) });
+      WHERE stop_name ILIKE '%' || $1 || '%' OR stop_code ILIKE '%' || $1 || '%' OR stop_id ILIKE '%' || $1 || '%'
+      ORDER BY distance_meters ASC, stop_name ASC
+      LIMIT $4
+    ` : `
+      SELECT stop_id AS id, stop_name AS name, stop_lat AS latitude, stop_lon AS longitude, 0 AS distance_meters
+      FROM transit.stops
+      WHERE stop_name ILIKE '%' || $1 || '%' OR stop_code ILIKE '%' || $1 || '%' OR stop_id ILIKE '%' || $1 || '%'
+      ORDER BY stop_name ASC
+      LIMIT $2
+    `;
+    const result = await pool.query(sql, params);
+    res.json({ ok: true, items: result.rows.map((row) => ({ id: row.id, name: row.name, latitude: Number(row.latitude), longitude: Number(row.longitude), distanceMeters: Number(row.distance_meters || 0) })) });
   } catch (error) {
-    const fallbackStops = loadFallbackStops(q).slice(0, limit);
-    return res.json({ ok: true, fallback: true, stops: fallbackStops });
+    console.error('GET /stops/search error:', error.message);
+    res.status(500).json({ ok: false, items: [], error: error.message });
   }
 });
 
 app.post('/transit/plan', handleTransitPlan);
-app.get('/transit/plan', (req, res) => {
-  req.body = {
-    origin: {
-      latitude: toNumber(req.query.fromLat ?? req.query.originLat ?? req.query.lat),
-      longitude: toNumber(req.query.fromLng ?? req.query.originLng ?? req.query.lng),
-    },
-    destination: {
-      latitude: toNumber(req.query.toLat ?? req.query.destinationLat),
-      longitude: toNumber(req.query.toLng ?? req.query.destinationLng),
-    },
-  };
-  return handleTransitPlan(req, res);
+
+app.get('/news', async (_req, res) => {
+  try {
+    const payload = await buildNewsFeed();
+    res.json(payload);
+  } catch (error) {
+    console.error('GET /news error:', error.message);
+    res.status(500).json({
+      ok: false,
+      generatedAt: new Date().toISOString(),
+      meta: {
+        partial: true,
+        sections: {
+          world: 'error',
+          transport: 'fallback',
+          deal: 'fallback',
+          update: 'fallback',
+        },
+        errors: [{ section: 'news', message: error.message }],
+      },
+      items: [],
+    });
+  }
 });
 
-app.use((req, res) => {
-  res.status(404).json({ ok: false, error: `Route not found: ${req.method} ${req.path}` });
+app.post('/push/register', async (req, res) => {
+  try {
+    const { deviceId, expoPushToken, platform } = req.body || {};
+
+    if (!deviceId || !expoPushToken) {
+      return res.status(400).json({
+        ok: false,
+        error: 'deviceId and expoPushToken are required',
+      });
+    }
+
+    const tokenRecord = await registerExpoPushToken({
+      deviceId,
+      expoPushToken,
+      platform: platform || 'unknown',
+    });
+
+    res.json({ ok: true, token: tokenRecord });
+  } catch (error) {
+    console.error('POST /push/register error:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  }
 });
 
-const port = env.PORT || 10000;
-const host = env.HOST || '0.0.0.0';
-app.listen(port, host, () => {
-  console.log(`Arbebus backend listening on http://${host}:${port}`);
+app.post('/leave-alerts', async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const result = await createOrReplaceLeaveAlert(payload);
+    res.json({ ok: true, alert: result });
+  } catch (error) {
+    console.error('POST /leave-alerts error:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.delete('/leave-alerts/:alertId', async (req, res) => {
+  try {
+    const removed = await cancelLeaveAlert(req.params.alertId);
+    res.json({ ok: true, removed });
+  } catch (error) {
+    console.error('DELETE /leave-alerts/:alertId error:', error.message);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.get('/leave-alerts', (_req, res) => {
+  res.json({ ok: true, items: listActiveLeaveAlerts() });
+});
+
+startLeaveAlertEngine();
+
+app.listen(env.PORT, env.HOST, () => {
+  console.log(`🚀 Running on http://${env.HOST}:${env.PORT}`);
 });

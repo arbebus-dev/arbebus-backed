@@ -1,10 +1,11 @@
 import React from "react";
 import { Polyline } from "react-native-maps";
-import type { TransitStep } from "../../transit/models/transitRoute";
+import type { Coordinate, TransitRouteOption } from "../../transit/models/transitTypes";
 
-type Props = { step: TransitStep | null };
+type Props = { route: TransitRouteOption | null; userLocation?: Coordinate | null };
 
-export default function WalkingPolylineLayer({ step }: Props) {
-  if (!step || step.type !== "walk" || !step.polyline || step.polyline.length < 2) return null;
-  return <Polyline coordinates={step.polyline} strokeWidth={4} strokeColor="#FFFFFF" lineDashPattern={[8, 8]} />;
+export default function WalkingPolylineLayer({ route, userLocation }: Props) {
+  if (!route || !userLocation) return null;
+  const coords = [userLocation, { latitude: route.originStop.latitude, longitude: route.originStop.longitude }];
+  return <Polyline coordinates={coords} strokeWidth={4} strokeColor="#4DA3FF" lineDashPattern={[8, 8]} />;
 }

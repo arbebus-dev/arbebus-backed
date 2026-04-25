@@ -1,5 +1,4 @@
 CREATE EXTENSION IF NOT EXISTS postgis;
-
 CREATE SCHEMA IF NOT EXISTS transit;
 
 CREATE TABLE IF NOT EXISTS transit.import_runs (
@@ -52,13 +51,13 @@ CREATE TABLE IF NOT EXISTS transit.stops (
 
 CREATE TABLE IF NOT EXISTS transit.calendar (
   service_id TEXT PRIMARY KEY,
-  monday BOOLEAN NOT NULL DEFAULT FALSE,
-  tuesday BOOLEAN NOT NULL DEFAULT FALSE,
-  wednesday BOOLEAN NOT NULL DEFAULT FALSE,
-  thursday BOOLEAN NOT NULL DEFAULT FALSE,
-  friday BOOLEAN NOT NULL DEFAULT FALSE,
-  saturday BOOLEAN NOT NULL DEFAULT FALSE,
-  sunday BOOLEAN NOT NULL DEFAULT FALSE,
+  monday BOOLEAN DEFAULT FALSE,
+  tuesday BOOLEAN DEFAULT FALSE,
+  wednesday BOOLEAN DEFAULT FALSE,
+  thursday BOOLEAN DEFAULT FALSE,
+  friday BOOLEAN DEFAULT FALSE,
+  saturday BOOLEAN DEFAULT FALSE,
+  sunday BOOLEAN DEFAULT FALSE,
   start_date DATE,
   end_date DATE,
   import_run_id BIGINT REFERENCES transit.import_runs(id) ON DELETE SET NULL
@@ -127,69 +126,58 @@ CREATE TABLE IF NOT EXISTS transit.shape_points (
 );
 
 CREATE INDEX IF NOT EXISTS idx_transit_stops_geom ON transit.stops USING GIST (geom);
-CREATE INDEX IF NOT EXISTS idx_transit_stops_name ON transit.stops USING GIN (to_tsvector('simple', stop_name));
-CREATE INDEX IF NOT EXISTS idx_transit_routes_short_name ON transit.routes(route_short_name);
-CREATE INDEX IF NOT EXISTS idx_transit_trips_route_service ON transit.trips(route_id, service_id);
-CREATE INDEX IF NOT EXISTS idx_transit_stop_times_stop_departure ON transit.stop_times(stop_id, departure_seconds);
-CREATE INDEX IF NOT EXISTS idx_transit_stop_times_trip_sequence ON transit.stop_times(trip_id, stop_sequence);
-CREATE INDEX IF NOT EXISTS idx_transit_shape_points_shape_seq ON transit.shape_points(shape_id, shape_pt_sequence);
+CREATE INDEX IF NOT EXISTS idx_transit_stop_times_stop_departure ON transit.stop_times (stop_id, departure_seconds);
+CREATE INDEX IF NOT EXISTS idx_transit_stop_times_trip_sequence ON transit.stop_times (trip_id, stop_sequence);
+CREATE INDEX IF NOT EXISTS idx_transit_trips_route_service ON transit.trips (route_id, service_id);
+CREATE INDEX IF NOT EXISTS idx_transit_trips_service ON transit.trips (service_id);
+CREATE INDEX IF NOT EXISTS idx_transit_shape_points_order ON transit.shape_points (shape_id, shape_pt_sequence);
 
-DROP MATERIALIZED VIEW IF EXISTS transit.route_stop_pairs;
 DROP MATERIALIZED VIEW IF EXISTS transit.service_days;
-
 CREATE MATERIALIZED VIEW transit.service_days AS
-WITH base_calendar AS (
+WITH calendar_range AS (
   SELECT
     c.service_id,
-    day::date AS service_date
+    gs::date AS service_date,
+    CASE EXTRACT(ISODOW FROM gs::date)
+      WHEN 1 THEN c.monday
+      WHEN 2 THEN c.tuesday
+      WHEN 3 THEN c.wednesday
+      WHEN 4 THEN c.thursday
+      WHEN 5 THEN c.friday
+      WHEN 6 THEN c.saturday
+      WHEN 7 THEN c.sunday
+    END AS runs
   FROM transit.calendar c
-  CROSS JOIN LATERAL generate_series(
-    COALESCE(c.start_date, CURRENT_DATE - INTERVAL '30 days'),
-    COALESCE(c.end_date, CURRENT_DATE + INTERVAL '365 days'),
-    INTERVAL '1 day'
-  ) AS day
-  WHERE CASE EXTRACT(ISODOW FROM day)::int
-    WHEN 1 THEN c.monday
-    WHEN 2 THEN c.tuesday
-    WHEN 3 THEN c.wednesday
-    WHEN 4 THEN c.thursday
-    WHEN 5 THEN c.friday
-    WHEN 6 THEN c.saturday
-    WHEN 7 THEN c.sunday
-  END
+  CROSS JOIN LATERAL generate_series(c.start_date, c.end_date, interval '1 day') AS gs
+  WHERE c.start_date IS NOT NULL AND c.end_date IS NOT NULL
+), base_days AS (
+  SELECT service_id, service_date
+  FROM calendar_range
+  WHERE runs = TRUE
 ), removed AS (
-  SELECT service_id, service_date
-  FROM transit.calendar_dates
-  WHERE exception_type = 2
+  SELECT service_id, service_date FROM transit.calendar_dates WHERE exception_type = 2
 ), added AS (
-  SELECT service_id, service_date
-  FROM transit.calendar_dates
-  WHERE exception_type = 1
+  SELECT service_id, service_date FROM transit.calendar_dates WHERE exception_type = 1
 )
-SELECT DISTINCT service_id, service_date
-FROM (
-  SELECT * FROM base_calendar
-  EXCEPT
-  SELECT * FROM removed
-  UNION
-  SELECT * FROM added
-) x;
+SELECT service_id, service_date FROM base_days
+EXCEPT SELECT service_id, service_date FROM removed
+UNION SELECT service_id, service_date FROM added;
 
-CREATE UNIQUE INDEX idx_service_days_unique ON transit.service_days(service_id, service_date);
-CREATE INDEX idx_service_days_date_service ON transit.service_days(service_date, service_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_service_days_unique ON transit.service_days (service_id, service_date);
 
+DROP MATERIALIZED VIEW IF EXISTS transit.route_stop_pairs;
 CREATE MATERIALIZED VIEW transit.route_stop_pairs AS
 SELECT DISTINCT
-  tr.route_id,
-  r.route_short_name,
-  r.route_long_name,
+  r.route_id,
+  COALESCE(r.route_short_name, r.route_id) AS route_label,
   st.stop_id,
   s.stop_name,
-  st.stop_sequence
-FROM transit.stop_times st
-JOIN transit.trips tr ON tr.trip_id = st.trip_id
-JOIN transit.routes r ON r.route_id = tr.route_id
+  s.stop_lat,
+  s.stop_lon
+FROM transit.routes r
+JOIN transit.trips t ON t.route_id = r.route_id
+JOIN transit.stop_times st ON st.trip_id = t.trip_id
 JOIN transit.stops s ON s.stop_id = st.stop_id;
 
-CREATE INDEX idx_route_stop_pairs_stop ON transit.route_stop_pairs(stop_id);
-CREATE INDEX idx_route_stop_pairs_route ON transit.route_stop_pairs(route_id);
+CREATE INDEX IF NOT EXISTS idx_route_stop_pairs_route ON transit.route_stop_pairs (route_id);
+CREATE INDEX IF NOT EXISTS idx_route_stop_pairs_stop ON transit.route_stop_pairs (stop_id);

@@ -1,54 +1,33 @@
-import { Alert } from "react-native";
-import { useCallback, useEffect, useState } from "react";
-import type { TravelMode } from "../../../../types/home";
-import type { PlaceSuggestion } from "../../rideBooking/models";
-import { useRideState } from "./useRideState";
-import { useFavoriteRoutes } from "./useFavoriteRoutes";
+import { useMemo } from "react";
+import type { Coordinate, TransitFlowState, TransitRouteOption } from "../../transit/models/transitTypes";
 
-export function useMapScreenController({ useRideBookingResult, userLocation, handleSmartRoute, selectedMode, transitPlan }: {
-  useRideBookingResult: any;
-  userLocation: { latitude: number; longitude: number } | null;
-  handleSmartRoute: () => Promise<any>;
-  selectedMode: TravelMode;
-  transitPlan: any;
-}) {
-  const [initialDataLoaded] = useState(true);
-  const { favorites, saveFavorite } = useFavoriteRoutes();
+type Params = {
+  userLocation: Coordinate | null;
+  flowState: TransitFlowState;
+  selectedRoute: TransitRouteOption | null;
+  selectedDestination?: { coordinate: Coordinate } | null;
+};
 
-  const {
-    rideDraft, rideStatus, initializeRideBooking, searchResults, searchLoading,
-    activeField, fromQuery, toQuery, setSearchField, updateQuery, selectSuggestion, clearField, swapPlaces, applyFavoriteRoute, flowState,
-  } = useRideBookingResult;
+export function useMapScreenController({ userLocation, flowState, selectedRoute, selectedDestination }: Params) {
+  const focusCoordinates = useMemo(() => {
+    const points: Coordinate[] = [];
+    if (userLocation) points.push(userLocation);
+    if (selectedDestination?.coordinate) points.push(selectedDestination.coordinate);
+    if (selectedRoute?.previewPoints?.length) points.push(...selectedRoute.previewPoints);
+    return points;
+  }, [selectedDestination, selectedRoute, userLocation]);
 
-  const rideUi = useRideState({
-    flowState,
-    rideStatus,
-    transitPlan: transitPlan ?? null,
-    hasDestination: Boolean(rideDraft.destination),
-    hasResults: searchLoading || searchResults.length > 0,
-  });
+  const isJourneyActive = ["walking_to_stop", "waiting_bus", "onboard", "transfer", "arriving"].includes(flowState);
+  const ctaLabel =
+    flowState === "waiting_bus"
+      ? "Lauk autobuso"
+      : flowState === "onboard"
+        ? "Važiuok"
+        : flowState === "arriving"
+          ? "Išlipk dabar"
+          : isJourneyActive
+            ? "Tęsti kelionę"
+            : "Kur važiuojam?";
 
-  useEffect(() => {
-    initializeRideBooking(userLocation ?? null).catch(() => {});
-  }, [initializeRideBooking, userLocation]);
-
-  useEffect(() => {
-    if (!rideDraft.pickup?.coordinate || !rideDraft.destination?.coordinate) return;
-    if (selectedMode !== 'smart' && selectedMode !== 'bus') return;
-    handleSmartRoute().catch(() => {});
-  }, [handleSmartRoute, rideDraft.destination?.coordinate, rideDraft.pickup?.coordinate, selectedMode]);
-
-  const onSaveFavorite = useCallback(async () => {
-    if (!fromQuery || !toQuery) return;
-    await saveFavorite(fromQuery, toQuery);
-    Alert.alert('Išsaugota', 'Maršrutas pridėtas prie mėgstamų.');
-  }, [fromQuery, saveFavorite, toQuery]);
-
-  const onPressFavorite = useCallback(async (item: { fromQuery: string; toQuery: string; }) => {
-    await applyFavoriteRoute({ fromQueryValue: item.fromQuery, toQueryValue: item.toQuery });
-  }, [applyFavoriteRoute]);
-
-  return {
-    initialDataLoaded, favorites, onSaveFavorite, onPressFavorite, rideUi, rideDraft, searchResults: searchResults as PlaceSuggestion[], searchLoading, activeField, fromQuery, toQuery, setSearchField, updateQuery, selectSuggestion, clearField, swapPlaces, flowState,
-  };
+  return { focusCoordinates, isJourneyActive, ctaLabel };
 }
