@@ -3,18 +3,6 @@ export type Coordinate = {
   longitude: number;
 };
 
-export type TransitStopTimelineItem = {
-  stopId: string;
-  stopName: string;
-  sequence?: number;
-  latitude?: number;
-  longitude?: number;
-  arrivalTime?: string | null;
-  departureTime?: string | null;
-  isBoardStop?: boolean;
-  isAlightStop?: boolean;
-};
-
 export type TransitJourneyStep = {
   icon?: string;
   title: string;
@@ -25,13 +13,9 @@ export type TransitJourneyStep = {
   stopId?: string;
   stopName?: string;
   routeId?: string;
-  routeLabel?: string;
   fromStopId?: string;
   toStopId?: string;
   stopCount?: number;
-  departureTime?: string;
-  arrivalTime?: string;
-  stops?: TransitStopTimelineItem[];
 };
 
 export type TransitNearbyStop = {
@@ -47,21 +31,6 @@ export type TransitAlertSignal = {
   title: string;
   message: string;
   severity?: "info" | "warning" | "critical";
-};
-
-export type TransitSegment = {
-  id: string;
-  type: "walk" | "ride";
-  mode: "bus" | "train" | "walk";
-  label?: string;
-  fromName?: string;
-  toName?: string;
-  durationMinutes?: number | null;
-  stopCount?: number;
-  departureTime?: string | null;
-  arrivalTime?: string | null;
-  points: Coordinate[];
-  stops?: TransitStopTimelineItem[];
 };
 
 export type TransitPlan = {
@@ -91,7 +60,6 @@ export type TransitPlan = {
   originStop: TransitNearbyStop;
   destinationStop: TransitNearbyStop;
   previewPoints: Coordinate[];
-  segments?: TransitSegment[];
   journeySteps?: TransitJourneyStep[];
   liveVehicle?: {
     vehicleId?: string;

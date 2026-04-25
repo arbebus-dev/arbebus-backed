@@ -1,0 +1,12 @@
+Safe to delete manually after replacing files and confirming the app runs:
+- server.js
+- backend/services/transitRouter.js
+- backend/services/csaEngine.js
+- backend/services/data/leave-alerys-store.json
+- backend/db/d transit.routes
+- backend/db/d transit.shapers
+- backend/db/d transit.stop_times
+- backend/db/d transit.stops
+- backend/db/d transit.transfers
+- backend/db/d transit.trips
+- item.trim())

@@ -121,7 +121,7 @@ export default function HomeMapLayer({
             coordinate={coordinate}
             source={isBest ? busBestImg : busImg}
             rotation={bus.heading ?? bus.bearing ?? animatedEntry?.rotation ?? 0}
-            label={(bus as any).route || bus.number || (bus as any).vehicleLabel || "?"}
+            label={bus.number}
             isBest={isBest}
             onPress={() => onBusPress(bus)}
           />

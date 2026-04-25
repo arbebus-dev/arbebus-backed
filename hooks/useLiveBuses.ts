@@ -40,20 +40,11 @@ function normalizeBus(raw: RawBus): LiveBus | null {
     return null;
   }
 
-  const routeLabel =
-    (typeof (raw as any).route === "string" && (raw as any).route.trim()) ||
-    (typeof (raw as any).routeShortName === "string" && (raw as any).routeShortName.trim()) ||
-    (typeof raw.number === "string" && raw.number.trim()) ||
-    (typeof raw.vehicleLabel === "string" && raw.vehicleLabel.trim()) ||
-    "?";
-
   return {
     id: raw.id,
     type: raw.type || "bus",
-    number: routeLabel,
-    vehicleLabel: raw.vehicleLabel || routeLabel,
-    route: (raw as any).route || routeLabel,
-    routeId: (raw as any).routeId || (raw as any).route || routeLabel,
+    number: raw.number || raw.vehicleLabel || "?",
+    vehicleLabel: raw.vehicleLabel || raw.number || "?",
     latitude: Number(latitude),
     longitude: Number(longitude),
     coordinate: {

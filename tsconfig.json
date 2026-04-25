@@ -1,18 +1,13 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
+    "ignoreDeprecations": "6.0",
     "strict": true,
+    "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "./*"
-      ],
-      "@ride/*": [
-        "./core/features/rideBooking/*"
-      ]
+      "@/*": ["./*"]
     }
   },
-  "include": [
-    "**/*.ts",
-    "**/*.tsx"
-  ]
+  "include": ["app/**/*.ts", "app/**/*.tsx", "core/**/*.ts", "core/**/*.tsx", "constants/**/*.ts"],
+  "exclude": ["node_modules", "_legacy_removed", "backend", "ios", "android", "dist", "build"]
 }

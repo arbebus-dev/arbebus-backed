@@ -1,0 +1,9 @@
+Arbebus PRO fix package
+
+Key fixes:
+- plannerApi normalizes POST body and safely handles API errors/options fallback.
+- useSmartRoute now normalizes backend transit options, maps backend journeySteps into UI-friendly steps, and updates the selected route polyline when user taps an alternative recommendation.
+- HomeBottomSheet now shows a clearer route summary / selected bus hint instead of generic text.
+
+Backend note:
+- backend/services/transit/planner/plannerRepository.js already contains the fixed getPool -> pool.query implementation in this package.

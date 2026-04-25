@@ -1,6 +1,5 @@
-import React from "react";
-import MapScreenShell from "../../core/features/map/MapScreenShell";
+import MapScreen from "../../core/features/map/MapScreen";
 
-export default function MapScreen() {
-  return <MapScreenShell />;
+export default function TravelScreen() {
+  return <MapScreen />;
 }

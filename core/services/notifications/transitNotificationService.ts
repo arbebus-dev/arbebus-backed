@@ -31,22 +31,15 @@ const registeredPushState: RegisteredPushState = {
   attempted: false,
   token: null,
 };
-let notificationHandlerConfigured = false;
 
-function ensureNotificationHandlerConfigured() {
-  if (notificationHandlerConfigured) return;
-
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-    }),
-  });
-
-  notificationHandlerConfigured = true;
-}
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 function getProjectId(): string | undefined {
   const fromExpoConfig =
@@ -73,7 +66,6 @@ export async function ensureNotificationChannelAsync() {
 
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   try {
-    ensureNotificationHandlerConfigured();
     await ensureNotificationChannelAsync();
 
     const currentPermissions = await Notifications.getPermissionsAsync();
@@ -173,7 +165,6 @@ export async function dispatchTransitAlertsAsync({
 }: AlertDispatchOptions) {
   if (!alerts.length) return;
 
-  ensureNotificationHandlerConfigured();
   await ensurePushRegistrationAsync(apiBase, deviceId);
   await ensureNotificationChannelAsync();
 

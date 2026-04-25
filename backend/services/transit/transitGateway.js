@@ -1,8 +1,5 @@
 function normalizeRouteId(value) {
-  return String(value || "")
-    .trim()
-    .toUpperCase()
-    .replace(/^0+(?=\d)/, "");
+  return String(value || "").trim().toUpperCase();
 }
 
 function normalizeStopId(value) {

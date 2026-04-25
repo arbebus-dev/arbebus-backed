@@ -403,15 +403,14 @@ function HomeBottomSheet({
     : "crown-outline") as keyof typeof MaterialCommunityIcons.glyphMap;
 
   return (
-    <Animated.View pointerEvents="box-none" style={styles.sheetShell}>
-      <Animated.View
-        style={[
-          styles.sheet,
-          {
-            transform: [{ translateY }],
-          },
-        ]}
-      >
+    <Animated.View
+      style={[
+        styles.sheet,
+        {
+          transform: [{ translateY }],
+        },
+      ]}
+    >
       <View style={styles.handleArea} {...panResponder.panHandlers}>
         <View style={styles.handle} />
       </View>
@@ -679,27 +678,18 @@ function HomeBottomSheet({
           </Animated.View>
         ) : null}
       </ScrollView>
-      </Animated.View>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  sheetShell: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    zIndex: 22,
-  },
-
   sheet: {
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
-    height: "100%",
+    top: 0,
+    zIndex: 22,
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     backgroundColor: "rgba(9,16,31,0.96)",

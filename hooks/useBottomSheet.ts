@@ -56,14 +56,7 @@ export function useBottomSheet({
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => false,
-        onStartShouldSetPanResponderCapture: () => false,
-
-        onMoveShouldSetPanResponder: (_, g) =>
-          Math.abs(g.dy) > 8 && Math.abs(g.dy) > Math.abs(g.dx),
-
-        onMoveShouldSetPanResponderCapture: (_, g) =>
-          Math.abs(g.dy) > 8 && Math.abs(g.dy) > Math.abs(g.dx),
+        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 6,
 
         onPanResponderGrant: () => {
           translateY.stopAnimation((value: number) => {
@@ -76,17 +69,6 @@ export function useBottomSheet({
         },
 
         onPanResponderRelease: async (_, g) => {
-          const current = clampY(dragStartY.current + g.dy);
-          const snapPoint = snapToNearest(current, g.vy);
-
-          if (onSnapHaptic) {
-            await onSnapHaptic();
-          }
-
-          animateSheet(snapPoint);
-        },
-
-        onPanResponderTerminate: async (_, g) => {
           const current = clampY(dragStartY.current + g.dy);
           const snapPoint = snapToNearest(current, g.vy);
 

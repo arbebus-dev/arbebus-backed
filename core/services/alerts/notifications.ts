@@ -2,25 +2,17 @@ import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
 let configured = false;
-let notificationHandlerConfigured = false;
 
-function ensureNotificationHandlerConfigured() {
-  if (notificationHandlerConfigured) return;
-
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    }),
-  });
-
-  notificationHandlerConfigured = true;
-}
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 export async function ensureNotificationsReady() {
-  ensureNotificationHandlerConfigured();
   if (!configured) {
     configured = true;
 
