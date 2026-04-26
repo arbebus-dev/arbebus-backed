@@ -41,15 +41,89 @@ async function safeJson<T>(response: Response): Promise<T> {
 
 function toCoordinate(input: any): Coordinate | null {
   const latitude = Number(
-    input?.latitude ?? input?.lat ?? input?.stop_lat ?? input?.coordinate?.latitude
+    input?.latitude ??
+      input?.lat ??
+      input?.stop_lat ??
+      input?.coordinate?.latitude
   );
 
   const longitude = Number(
-    input?.longitude ?? input?.lon ?? input?.lng ?? input?.stop_lon ?? input?.coordinate?.longitude
+    input?.longitude ??
+      input?.lon ??
+      input?.lng ??
+      input?.stop_lon ??
+      input?.coordinate?.longitude
   );
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
+}
+
+function normalizeId(value: any) {
+  return String(value ?? "").trim();
+}
+
+function normalizeRouteNumber(value: any) {
+  return String(value ?? "")
+    .trim()
+    .split("•")[0]
+    .split(" ")[0]
+    .replace(/^0+/, "")
+    .toUpperCase();
+}
+
+function normalizeLiveBus(raw: any, index = 0): LiveBus | null {
+  const coordinate = toCoordinate(raw);
+  if (!coordinate) return null;
+
+  const number = String(
+    raw?.number ??
+      raw?.route ??
+      raw?.routeId ??
+      raw?.line ??
+      raw?.vehicleLabel ??
+      "BUS"
+  );
+
+  const vehicleId = normalizeId(
+    raw?.vehicleId ??
+      raw?.vehicle_id ??
+      raw?.id ??
+      raw?.vehicleLabel ??
+      `${number}-${index}`
+  );
+
+  const id = normalizeId(raw?.id ?? vehicleId);
+
+  return {
+    id,
+    number,
+    route: raw?.route != null ? String(raw.route) : number,
+    routeId: raw?.routeId != null ? String(raw.routeId) : normalizeRouteNumber(number),
+    vehicleId,
+    vehicleLabel:
+      raw?.vehicleLabel != null
+        ? String(raw.vehicleLabel)
+        : raw?.label != null
+          ? String(raw.label)
+          : vehicleId,
+    latitude: coordinate.latitude,
+    longitude: coordinate.longitude,
+    coordinate,
+    speedKph: raw?.speedKph != null ? Number(raw.speedKph) : undefined,
+    bearing: raw?.bearing != null ? Number(raw.bearing) : undefined,
+    heading:
+      raw?.heading != null
+        ? Number(raw.heading)
+        : raw?.bearing != null
+          ? Number(raw.bearing)
+          : undefined,
+    tripStart: raw?.tripStart,
+    delaySeconds:
+      raw?.delaySeconds != null ? Number(raw.delaySeconds) : undefined,
+    directionName: raw?.directionName,
+    fetchedAt: raw?.fetchedAt ?? raw?.fetchedAtIso,
+  };
 }
 
 function normalizeStep(raw: any, index: number): TransitStep {
@@ -99,7 +173,8 @@ function normalizeStep(raw: any, index: number): TransitStep {
         : raw?.minutes != null
           ? Number(raw.minutes)
           : undefined,
-    distanceMeters: raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
+    distanceMeters:
+      raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
     departureTime: raw?.departureTime ?? raw?.departureText,
     arrivalTime: raw?.arrivalTime ?? raw?.arrivalText,
     polyline: Array.isArray(raw?.polyline)
@@ -118,7 +193,8 @@ function stopPoint(title: string, fallback: Coordinate, raw?: any) {
     latitude: coordinate.latitude,
     longitude: coordinate.longitude,
     coordinate,
-    distanceMeters: raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
+    distanceMeters:
+      raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
   };
 }
 
@@ -130,9 +206,10 @@ function normalizeBackendPlan(
 ): TransitRouteOption {
   const summary = raw?.summary ?? {};
 
-  const previewPoints = Array.isArray(raw?.previewPoints) && raw.previewPoints.length
-    ? (raw.previewPoints.map(toCoordinate).filter(Boolean) as Coordinate[])
-    : [fallbackFrom, fallbackTo];
+  const previewPoints =
+    Array.isArray(raw?.previewPoints) && raw.previewPoints.length
+      ? (raw.previewPoints.map(toCoordinate).filter(Boolean) as Coordinate[])
+      : [fallbackFrom, fallbackTo];
 
   const journeyStepsRaw = Array.isArray(raw?.journeySteps)
     ? raw.journeySteps
@@ -143,9 +220,11 @@ function normalizeBackendPlan(
   const steps = journeyStepsRaw.map(normalizeStep);
 
   const routeLabel = String(summary.routeLabel ?? raw?.routeLabel ?? "Autobusas");
+
   const boardStopName = String(
     summary.boardStopName ?? raw?.originStop?.name ?? "Artimiausia stotelė"
   );
+
   const alightStopName = String(
     summary.alightStopName ?? raw?.destinationStop?.name ?? "Tikslas"
   );
@@ -161,7 +240,7 @@ function normalizeBackendPlan(
     title: routeLabel,
     subtitle: summary.journeyMessage ?? undefined,
     mode: raw?.mode,
-    routeId: raw?.routeId != null ? String(raw.routeId) : undefined,
+    routeId: raw?.routeId != null ? String(raw.routeId) : normalizeRouteNumber(routeLabel),
     shapeId: raw?.shapeId ?? summary.shapeId ?? null,
     routeLabel,
     routeNumbers: routeLabel
@@ -191,7 +270,7 @@ function normalizeBackendPlan(
     arrivalText: undefined,
     journeyMessage: summary.journeyMessage,
     headsign: summary.headsign ?? summary.directionCode ?? null,
-    liveVehicle: raw?.liveVehicle ?? null,
+    liveVehicle: raw?.liveVehicle ? normalizeLiveBus(raw.liveVehicle) : null,
     summary,
   } as TransitRouteOption;
 }
@@ -213,38 +292,7 @@ export async function getLiveBuses(): Promise<LiveBus[]> {
         : [];
 
   return rawBuses
-    .map((bus: any, index: number): LiveBus | null => {
-      const coordinate = toCoordinate(bus);
-      if (!coordinate) return null;
-
-      const number = String(
-        bus.number ?? bus.route ?? bus.routeId ?? bus.line ?? bus.vehicleLabel ?? "BUS"
-      );
-
-      return {
-        id: String(bus.id ?? bus.vehicleId ?? bus.vehicleLabel ?? `${number}-${index}`),
-        number,
-        route: bus.route != null ? String(bus.route) : number,
-        routeId: bus.routeId != null ? String(bus.routeId) : undefined,
-        vehicleId: bus.vehicleId != null ? String(bus.vehicleId) : undefined,
-        vehicleLabel: bus.vehicleLabel != null ? String(bus.vehicleLabel) : undefined,
-        latitude: coordinate.latitude,
-        longitude: coordinate.longitude,
-        coordinate,
-        speedKph: bus.speedKph != null ? Number(bus.speedKph) : undefined,
-        bearing: bus.bearing != null ? Number(bus.bearing) : undefined,
-        heading:
-          bus.heading != null
-            ? Number(bus.heading)
-            : bus.bearing != null
-              ? Number(bus.bearing)
-              : undefined,
-        tripStart: bus.tripStart,
-        delaySeconds: bus.delaySeconds != null ? Number(bus.delaySeconds) : undefined,
-        directionName: bus.directionName,
-        fetchedAt: bus.fetchedAt ?? bus.fetchedAtIso,
-      };
-    })
+    .map((bus: any, index: number) => normalizeLiveBus(bus, index))
     .filter(Boolean) as LiveBus[];
 }
 
@@ -384,7 +432,7 @@ export async function fetchLiveEta(route: TransitRouteOption): Promise<LiveEtaRe
   if (!routeId || !stop?.coordinate) return null;
 
   const params = new URLSearchParams({
-    routeId: String(routeId).split("•")[0].trim(),
+    routeId: normalizeRouteNumber(routeId),
     stopLat: String(stop.coordinate.latitude),
     stopLon: String(stop.coordinate.longitude),
     stopName: stop.name ?? stop.title ?? route.boardStopName,
@@ -411,5 +459,8 @@ export async function fetchLiveEta(route: TransitRouteOption): Promise<LiveEtaRe
 
   const data = await safeJson<any>(response);
 
-  return data as LiveEtaResult;
+  return {
+    ...data,
+    vehicle: data?.vehicle ? normalizeLiveBus(data.vehicle) : null,
+  } as LiveEtaResult;
 }
