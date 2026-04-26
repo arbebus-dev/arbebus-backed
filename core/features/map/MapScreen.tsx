@@ -57,6 +57,12 @@ export default function MapScreen() {
 
   const selectedRouteLabel = selectedRoute?.routeLabel || null;
 
+  // 🔥 NAUJA – konkretus autobusas
+  const selectedVehicleId =
+    selectedRoute?.liveVehicle?.vehicleId ||
+    selectedRoute?.liveVehicle?.id ||
+    null;
+
   const focusCoords = useMemo(() => {
     const coords: Array<{ latitude: number; longitude: number }> = [];
 
@@ -69,7 +75,8 @@ export default function MapScreen() {
       coords.push(...routePreview);
     } else {
       if (userLocation) coords.push(userLocation);
-      if (selectedDestination?.coordinate) coords.push(selectedDestination.coordinate);
+      if (selectedDestination?.coordinate)
+        coords.push(selectedDestination.coordinate);
     }
 
     return validPoints(coords);
@@ -100,11 +107,19 @@ export default function MapScreen() {
 
         <RoutePolylineLayer route={selectedRoute} />
 
-        <WalkingPolylineLayer route={selectedRoute} userLocation={userLocation} />
+        <WalkingPolylineLayer
+          route={selectedRoute}
+          userLocation={userLocation}
+        />
 
         <StopsLayer route={selectedRoute} />
 
-        <LiveBusesLayer buses={buses} selectedRouteLabel={selectedRouteLabel} />
+        {/* 🔥 UPDATED */}
+        <LiveBusesLayer
+          buses={buses}
+          selectedRouteLabel={selectedRouteLabel}
+          selectedVehicleId={selectedVehicleId}
+        />
 
         <DestinationMarkerLayer destination={selectedDestination} />
       </MapCanvas>
@@ -129,7 +144,9 @@ export default function MapScreen() {
         visible={searchVisible}
         results={planner.searchResults}
         isLoading={planner.isSearching}
-        error={planner.flowState === "searching" ? planner.error : null}
+        error={
+          planner.flowState === "searching" ? planner.error : null
+        }
         onSelect={(item) => {
           Keyboard.dismiss();
           void planner.selectDestination(item);
@@ -141,7 +158,9 @@ export default function MapScreen() {
         liveBusCount={buses.length}
         routeOptions={planner.routeOptions}
         selectedRoute={selectedRoute}
-        error={planner.flowState !== "searching" ? planner.error : null}
+        error={
+          planner.flowState !== "searching" ? planner.error : null
+        }
         onChooseRoute={planner.chooseRoute}
         onStartJourney={planner.startJourney}
         onNextStep={planner.nextStep}
