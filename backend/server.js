@@ -5,6 +5,7 @@ const { fetchLiveVehicles } = require('./services/transit/klaipedaGateway');
 const { getPool } = require('./db/pool');
 const { handleTransitPlan } = require('./services/transit/planner/plannerController');
 const { buildNewsFeed } = require('./services/newsService');
+const { searchPlaces } = require('./places/placesSearchService');
 const {
   startLeaveAlertEngine,
   registerExpoPushToken,
@@ -104,6 +105,25 @@ app.get('/live-buses', async (_req, res) => {
     res.json(vehicles);
   } catch (error) {
     res.status(500).json([]);
+  }
+});
+
+app.get('/places/search', async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  const lat = Number(req.query.lat);
+  const lon = Number(req.query.lon);
+  const limit = Math.min(Math.max(Number(req.query.limit || 12), 1), 30);
+
+  if (q.length < 2) {
+    return res.json({ ok: true, items: [], results: [], places: [] });
+  }
+
+  try {
+    const items = await searchPlaces({ q, lat, lon, limit });
+    res.json({ ok: true, items, results: items, places: items });
+  } catch (error) {
+    console.error('GET /places/search error:', error.message);
+    res.status(500).json({ ok: false, items: [], results: [], places: [], error: error.message });
   }
 });
 

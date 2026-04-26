@@ -1,7 +1,21 @@
-import { Ionicons } from "@expo/vector-icons";
-import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import type { TransitFlowState, TransitRouteOption } from "../transit/models/transitTypes";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import React, { useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Animated,
+  Dimensions,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import type {
+  TransitFlowState,
+  TransitRouteOption,
+  TransitStep,
+} from "../transit/models/transitTypes";
 
 type Props = {
   flowState: TransitFlowState;
@@ -15,6 +29,40 @@ type Props = {
   onReset: () => void;
 };
 
+type SnapPoint = "compact" | "medium" | "expanded";
+
+const SCREEN_HEIGHT = Dimensions.get("window").height;
+
+const SNAP_HEIGHTS: Record<SnapPoint, number> = {
+  compact: 190,
+  medium: Math.min(460, SCREEN_HEIGHT * 0.55),
+  expanded: Math.min(760, SCREEN_HEIGHT * 0.88),
+};
+
+function nearestSnap(height: number): SnapPoint {
+  const entries = Object.entries(SNAP_HEIGHTS) as Array<[SnapPoint, number]>;
+
+  return entries.reduce((best, current) => {
+    return Math.abs(current[1] - height) < Math.abs(best[1] - height)
+      ? current
+      : best;
+  })[0];
+}
+
+function routeSummary(route: TransitRouteOption | null) {
+  if (!route) return null;
+
+  const duration = Number(route.totalDurationMinutes || route.totalMinutes || 0);
+  const walk = Number(route.totalWalkMinutes || route.walkingMinutes || 0);
+  const bus = Number(
+    route.totalBusMinutes != null ? route.totalBusMinutes : Math.max(0, duration - walk)
+  );
+  const transfers = Number(route.transfersCount || route.transfers || 0);
+  const stops = Number(route.stopCount || 0);
+
+  return { duration, walk, bus, transfers, stops };
+}
+
 function stateCopy(state: TransitFlowState, route: TransitRouteOption | null) {
   switch (state) {
     case "idle":
@@ -23,68 +71,86 @@ function stateCopy(state: TransitFlowState, route: TransitRouteOption | null) {
         subtitle: "Įvesk tikslą – parodysime stotelę, autobusą ir persėdimus.",
         icon: "search" as const,
       };
+
     case "destination_selected":
       return {
         title: "Tikslas pasirinktas",
-        subtitle: "Skaičiuojame maršrutus iš tavo vietos.",
+        subtitle: "Pasirink vietą arba palauk, kol bus suplanuotas maršrutas.",
         icon: "location" as const,
       };
+
     case "routes_loading":
       return {
         title: "Ieškome geriausio maršruto",
-        subtitle: "Tikriname stoteles, grafikus ir kelionės laiką.",
+        subtitle: "Tikriname stoteles, grafikus, persėdimus ir live ETA.",
         icon: "sync" as const,
       };
+
     case "route_options":
       return {
-        title: "Pasirink maršrutą",
-        subtitle: "Apple Maps principas: variantai apačioje, kelias žemėlapyje.",
+        title: route
+          ? `${route.routeLabel} • ${route.totalDurationMinutes || route.totalMinutes} min`
+          : "Pasirink maršrutą",
+        subtitle: route?.journeyMessage || "Žemėlapyje matai liniją, apačioje – kelionės žingsnius.",
         icon: "bus" as const,
       };
+
     case "route_selected":
       return {
-        title: `Autobusas ${route?.routeLabel || ""}`,
-        subtitle: "Spausk GO ir pradėk kelionę.",
+        title: route
+          ? `${route.routeLabel} • ${route.totalDurationMinutes || route.totalMinutes} min`
+          : "Maršrutas pasirinktas",
+        subtitle: route?.journeyMessage || "Spausk GO ir pradėk kelionę.",
         icon: "navigate" as const,
       };
+
     case "walking_to_stop":
       return {
         title: "Eik iki stotelės",
         subtitle: route
-          ? `${route.boardStopName} • apie ${Math.max(1, route.totalWalkMinutes || route.walkingMinutes || 1)} min pėsčiomis`
+          ? `Stotelė: ${route.boardStopName}`
           : "Eik iki pažymėtos stotelės.",
         icon: "walk" as const,
       };
+
     case "waiting_bus":
       return {
-        title: `Lauk autobuso ${route?.routeLabel || ""}`,
-        subtitle: route?.etaMinutes != null ? `Atvyksta maždaug už ${route.etaMinutes} min` : "Stebėk autobusą žemėlapyje.",
+        title: `Lauk autobuso ${route?.routeLabel || ""}`.trim(),
+        subtitle:
+          route?.etaMinutes != null
+            ? `Atvyksta maždaug už ${route.etaMinutes} min`
+            : "Stebėk autobusą žemėlapyje.",
         icon: "time" as const,
       };
+
     case "onboard":
       return {
         title: `Važiuok ${route?.stopCount || 0} stotelių`,
         subtitle: route ? `Išlipimas: ${route.alightStopName}` : "Sek kelionės eigą.",
         icon: "bus" as const,
       };
+
     case "transfer":
       return {
-        title: "Persėsk į kitą autobusą",
-        subtitle: "Sek kitą žingsnį apačioje.",
+        title: "Persėsk",
+        subtitle: "Sek kitą žingsnį ir lipk į kitą autobusą.",
         icon: "swap-horizontal" as const,
       };
+
     case "arriving":
       return {
-        title: "Išlipk kitoje stotelėje",
+        title: "Išlipk",
         subtitle: route ? route.alightStopName : "Artėjame prie tikslo.",
         icon: "flag" as const,
       };
+
     case "completed":
       return {
         title: "Atvykai",
         subtitle: "Kelionė baigta. Gali planuoti kitą maršrutą.",
         icon: "checkmark-circle" as const,
       };
+
     default:
       return {
         title: "Arbebus",
@@ -92,6 +158,24 @@ function stateCopy(state: TransitFlowState, route: TransitRouteOption | null) {
         icon: "bus" as const,
       };
   }
+}
+
+function stepIcon(step: TransitStep) {
+  if (step.type === "walk") return "walk";
+  if (step.type === "transfer") return "swap-horizontal";
+  if (step.type === "board") return "bus";
+  if (step.type === "ride" || step.type === "bus") return "bus";
+  if (step.type === "alight" || step.type === "arrive") return "flag-checkered";
+  return "dots-horizontal";
+}
+
+function stepBadge(step: TransitStep) {
+  if (step.type === "walk") return "EITI";
+  if (step.type === "board") return "LIPK";
+  if (step.type === "ride" || step.type === "bus") return "VAŽIUOK";
+  if (step.type === "alight" || step.type === "arrive") return "IŠLIPK";
+  if (step.type === "transfer") return "PERSĖSK";
+  return "ŽINGSNIS";
 }
 
 function RouteCard({
@@ -103,23 +187,99 @@ function RouteCard({
   selected: boolean;
   onPress: () => void;
 }) {
+  const summary = routeSummary(route);
+
   return (
-    <Pressable onPress={onPress} style={[styles.routeCard, selected && styles.routeCardSelected]}>
+    <Pressable
+      onPress={onPress}
+      style={[styles.routeCard, selected && styles.routeCardSelected]}
+    >
       <View style={styles.routeBadge}>
-        <Text style={styles.routeBadgeText}>{route.routeLabel}</Text>
+        <Text style={styles.routeBadgeText} numberOfLines={2}>
+          {route.routeLabel}
+        </Text>
       </View>
 
       <View style={styles.routeInfo}>
         <Text style={styles.routeTitle} numberOfLines={1}>
           {route.boardStopName} → {route.alightStopName}
         </Text>
+
         <Text style={styles.routeSubtitle} numberOfLines={1}>
-          {route.totalDurationMinutes || route.totalMinutes || "?"} min • {route.stopCount || 0} st. • {route.transfersCount || 0} persėd.
+          {summary?.duration || "?"} min • {summary?.walk || 0} min ėjimo •{" "}
+          {summary?.transfers || 0} persėd.
         </Text>
+
+        {route.etaMinutes != null ? (
+          <Text style={styles.routeHint} numberOfLines={1}>
+            Atvyksta po {route.etaMinutes} min
+          </Text>
+        ) : route.headsign ? (
+          <Text style={styles.routeHint} numberOfLines={1}>
+            {route.headsign}
+          </Text>
+        ) : null}
       </View>
 
-      <Text style={styles.eta}>{route.etaMinutes != null ? `${route.etaMinutes} min` : "ETA"}</Text>
+      <Ionicons
+        name={selected ? "checkmark-circle" : "chevron-forward"}
+        size={23}
+        color={selected ? "#35F2B4" : "#AEB7D8"}
+      />
     </Pressable>
+  );
+}
+
+function StepRow({
+  step,
+  index,
+  last,
+  active,
+}: {
+  step: TransitStep;
+  index: number;
+  last: boolean;
+  active: boolean;
+}) {
+  return (
+    <View style={styles.stepRow}>
+      <View style={styles.stepRail}>
+        <View style={[styles.stepIconCircle, active && styles.stepIconCircleActive]}>
+          <MaterialCommunityIcons
+            name={stepIcon(step) as any}
+            size={18}
+            color="#06130E"
+          />
+        </View>
+
+        {!last ? <View style={styles.stepLine} /> : null}
+      </View>
+
+      <View style={[styles.stepContent, active && styles.stepContentActive]}>
+        <View style={styles.stepHeaderLine}>
+          <Text style={styles.stepBadge}>{stepBadge(step)}</Text>
+          {active ? <Text style={styles.activeBadge}>DABAR</Text> : null}
+        </View>
+
+        <Text style={styles.stepTitle}>{step.title}</Text>
+
+        {step.subtitle || step.description ? (
+          <Text style={styles.stepSubtitle}>
+            {step.subtitle || step.description}
+          </Text>
+        ) : null}
+
+        <Text style={styles.stepMeta}>
+          {step.routeNumber ? `Autobusas ${step.routeNumber} • ` : ""}
+          {step.stopCount ? `${step.stopCount} st. • ` : ""}
+          {step.durationMinutes || step.minutes
+            ? `${step.durationMinutes || step.minutes} min`
+            : index === 0
+              ? "Pradžia"
+              : "Sek žingsnį"}
+        </Text>
+      </View>
+    </View>
   );
 }
 
@@ -134,41 +294,133 @@ export default function JourneySheet({
   onNextStep,
   onReset,
 }: Props) {
+  const [snap, setSnap] = useState<SnapPoint>("medium");
+
+  const animatedHeight = useRef(new Animated.Value(SNAP_HEIGHTS.medium)).current;
+  const currentHeight = useRef(SNAP_HEIGHTS.medium);
+  const dragStartHeight = useRef(SNAP_HEIGHTS.medium);
+
   const copy = stateCopy(flowState, selectedRoute);
-  const showRoutes = flowState === "route_options" && routeOptions.length > 0;
-  const showGo = flowState === "route_selected";
-  const showNext = ["walking_to_stop", "waiting_bus", "onboard", "transfer", "arriving"].includes(flowState);
+  const summary = routeSummary(selectedRoute);
+
+  const showRoutes =
+    routeOptions.length > 0 &&
+    ["route_options", "route_selected", "walking_to_stop", "waiting_bus", "onboard", "transfer", "arriving"].includes(
+      flowState
+    );
+
+  const showGo = flowState === "route_options" || flowState === "route_selected";
+
+  const showNext = [
+    "walking_to_stop",
+    "waiting_bus",
+    "onboard",
+    "transfer",
+    "arriving",
+  ].includes(flowState);
+
+  const steps = selectedRoute?.journeySteps || selectedRoute?.steps || [];
+
+  const setSheetSnap = (nextSnap: SnapPoint) => {
+    setSnap(nextSnap);
+    currentHeight.current = SNAP_HEIGHTS[nextSnap];
+
+    Animated.spring(animatedHeight, {
+      toValue: SNAP_HEIGHTS[nextSnap],
+      useNativeDriver: false,
+      speed: 18,
+      bounciness: 6,
+    }).start();
+  };
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 3,
+        onPanResponderGrant: () => {
+          dragStartHeight.current = currentHeight.current;
+        },
+        onPanResponderMove: (_, gesture) => {
+          const nextHeight = Math.max(
+            SNAP_HEIGHTS.compact,
+            Math.min(SNAP_HEIGHTS.expanded, dragStartHeight.current - gesture.dy)
+          );
+
+          currentHeight.current = nextHeight;
+          animatedHeight.setValue(nextHeight);
+        },
+        onPanResponderRelease: () => {
+          setSheetSnap(nearestSnap(currentHeight.current));
+        },
+      }),
+    [animatedHeight]
+  );
+
+  const compactToggle = () => {
+    if (snap === "compact") setSheetSnap("medium");
+    else if (snap === "medium") setSheetSnap("expanded");
+    else setSheetSnap("compact");
+  };
 
   return (
-    <View style={styles.sheet}>
-      <View style={styles.handle} />
+    <Animated.View style={[styles.sheet, { height: animatedHeight }]}>
+      <View style={styles.handleArea} {...panResponder.panHandlers}>
+        <Pressable onPress={compactToggle} style={styles.handlePress}>
+          <View style={styles.handle} />
+        </Pressable>
+      </View>
 
       <View style={styles.headerRow}>
         <View style={styles.mainIcon}>
-          <Ionicons name={copy.icon} size={22} color="#CFFFEA" />
+          {flowState === "routes_loading" ? (
+            <ActivityIndicator color="#CFFFEA" />
+          ) : (
+            <Ionicons name={copy.icon} size={22} color="#CFFFEA" />
+          )}
         </View>
 
         <View style={styles.headerText}>
           <Text style={styles.title}>{copy.title}</Text>
-          <Text style={styles.subtitle}>{copy.subtitle}</Text>
+          <Text
+            style={styles.subtitle}
+            numberOfLines={snap === "compact" ? 1 : 2}
+          >
+            {copy.subtitle}
+          </Text>
         </View>
 
         {flowState !== "idle" ? (
-          <Pressable onPress={onReset} hitSlop={12}>
+          <Pressable onPress={onReset} hitSlop={12} style={styles.closeButton}>
             <Ionicons name="close" size={22} color="#AEB7D8" />
           </Pressable>
         ) : null}
       </View>
 
       <View style={styles.statusRow}>
-        <Text style={styles.statusPill}>Live autobusai: {liveBusCount}</Text>
-        {selectedRoute ? <Text style={styles.statusPill}>Nr. {selectedRoute.routeLabel}</Text> : null}
+        <Text style={styles.statusPill}>Live: {liveBusCount}</Text>
+
+        {selectedRoute ? (
+          <Text style={styles.statusPill}>Nr. {selectedRoute.routeLabel}</Text>
+        ) : null}
+
+        {summary?.duration ? (
+          <Text style={styles.statusPill}>{summary.duration} min</Text>
+        ) : null}
+
+        {summary?.transfers != null && selectedRoute ? (
+          <Text style={styles.statusPill}>{summary.transfers} persėd.</Text>
+        ) : null}
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {showRoutes ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.routeList}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.routeList}
+        >
           {routeOptions.map((route) => (
             <RouteCard
               key={route.id}
@@ -180,19 +432,42 @@ export default function JourneySheet({
         </ScrollView>
       ) : null}
 
-      {selectedRoute && flowState !== "route_options" ? (
+      {selectedRoute ? (
         <View style={styles.detailBox}>
-          <Text style={styles.detailTitle}>Kelionė autobusu {selectedRoute.routeLabel}</Text>
-          <Text style={styles.detailText}>Įlipk: {selectedRoute.boardStopName}</Text>
-          <Text style={styles.detailText}>Išlipk: {selectedRoute.alightStopName}</Text>
+          <View style={styles.detailTopRow}>
+            <Text style={styles.detailTitle} numberOfLines={1}>
+              {selectedRoute.routeLabel}
+            </Text>
+
+            <Text style={styles.detailDuration}>
+              {summary?.duration || "?"} min
+            </Text>
+          </View>
+
           <Text style={styles.detailText}>
-            Stotelės: {selectedRoute.stopCount || 0} • Persėdimai: {selectedRoute.transfersCount || 0}
+            Įlipk: {selectedRoute.boardStopName}
           </Text>
+
+          <Text style={styles.detailText}>
+            Išlipk: {selectedRoute.alightStopName}
+          </Text>
+
+          <Text style={styles.detailText}>
+            Ėjimas: {summary?.walk || 0} min • Autobusu: {summary?.bus || 0} min •{" "}
+            Persėdimai: {summary?.transfers || 0}
+          </Text>
+
+          {selectedRoute.journeyMessage ? (
+            <Text style={styles.journeyMessage}>
+              {selectedRoute.journeyMessage}
+            </Text>
+          ) : null}
         </View>
       ) : null}
 
       {showGo ? (
         <Pressable style={styles.primaryButton} onPress={onStartJourney}>
+          <Ionicons name="navigate" color="#03110B" size={20} />
           <Text style={styles.primaryText}>GO</Text>
         </Pressable>
       ) : null}
@@ -200,6 +475,7 @@ export default function JourneySheet({
       {showNext ? (
         <Pressable style={styles.primaryButton} onPress={onNextStep}>
           <Text style={styles.primaryText}>TOLIAU</Text>
+          <Ionicons name="arrow-forward" color="#03110B" size={20} />
         </Pressable>
       ) : null}
 
@@ -208,7 +484,27 @@ export default function JourneySheet({
           <Text style={styles.primaryText}>NAUJAS MARŠRUTAS</Text>
         </Pressable>
       ) : null}
-    </View>
+
+      {steps.length > 0 && snap !== "compact" ? (
+        <ScrollView
+          style={styles.stepsScroll}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.stepsContent}
+        >
+          <Text style={styles.sectionTitle}>Kelionės žingsniai</Text>
+
+          {steps.map((step, index) => (
+            <StepRow
+              key={`${step.id}-${index}`}
+              step={step}
+              index={index}
+              last={index === steps.length - 1}
+              active={index === 0 && flowState === "route_selected"}
+            />
+          ))}
+        </ScrollView>
+      ) : null}
+    </Animated.View>
   );
 }
 
@@ -218,37 +514,75 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingTop: 10,
     paddingHorizontal: 16,
-    paddingBottom: 28,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    backgroundColor: "rgba(8,13,27,0.97)",
+    paddingBottom: 24,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    backgroundColor: "rgba(8,13,27,0.985)",
     borderTopWidth: 1,
     borderColor: "rgba(255,255,255,0.10)",
-    zIndex: 20,
+    zIndex: 50,
+    elevation: 50,
+    overflow: "hidden",
+  },
+  handleArea: {
+    paddingTop: 8,
+    paddingBottom: 10,
+    alignItems: "center",
+  },
+  handlePress: {
+    width: "100%",
+    alignItems: "center",
+    paddingVertical: 4,
   },
   handle: {
-    alignSelf: "center",
-    width: 42,
+    width: 50,
     height: 5,
     borderRadius: 99,
-    backgroundColor: "rgba(255,255,255,0.24)",
-    marginBottom: 14,
+    backgroundColor: "rgba(255,255,255,0.30)",
   },
-  headerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
   mainIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(58,255,184,0.14)",
   },
-  headerText: { flex: 1 },
-  title: { color: "white", fontSize: 20, fontWeight: "900" },
-  subtitle: { color: "#AEB7D8", marginTop: 4, fontSize: 13, lineHeight: 18 },
-  statusRow: { flexDirection: "row", gap: 8, marginTop: 14, flexWrap: "wrap" },
+  headerText: {
+    flex: 1,
+  },
+  title: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "900",
+    letterSpacing: -0.4,
+  },
+  subtitle: {
+    color: "#AEB7D8",
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  statusRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 14,
+    flexWrap: "wrap",
+  },
   statusPill: {
     color: "#CFFFEA",
     fontSize: 12,
@@ -259,12 +593,19 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(58,255,184,0.12)",
     overflow: "hidden",
   },
-  error: { color: "#FF8F8F", marginTop: 10, fontWeight: "700" },
-  routeList: { gap: 10, paddingVertical: 14 },
+  error: {
+    color: "#FF8F8F",
+    marginTop: 10,
+    fontWeight: "800",
+  },
+  routeList: {
+    gap: 10,
+    paddingVertical: 14,
+  },
   routeCard: {
-    width: 292,
-    minHeight: 86,
-    borderRadius: 20,
+    width: 320,
+    minHeight: 96,
+    borderRadius: 22,
     padding: 12,
     flexDirection: "row",
     alignItems: "center",
@@ -274,32 +615,182 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.10)",
   },
   routeCardSelected: {
-    borderColor: "rgba(58,255,184,0.8)",
-    backgroundColor: "rgba(58,255,184,0.10)",
+    borderColor: "rgba(58,255,184,0.85)",
+    backgroundColor: "rgba(58,255,184,0.11)",
   },
   routeBadge: {
-    minWidth: 46,
-    height: 46,
-    borderRadius: 14,
+    width: 70,
+    minHeight: 54,
+    paddingHorizontal: 7,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#35F2B4",
   },
-  routeBadgeText: { color: "#03110B", fontSize: 18, fontWeight: "900" },
-  routeInfo: { flex: 1 },
-  routeTitle: { color: "white", fontSize: 14, fontWeight: "900" },
-  routeSubtitle: { color: "#98A4C6", marginTop: 4, fontSize: 12 },
-  eta: { color: "#CFFFEA", fontWeight: "900", fontSize: 13 },
-  detailBox: { marginTop: 14, borderRadius: 18, padding: 12, backgroundColor: "rgba(255,255,255,0.06)" },
-  detailTitle: { color: "white", fontWeight: "900", marginBottom: 6 },
-  detailText: { color: "#B8C2E4", marginTop: 3, fontSize: 13 },
+  routeBadgeText: {
+    color: "#03110B",
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  routeInfo: {
+    flex: 1,
+  },
+  routeTitle: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  routeSubtitle: {
+    color: "#98A4C6",
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  routeHint: {
+    color: "#CFFFEA",
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  detailBox: {
+    marginTop: 14,
+    borderRadius: 22,
+    padding: 14,
+    backgroundColor: "rgba(255,255,255,0.065)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  detailTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 6,
+  },
+  detailTitle: {
+    flex: 1,
+    color: "white",
+    fontWeight: "900",
+    fontSize: 16,
+  },
+  detailDuration: {
+    color: "#35F2B4",
+    fontWeight: "900",
+    fontSize: 16,
+  },
+  detailText: {
+    color: "#B8C2E4",
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  journeyMessage: {
+    color: "#FFFFFF",
+    marginTop: 9,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
   primaryButton: {
     marginTop: 14,
-    minHeight: 52,
-    borderRadius: 18,
+    minHeight: 54,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+    backgroundColor: "#35F2B4",
+  },
+  primaryText: {
+    color: "#03110B",
+    fontSize: 17,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+  },
+  stepsScroll: {
+    marginTop: 12,
+    flex: 1,
+  },
+  stepsContent: {
+    paddingBottom: 110,
+  },
+  sectionTitle: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "900",
+    marginBottom: 10,
+  },
+  stepRow: {
+    flexDirection: "row",
+    minHeight: 74,
+  },
+  stepRail: {
+    width: 36,
+    alignItems: "center",
+  },
+  stepIconCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#35F2B4",
   },
-  primaryText: { color: "#03110B", fontSize: 16, fontWeight: "900", letterSpacing: 0.6 },
+  stepIconCircleActive: {
+    transform: [{ scale: 1.08 }],
+  },
+  stepLine: {
+    flex: 1,
+    width: 2,
+    backgroundColor: "rgba(53,242,180,0.35)",
+    marginVertical: 4,
+  },
+  stepContent: {
+    flex: 1,
+    paddingBottom: 16,
+    paddingLeft: 8,
+  },
+  stepContentActive: {
+    opacity: 1,
+  },
+  stepHeaderLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 3,
+  },
+  stepBadge: {
+    color: "#35F2B4",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+  },
+  activeBadge: {
+    color: "#03110B",
+    backgroundColor: "#35F2B4",
+    overflow: "hidden",
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  stepTitle: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  stepSubtitle: {
+    color: "#B8C2E4",
+    marginTop: 3,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  stepMeta: {
+    color: "#7F8BAE",
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: "800",
+  },
 });

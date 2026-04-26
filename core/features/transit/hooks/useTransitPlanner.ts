@@ -15,8 +15,12 @@ import {
 } from "../services/transitApi";
 
 function toCoordinate(input: any): Coordinate | null {
-  const latitude = Number(input?.latitude ?? input?.lat ?? input?.coordinate?.latitude);
-  const longitude = Number(input?.longitude ?? input?.lon ?? input?.lng ?? input?.coordinate?.longitude);
+  const latitude = Number(
+    input?.latitude ?? input?.lat ?? input?.coordinate?.latitude
+  );
+  const longitude = Number(
+    input?.longitude ?? input?.lon ?? input?.lng ?? input?.coordinate?.longitude
+  );
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
@@ -29,9 +33,15 @@ function normalizePlace(item: ApiPlaceResult | any): PlaceSearchResult | null {
   return {
     id: String(item.id ?? item.stop_id ?? `${coordinate.latitude},${coordinate.longitude}`),
     title: String(item.title ?? item.name ?? item.stopName ?? item.stop_name ?? "Vieta"),
-    subtitle: item.subtitle ?? item.address ?? item.description ?? item.stop_desc ?? "Klaipėda",
+    subtitle:
+      item.subtitle ??
+      item.address ??
+      item.description ??
+      item.stop_desc ??
+      "Klaipėda",
     type: item.type ?? (item.stop_id ? "stop" : "place"),
-    distanceMeters: item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
+    distanceMeters:
+      item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
     latitude: coordinate.latitude,
     longitude: coordinate.longitude,
     coordinate,
@@ -39,101 +49,228 @@ function normalizePlace(item: ApiPlaceResult | any): PlaceSearchResult | null {
 }
 
 function normalizeStep(step: any, index: number): TransitStep {
-  const rawType = String(step?.type ?? "bus");
+  const rawType = String(step?.type ?? step?.mode ?? "bus");
+
   const type: TransitStepType =
-    rawType === "walk" || rawType === "transfer" || rawType === "arrive" ? rawType : "bus";
+    rawType === "walk" ||
+    rawType === "transfer" ||
+    rawType === "arrive" ||
+    rawType === "board" ||
+    rawType === "ride" ||
+    rawType === "alight"
+      ? (rawType as TransitStepType)
+      : "bus";
 
   return {
-    id: String(step?.id ?? index),
+    id: String(step?.id ?? `${type}-${index}`),
     type,
-    title: String(step?.title ?? (type === "walk" ? "Eik iki stotelės" : "Važiuok autobusu")),
+    title: String(
+      step?.title ??
+        (type === "walk"
+          ? "Eik iki stotelės"
+          : type === "board"
+            ? "Lipk į autobusą"
+            : type === "alight"
+              ? "Išlipk"
+              : "Važiuok autobusu")
+    ),
     subtitle: step?.subtitle,
     description: step?.description ?? step?.subtitle,
-    routeNumber: step?.routeNumber ?? step?.route ?? step?.routeId,
+    routeNumber:
+      step?.routeNumber != null
+        ? String(step.routeNumber)
+        : step?.route != null
+          ? String(step.route)
+          : step?.routeId != null
+            ? String(step.routeId)
+            : undefined,
     fromStopName: step?.fromStopName ?? step?.fromStop ?? step?.from,
     toStopName: step?.toStopName ?? step?.toStop ?? step?.to,
     stopCount: step?.stopCount != null ? Number(step.stopCount) : undefined,
-    minutes: step?.minutes != null ? Number(step.minutes) : undefined,
-    durationMinutes: step?.durationMinutes != null ? Number(step.durationMinutes) : step?.minutes != null ? Number(step.minutes) : undefined,
+    minutes:
+      step?.minutes != null
+        ? Number(step.minutes)
+        : step?.durationMinutes != null
+          ? Number(step.durationMinutes)
+          : undefined,
+    durationMinutes:
+      step?.durationMinutes != null
+        ? Number(step.durationMinutes)
+        : step?.minutes != null
+          ? Number(step.minutes)
+          : undefined,
     departureTime: step?.departureTime ?? step?.departureText,
     arrivalTime: step?.arrivalTime ?? step?.arrivalText,
-    polyline: Array.isArray(step?.polyline) ? step.polyline.map(toCoordinate).filter(Boolean) as Coordinate[] : undefined,
-  };
+    polyline: Array.isArray(step?.polyline)
+      ? (step.polyline.map(toCoordinate).filter(Boolean) as Coordinate[])
+      : undefined,
+  } as TransitStep;
 }
 
-function stopPoint(name: string, coordinate: Coordinate) {
+function stopPoint(name: string, coordinate: Coordinate, raw?: any) {
+  const fixedCoordinate = toCoordinate(raw) ?? coordinate;
+
   return {
-    title: name,
-    name,
-    latitude: coordinate.latitude,
-    longitude: coordinate.longitude,
-    coordinate,
+    id: raw?.id != null ? String(raw.id) : undefined,
+    title: String(raw?.title ?? raw?.name ?? name),
+    name: String(raw?.name ?? raw?.title ?? name),
+    latitude: fixedCoordinate.latitude,
+    longitude: fixedCoordinate.longitude,
+    coordinate: fixedCoordinate,
+    distanceMeters:
+      raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
   };
 }
 
-function normalizeRoute(route: ApiTransitRouteOption | any, index: number, origin: Coordinate, destination: PlaceSearchResult): TransitRouteOption {
-  const apiSteps = Array.isArray(route?.steps) ? route.steps : [];
-  const steps = apiSteps.map(normalizeStep);
-  const routeNumbers = Array.isArray(route?.routeNumbers)
-    ? route.routeNumbers.map(String).filter(Boolean)
-    : steps.map((s: TransitStep) => s.routeNumber).filter(Boolean).map(String);
+function normalizeRoute(
+  route: ApiTransitRouteOption | any,
+  index: number,
+  origin: Coordinate,
+  destination: PlaceSearchResult
+): TransitRouteOption {
+  const summary = route?.summary ?? {};
 
-  const routeLabel = String(route?.routeLabel ?? routeNumbers[0] ?? route?.routeNumber ?? "BUS");
-
-  const polyline = Array.isArray(route?.polyline)
-    ? (route.polyline.map(toCoordinate).filter(Boolean) as Coordinate[])
-    : Array.isArray(route?.coordinates)
-      ? (route.coordinates.map(toCoordinate).filter(Boolean) as Coordinate[])
+  const apiSteps = Array.isArray(route?.journeySteps)
+    ? route.journeySteps
+    : Array.isArray(route?.steps)
+      ? route.steps
       : [];
 
-  const previewPoints = polyline.length >= 2 ? polyline : [origin, destination.coordinate];
+  const steps = apiSteps.map(normalizeStep);
 
-  const firstBusStep = steps.find((s: TransitStep) => s.type === "bus");
-  const boardStopName = String(route?.boardStopName ?? firstBusStep?.fromStopName ?? "Artimiausia stotelė");
-  const alightStopName = String(route?.alightStopName ?? firstBusStep?.toStopName ?? destination.title);
+  const routeLabel = String(
+    route?.routeLabel ??
+      summary?.routeLabel ??
+      route?.title ??
+      "Autobusas"
+  );
 
-  const originStopCoordinate = toCoordinate(route?.originStop) ?? previewPoints[0] ?? origin;
-  const destinationStopCoordinate = toCoordinate(route?.destinationStop) ?? previewPoints[previewPoints.length - 1] ?? destination.coordinate;
+  const routeNumbers = Array.isArray(route?.routeNumbers)
+    ? route.routeNumbers.map(String).filter(Boolean)
+    : routeLabel
+        .split("→")
+        .map((part) => part.trim())
+        .filter(Boolean);
 
-  const totalMinutes = Number(route?.totalMinutes ?? route?.minutes ?? route?.totalDurationMinutes ?? 0);
-  const walkingMinutes = Number(route?.walkingMinutes ?? route?.totalWalkMinutes ?? 0);
-  const transfers = Number(route?.transfers ?? route?.transfersCount ?? Math.max(0, routeNumbers.length - 1));
-  const stopCount = Number(route?.stopCount ?? steps.reduce((sum: number, step: TransitStep) => sum + Number(step.stopCount ?? 0), 0));
+  const previewPoints =
+    Array.isArray(route?.previewPoints) && route.previewPoints.length >= 2
+      ? (route.previewPoints.map(toCoordinate).filter(Boolean) as Coordinate[])
+      : Array.isArray(route?.polyline) && route.polyline.length >= 2
+        ? (route.polyline.map(toCoordinate).filter(Boolean) as Coordinate[])
+        : [origin, destination.coordinate];
+
+  const originStopCoordinate =
+    toCoordinate(route?.originStop) ?? previewPoints[0] ?? origin;
+
+  const destinationStopCoordinate =
+    toCoordinate(route?.destinationStop) ??
+    previewPoints[previewPoints.length - 1] ??
+    destination.coordinate;
+
+  const boardStopName = String(
+    route?.boardStopName ??
+      summary?.boardStopName ??
+      route?.originStop?.name ??
+      "Artimiausia stotelė"
+  );
+
+  const alightStopName = String(
+    route?.alightStopName ??
+      summary?.alightStopName ??
+      route?.destinationStop?.name ??
+      destination.title
+  );
+
+  const totalMinutes = Number(
+    route?.totalMinutes ??
+      route?.totalDurationMinutes ??
+      summary?.totalDurationMinutes ??
+      0
+  );
+
+  const walkingMinutes = Number(
+    route?.walkingMinutes ??
+      route?.totalWalkMinutes ??
+      summary?.totalWalkMinutes ??
+      0
+  );
+
+  const transfers = Number(
+    route?.transfers ??
+      route?.transfersCount ??
+      summary?.transfersCount ??
+      Math.max(0, routeNumbers.length - 1)
+  );
+
+  const stopCount = Number(
+    route?.stopCount ??
+      summary?.stopCount ??
+      steps.reduce((sum: number, step: TransitStep) => {
+        return sum + Number(step.stopCount ?? 0);
+      }, 0)
+  );
 
   return {
-    id: String(route?.id ?? index),
-    title: String(route?.title ?? `Autobusas ${routeLabel}`),
-    subtitle: route?.subtitle ?? route?.summary ?? undefined,
+    id: String(route?.id ?? `route-${index}`),
+    title: routeLabel,
+    subtitle:
+      route?.subtitle ??
+      summary?.journeyMessage ??
+      `${boardStopName} → ${alightStopName}`,
     routeLabel,
     routeNumbers,
     totalMinutes,
-    totalDurationMinutes: Number(route?.totalDurationMinutes ?? totalMinutes),
+    totalDurationMinutes: totalMinutes,
     walkingMinutes,
-    totalWalkMinutes: Number(route?.totalWalkMinutes ?? walkingMinutes),
-    etaMinutes: route?.etaMinutes != null ? Number(route.etaMinutes) : null,
+    totalWalkMinutes: walkingMinutes,
+    etaMinutes:
+      route?.etaMinutes != null
+        ? Number(route.etaMinutes)
+        : summary?.etaMinutes != null
+          ? Number(summary.etaMinutes)
+          : null,
     transfers,
     transfersCount: transfers,
     stopCount,
     boardStopName,
     alightStopName,
-    originStop: stopPoint(boardStopName, originStopCoordinate),
-    destinationStop: stopPoint(alightStopName, destinationStopCoordinate),
+    originStop: stopPoint(boardStopName, originStopCoordinate, route?.originStop),
+    destinationStop: stopPoint(
+      alightStopName,
+      destinationStopCoordinate,
+      route?.destinationStop
+    ),
     previewPoints,
     polyline: previewPoints,
     steps,
     journeySteps: steps,
-    departureText: route?.departureText,
+    departureText:
+      route?.departureText ??
+      (summary?.etaMinutes != null
+        ? `Atvyksta po ${summary.etaMinutes} min`
+        : undefined),
     arrivalText: route?.arrivalText,
-  };
+    journeyMessage: route?.journeyMessage ?? summary?.journeyMessage,
+    totalBusMinutes: route?.totalBusMinutes ?? summary?.totalBusMinutes,
+    headsign:
+      route?.headsign ??
+      summary?.headsign ??
+      summary?.directionCode ??
+      null,
+    liveVehicle: route?.liveVehicle ?? null,
+    summary,
+  } as TransitRouteOption;
 }
 
 export function useTransitPlanner(userLocation: Coordinate | null) {
   const [flowState, setFlowState] = useState<TransitFlowState>("idle");
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<PlaceSearchResult[]>([]);
-  const [selectedDestination, setSelectedDestination] = useState<PlaceSearchResult | null>(null);
+  const [selectedDestination, setSelectedDestination] =
+    useState<PlaceSearchResult | null>(null);
   const [routeOptions, setRouteOptions] = useState<TransitRouteOption[]>([]);
-  const [selectedRoute, setSelectedRoute] = useState<TransitRouteOption | null>(null);
+  const [selectedRoute, setSelectedRoute] =
+    useState<TransitRouteOption | null>(null);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
   const [isPlanning, setIsPlanning] = useState(false);
@@ -141,86 +278,116 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
 
   const activeInstruction = useMemo(() => {
     if (!selectedRoute) return null;
-    return selectedRoute.journeySteps[currentStepIndex] || null;
+    return selectedRoute.journeySteps?.[currentStepIndex] || null;
   }, [currentStepIndex, selectedRoute]);
 
-  const runSearch = useCallback(async (text?: string) => {
-    const nextQuery = (text ?? query).trim();
-    setQuery(nextQuery);
+  const runSearch = useCallback(
+    async (text?: string) => {
+      const nextQuery = (text ?? query).trim();
+      setQuery(nextQuery);
 
-    if (nextQuery.length < 2) {
-      setSearchResults([]);
-      setFlowState("idle");
-      setError(null);
-      return;
-    }
-
-    setFlowState("searching");
-    setIsSearching(true);
-    setError(null);
-
-    try {
-      const rawResults = await searchPlaces(nextQuery);
-      const results = rawResults.map(normalizePlace).filter(Boolean) as PlaceSearchResult[];
-      setSearchResults(results);
-      if (!results.length) setError("Nieko nerasta. Pabandyk įvesti stotelę, adresą arba vietą.");
-    } catch (err: any) {
-      setError(err?.message || "Paieška nepavyko");
-      setSearchResults([]);
-    } finally {
-      setIsSearching(false);
-    }
-  }, [query]);
-
-  const selectDestination = useCallback(async (rawDestination: PlaceSearchResult) => {
-    const destination = normalizePlace(rawDestination) ?? rawDestination;
-
-    setSelectedDestination(destination);
-    setSelectedRoute(null);
-    setRouteOptions([]);
-    setCurrentStepIndex(0);
-    setFlowState("destination_selected");
-
-    if (!userLocation) {
-      setError("Nepavyko gauti tavo lokacijos");
-      return;
-    }
-
-    setFlowState("routes_loading");
-    setIsPlanning(true);
-    setError(null);
-
-    try {
-      const rawOptions = await planTransitRoute({
-  from: userLocation,
-  to: destination.coordinate,
-  destination: {
-    id: "destination",
-    title: destination.title ?? "Tikslas",
-    subtitle: destination.subtitle ?? "",
-    coordinate: destination.coordinate,
-    latitude: destination.coordinate.latitude,
-    longitude: destination.coordinate.longitude,
-    type: "destination",
-    distanceMeters: 0,
-  },
-});
-
-      const options = rawOptions.map((route, index) => normalizeRoute(route, index, userLocation, destination));
-      setRouteOptions(options);
-      setSelectedRoute(options[0] || null);
-      setFlowState(options.length ? "route_options" : "destination_selected");
-
-      if (!options.length) {
-        setError("Maršrutų nerasta. Pabandyk kitą vietą arba patikrink backend/GTFS.");
+      if (nextQuery.length < 2) {
+        setSearchResults([]);
+        setFlowState("idle");
+        setError(null);
+        return;
       }
-    } catch (err: any) {
-      setError(err?.message || "Maršruto planavimas nepavyko");
+
+      setFlowState("searching");
+      setIsSearching(true);
+      setError(null);
+
+      try {
+        const rawResults = await searchPlaces(nextQuery);
+        const results = rawResults
+          .map(normalizePlace)
+          .filter(Boolean) as PlaceSearchResult[];
+
+        setSearchResults(results);
+
+        if (!results.length) {
+          setError("Nieko nerasta. Įvesk vietą, stotelę arba miestą.");
+        }
+      } catch (err: any) {
+        setError(err?.message || "Paieška nepavyko");
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    },
+    [query]
+  );
+
+  const selectDestination = useCallback(
+    async (rawDestination: PlaceSearchResult) => {
+      const destination = normalizePlace(rawDestination) ?? rawDestination;
+
+      setSelectedDestination(destination);
+      setSelectedRoute(null);
+      setRouteOptions([]);
+      setCurrentStepIndex(0);
+      setError(null);
       setFlowState("destination_selected");
-    } finally {
-      setIsPlanning(false);
-    }
-  }, [userLocation]);
+
+      if (!userLocation) {
+        setError("Nepavyko gauti tavo lokacijos");
+        return;
+      }
+
+      setFlowState("routes_loading");
+      setIsPlanning(true);
+
+      try {
+        const rawOptions = await planTransitRoute({
+          from: userLocation,
+          to: destination.coordinate,
+          destination: {
+            id: destination.id ?? "destination",
+            title: destination.title ?? "Tikslas",
+            subtitle: destination.subtitle ?? "",
+            coordinate: destination.coordinate,
+            latitude: destination.coordinate.latitude,
+            longitude: destination.coordinate.longitude,
+            type: destination.type ?? "destination",
+            distanceMeters: destination.distanceMeters ?? 0,
+          },
+        });
+
+        const options = rawOptions
+          .map((route, index) =>
+            normalizeRoute(route, index, userLocation, destination)
+          )
+          .filter((route) => {
+            return (
+              Array.isArray(route.previewPoints) &&
+              route.previewPoints.length >= 2 &&
+              Array.isArray(route.journeySteps) &&
+              route.journeySteps.length > 0
+            );
+          });
+
+        setRouteOptions(options);
+        setSelectedRoute(options[0] || null);
+        setCurrentStepIndex(0);
+
+        if (options.length) {
+          setFlowState("route_options");
+          setError(null);
+        } else {
+          setFlowState("destination_selected");
+          setError("Maršrutų nerasta. Backend atsakė, bet nėra tinkamų steps/polyline.");
+        }
+      } catch (err: any) {
+        setError(err?.message || "Maršruto planavimas nepavyko");
+        setFlowState("destination_selected");
+        setRouteOptions([]);
+        setSelectedRoute(null);
+      } finally {
+        setIsPlanning(false);
+      }
+    },
+    [userLocation]
+  );
 
   const chooseRoute = useCallback((route: TransitRouteOption) => {
     setSelectedRoute(route);
@@ -230,22 +397,37 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
 
   const startJourney = useCallback(() => {
     if (!selectedRoute) return;
+
     setCurrentStepIndex(0);
-    setFlowState("walking_to_stop");
+
+    const firstType = selectedRoute.journeySteps?.[0]?.type;
+    if (firstType === "walk") {
+      setFlowState("walking_to_stop");
+    } else {
+      setFlowState("waiting_bus");
+    }
   }, [selectedRoute]);
 
   const nextStep = useCallback(() => {
-    setFlowState((state: TransitFlowState) => {
-      if (state === "route_selected") return "walking_to_stop";
-      if (state === "walking_to_stop") return "waiting_bus";
-      if (state === "waiting_bus") return "onboard";
-      if (state === "onboard") return (selectedRoute?.transfersCount || 0) > 0 ? "transfer" : "arriving";
-      if (state === "transfer") return "onboard";
-      if (state === "arriving") return "completed";
-      return state;
-    });
+    if (!selectedRoute) return;
 
-    setCurrentStepIndex((index: number) => Math.min(index + 1, Math.max(0, (selectedRoute?.journeySteps.length || 1) - 1)));
+    setCurrentStepIndex((index: number) => {
+      const nextIndex = Math.min(
+        index + 1,
+        Math.max(0, (selectedRoute.journeySteps?.length || 1) - 1)
+      );
+
+      const nextStepType = selectedRoute.journeySteps?.[nextIndex]?.type;
+
+      if (nextStepType === "walk") setFlowState("walking_to_stop");
+      else if (nextStepType === "board") setFlowState("waiting_bus");
+      else if (nextStepType === "ride") setFlowState("onboard");
+      else if (nextStepType === "alight") setFlowState("arriving");
+      else if (nextStepType === "transfer") setFlowState("transfer");
+      else setFlowState("route_selected");
+
+      return nextIndex;
+    });
   }, [selectedRoute]);
 
   const resetPlanner = useCallback(() => {

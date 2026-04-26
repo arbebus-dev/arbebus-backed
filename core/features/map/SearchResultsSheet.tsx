@@ -24,6 +24,18 @@ function formatDistance(meters?: number) {
   return `${Math.round(meters)} m`;
 }
 
+function iconForType(type?: string) {
+  if (type === "stop") return "bus";
+  if (type === "address") return "home";
+  return "location";
+}
+
+function labelForType(type?: string) {
+  if (type === "stop") return "Stotelė";
+  if (type === "address") return "Adresas";
+  return "Vieta";
+}
+
 export default function SearchResultsSheet({
   visible,
   results,
@@ -36,38 +48,70 @@ export default function SearchResultsSheet({
   return (
     <View style={styles.sheet}>
       <View style={styles.handle} />
-      <Text style={styles.title}>Rezultatai</Text>
 
-      {isLoading ? <ActivityIndicator style={styles.loader} /> : null}
+      <View style={styles.headerRow}>
+        <View>
+          <Text style={styles.title}>Rezultatai</Text>
+          <Text style={styles.subtitle}>
+            Pasirink vietą – Arbebus automatiškai parinks artimiausią stotelę.
+          </Text>
+        </View>
+
+        {isLoading ? <ActivityIndicator color="#35F2B4" /> : null}
+      </View>
+
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {!isLoading && !results.length ? (
-        <Text style={styles.empty}>Įvesk stotelę, adresą arba vietą.</Text>
+        <Text style={styles.empty}>
+          Įvesk vietą, pvz. Akropolis, Palanga, Kretinga arba stotelės pavadinimą.
+        </Text>
       ) : null}
 
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.list}>
-        {results.map((item) => (
-          <Pressable key={item.id} style={styles.row} onPress={() => onSelect(item)}>
-            <View style={styles.iconCircle}>
-              <Ionicons
-                name={item.type === "stop" ? "bus" : "location"}
-                size={18}
-                color="#CFFFEA"
-              />
-            </View>
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.list}
+      >
+        {results.map((item) => {
+          const distance = formatDistance(item.distanceMeters);
+          const meta = [labelForType(item.type), distance, item.subtitle]
+            .filter(Boolean)
+            .join(" • ");
 
-            <View style={styles.textBox}>
-              <Text style={styles.resultTitle} numberOfLines={1}>
-                {item.title}
-              </Text>
-              <Text style={styles.resultSubtitle} numberOfLines={2}>
-                {[formatDistance(item.distanceMeters), item.subtitle].filter(Boolean).join(" • ")}
-              </Text>
-            </View>
+          return (
+            <Pressable
+              key={item.id}
+              style={({ pressed }) => [
+                styles.row,
+                pressed && styles.rowPressed,
+              ]}
+              onPress={() => onSelect(item)}
+            >
+              <View style={styles.iconCircle}>
+                <Ionicons
+                  name={iconForType(item.type) as any}
+                  size={18}
+                  color="#CFFFEA"
+                />
+              </View>
 
-            <Ionicons name="chevron-forward" size={20} color="#7F8AB0" />
-          </Pressable>
-        ))}
+              <View style={styles.textBox}>
+                <Text style={styles.resultTitle} numberOfLines={1}>
+                  {item.title}
+                </Text>
+
+                <Text style={styles.resultSubtitle} numberOfLines={2}>
+                  {meta}
+                </Text>
+              </View>
+
+              <View style={styles.goCircle}>
+                <Ionicons name="navigate" size={17} color="#03110B" />
+              </View>
+            </Pressable>
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -79,33 +123,49 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    maxHeight: "62%",
+    maxHeight: "64%",
     paddingTop: 10,
     paddingHorizontal: 16,
     paddingBottom: 30,
-    backgroundColor: "rgba(8, 13, 27, 0.97)",
+    backgroundColor: "rgba(8, 13, 27, 0.985)",
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     borderTopWidth: 1,
     borderColor: "rgba(255,255,255,0.10)",
-    zIndex: 25,
+    zIndex: 40,
+    elevation: 40,
   },
   handle: {
     alignSelf: "center",
-    width: 42,
+    width: 44,
     height: 5,
     borderRadius: 99,
-    backgroundColor: "rgba(255,255,255,0.24)",
+    backgroundColor: "rgba(255,255,255,0.26)",
     marginBottom: 14,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 14,
+    marginBottom: 8,
   },
   title: {
     color: "white",
     fontSize: 20,
     fontWeight: "900",
-    marginBottom: 8,
   },
-  loader: { marginTop: 18 },
-  list: { paddingBottom: 18 },
+  subtitle: {
+    color: "#98A4C6",
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 4,
+    maxWidth: 300,
+    lineHeight: 17,
+  },
+  list: {
+    paddingBottom: 18,
+  },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -114,33 +174,50 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.08)",
   },
+  rowPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.995 }],
+  },
   iconCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(58,255,184,0.14)",
   },
-  textBox: { flex: 1 },
+  textBox: {
+    flex: 1,
+  },
   resultTitle: {
     color: "white",
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "900",
   },
   resultSubtitle: {
     color: "#98A4C6",
     marginTop: 4,
     fontSize: 13,
     lineHeight: 18,
+    fontWeight: "700",
+  },
+  goCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#35F2B4",
   },
   empty: {
     color: "#98A4C6",
     paddingVertical: 16,
+    lineHeight: 20,
+    fontWeight: "700",
   },
   error: {
     color: "#FF8F8F",
     paddingVertical: 10,
-    fontWeight: "700",
+    fontWeight: "800",
   },
 });

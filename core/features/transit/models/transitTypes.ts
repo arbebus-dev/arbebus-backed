@@ -49,7 +49,7 @@ export type TransitFlowState =
   | "arriving"
   | "completed";
 
-export type TransitStepType = "walk" | "bus" | "transfer" | "arrive";
+export type TransitStepType = "walk" | "bus" | "transfer" | "arrive" | "board" | "ride" | "alight";
 
 export type TransitStopPoint = {
   id?: string;
@@ -58,20 +58,29 @@ export type TransitStopPoint = {
   latitude: number;
   longitude: number;
   coordinate: Coordinate;
+  distanceMeters?: number;
 };
 
 export type TransitStep = {
   id: string;
   type: TransitStepType;
+  mode?: "walk" | "bus" | "train" | "mixed" | string;
+  icon?: string;
   title: string;
   subtitle?: string;
   description?: string;
+  routeId?: string;
   routeNumber?: string;
+  stopId?: string;
+  stopName?: string;
+  fromStopId?: string;
+  toStopId?: string;
   fromStopName?: string;
   toStopName?: string;
   stopCount?: number;
   minutes?: number;
   durationMinutes?: number;
+  distanceMeters?: number;
   departureTime?: string;
   arrivalTime?: string;
   polyline?: Coordinate[];
@@ -81,12 +90,15 @@ export type TransitRouteOption = {
   id: string;
   title: string;
   subtitle?: string;
+  mode?: string;
+  routeId?: string;
   routeLabel: string;
   routeNumbers: string[];
   totalMinutes: number;
   totalDurationMinutes: number;
   walkingMinutes: number;
   totalWalkMinutes: number;
+  totalBusMinutes?: number;
   etaMinutes?: number | null;
   transfers: number;
   transfersCount: number;
@@ -101,14 +113,31 @@ export type TransitRouteOption = {
   journeySteps: TransitStep[];
   departureText?: string;
   arrivalText?: string;
+  journeyMessage?: string;
+  headsign?: string | null;
+  liveVehicle?: {
+    id?: string;
+    vehicleId?: string;
+    directionName?: string | null;
+  } | null;
 };
 
 export type TransitPlan = {
   routes: TransitRouteOption[];
   selectedRoute?: TransitRouteOption | null;
   summary?: {
+    totalDurationMinutes?: number;
+    totalWalkMinutes?: number;
+    totalBusMinutes?: number;
+    routeLabel?: string;
+    boardStopName?: string;
+    alightStopName?: string;
+    etaMinutes?: number | null;
+    stopCount?: number;
+    transfersCount?: number;
     nextStopName?: string;
     boardingState?: string;
+    journeyMessage?: string;
   };
   segments?: Array<{
     stops?: Array<{

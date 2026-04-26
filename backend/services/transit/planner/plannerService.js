@@ -7,14 +7,35 @@ const {
   getShapePoints,
 } = require('./plannerRepository');
 const { getDistanceMeters } = require('./geo');
-const { fetchLiveVehicles } = require('../klaipedaGateway');
-const { pickBestVehicleForStop } = require('../etaEstimator');
 
 const SEARCH_PROFILES = [
-  { originRadius: 800, destinationRadius: 800, stopLimit: 10, transferRadius: 350, maxTransfers: 2, perStopBoardLimit: 10, horizonSeconds: 4 * 3600 },
-  { originRadius: 1600, destinationRadius: 1600, stopLimit: 16, transferRadius: 450, maxTransfers: 3, perStopBoardLimit: 12, horizonSeconds: 6 * 3600 },
-  { originRadius: 3500, destinationRadius: 3500, stopLimit: 22, transferRadius: 550, maxTransfers: 3, perStopBoardLimit: 14, horizonSeconds: 8 * 3600 },
-  { originRadius: 12000, destinationRadius: 12000, stopLimit: 28, transferRadius: 700, maxTransfers: 4, perStopBoardLimit: 18, horizonSeconds: 12 * 3600 },
+  {
+    originRadius: 700,
+    destinationRadius: 900,
+    stopLimit: 6,
+    transferRadius: 350,
+    maxTransfers: 1,
+    perStopBoardLimit: 4,
+    horizonSeconds: 2 * 3600,
+  },
+  {
+    originRadius: 1400,
+    destinationRadius: 1800,
+    stopLimit: 10,
+    transferRadius: 450,
+    maxTransfers: 2,
+    perStopBoardLimit: 6,
+    horizonSeconds: 4 * 3600,
+  },
+  {
+    originRadius: 2800,
+    destinationRadius: 3500,
+    stopLimit: 14,
+    transferRadius: 550,
+    maxTransfers: 2,
+    perStopBoardLimit: 8,
+    horizonSeconds: 6 * 3600,
+  },
 ];
 
 const LOCAL_TZ = 'Europe/Vilnius';
@@ -39,12 +60,18 @@ function nowInVilniusParts() {
 
   return {
     date: `${parts.year}-${parts.month}-${parts.day}`,
-    seconds: Number(parts.hour) * 3600 + Number(parts.minute) * 60 + Number(parts.second),
+    seconds:
+      Number(parts.hour) * 3600 +
+      Number(parts.minute) * 60 +
+      Number(parts.second),
   };
 }
 
 function toCoordinate(latitude, longitude) {
-  return { latitude: Number(latitude), longitude: Number(longitude) };
+  return {
+    latitude: Number(latitude),
+    longitude: Number(longitude),
+  };
 }
 
 function normalizeNearbyStop(stop) {
@@ -53,7 +80,7 @@ function normalizeNearbyStop(stop) {
     name: stop.name,
     latitude: Number(stop.latitude),
     longitude: Number(stop.longitude),
-    distanceMeters: Number(stop.distance_meters || 0),
+    distanceMeters: Number(stop.distance_meters || stop.distanceMeters || 0),
   };
 }
 
@@ -67,7 +94,7 @@ function modeFromRouteType(routeType) {
 
 function planModeFromModes(modes) {
   const unique = uniqueModes(modes);
-  return unique.length > 1 ? 'mixed' : (unique[0] || 'bus');
+  return unique.length > 1 ? 'mixed' : unique[0] || 'bus';
 }
 
 function secondsToMinutes(deltaSeconds) {
@@ -78,46 +105,71 @@ function secondsToMinutes(deltaSeconds) {
 function routeLabelFromRow(row) {
   const shortName = row.route_short_name || row.route_id || 'PT';
   const longName = row.route_long_name || null;
-  return longName && longName !== shortName ? `${shortName} • ${longName}` : String(shortName);
+  return longName && longName !== shortName
+    ? `${shortName} • ${longName}`
+    : String(shortName);
 }
 
 function stopToCoord(stop) {
-  return { latitude: Number(stop.latitude), longitude: Number(stop.longitude) };
+  return {
+    latitude: Number(stop.latitude),
+    longitude: Number(stop.longitude),
+  };
 }
 
 function dedupeCoords(coords) {
   const result = [];
   const seen = new Set();
+
   for (const point of coords) {
     if (!point) continue;
-    const key = `${Number(point.latitude).toFixed(6)}:${Number(point.longitude).toFixed(6)}`;
+
+    const latitude = Number(point.latitude);
+    const longitude = Number(point.longitude);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+
+    const key = `${latitude.toFixed(6)}:${longitude.toFixed(6)}`;
     if (seen.has(key)) continue;
+
     seen.add(key);
-    result.push({ latitude: Number(point.latitude), longitude: Number(point.longitude) });
+    result.push({ latitude, longitude });
   }
+
   return result;
 }
 
 function shapeRowsToCoords(rows) {
-  return rows.map((row) => ({ latitude: Number(row.latitude), longitude: Number(row.longitude) }));
+  return rows.map((row) => ({
+    latitude: Number(row.latitude),
+    longitude: Number(row.longitude),
+  }));
 }
 
 async function buildPreviewPoints({ origin, destination, legs }) {
   const points = [origin];
+
   for (const leg of legs) {
     if (leg.type === 'walk') {
       if (leg.fromCoord) points.push(leg.fromCoord);
+      if (leg.fromStop) points.push(stopToCoord(leg.fromStop));
+      if (leg.toStop) points.push(stopToCoord(leg.toStop));
       if (leg.toCoord) points.push(leg.toCoord);
       continue;
     }
 
     if (leg.type === 'ride') {
       if (leg.fromStop) points.push(stopToCoord(leg.fromStop));
+
       const shapeRows = await getShapePoints(leg.shapeId);
-      if (shapeRows.length) points.push(...shapeRowsToCoords(shapeRows));
+      if (shapeRows.length) {
+        points.push(...shapeRowsToCoords(shapeRows));
+      }
+
       if (leg.toStop) points.push(stopToCoord(leg.toStop));
     }
   }
+
   points.push(destination);
   return dedupeCoords(points);
 }
@@ -125,9 +177,11 @@ async function buildPreviewPoints({ origin, destination, legs }) {
 function buildWalkingTransfersMap(rows) {
   const map = new Map();
   const maxWalkingMeters = Number(env.MAX_WALKING_METERS || 500);
+
   for (const row of rows) {
     const walkMeters = Number(row.walk_meters || 0);
     if (walkMeters > maxWalkingMeters) continue;
+
     const item = {
       fromStopId: row.from_stop_id,
       toStopId: row.to_stop_id,
@@ -140,9 +194,11 @@ function buildWalkingTransfersMap(rows) {
       walkMeters,
       walkSeconds: Math.max(60, Math.round(walkMeters / WALKING_SPEED_MPS)),
     };
+
     if (!map.has(item.fromStopId)) map.set(item.fromStopId, []);
     map.get(item.fromStopId).push(item);
   }
+
   return map;
 }
 
@@ -158,9 +214,15 @@ function makeStopMeta(stop) {
 
 function createBestStateMap(initialStops, origin, departureSeconds) {
   const map = new Map();
+
   for (const stop of initialStops) {
-    const walkSeconds = Math.max(60, Math.round(Number(stop.distanceMeters || 0) / WALKING_SPEED_MPS));
+    const walkSeconds = Math.max(
+      60,
+      Math.round(Number(stop.distanceMeters || 0) / WALKING_SPEED_MPS)
+    );
+
     const arrivalSeconds = departureSeconds + walkSeconds;
+
     map.set(stop.id, {
       stop: makeStopMeta(stop),
       arrivalSeconds,
@@ -175,19 +237,25 @@ function createBestStateMap(initialStops, origin, departureSeconds) {
       },
     });
   }
+
   return map;
 }
 
 function applyWalkingClosure(bestByStop, frontierStopIds, transferMap) {
   const queue = [...frontierStopIds];
   const marked = new Set();
+
   while (queue.length) {
     const stopId = queue.shift();
     const state = bestByStop.get(stopId);
+    if (!state) continue;
+
     const transfers = transferMap.get(stopId) || [];
+
     for (const transfer of transfers) {
       const candidateArrival = state.arrivalSeconds + transfer.walkSeconds;
       const current = bestByStop.get(transfer.toStopId);
+
       if (!current || candidateArrival < current.arrivalSeconds - 30) {
         bestByStop.set(transfer.toStopId, {
           stop: {
@@ -209,6 +277,7 @@ function applyWalkingClosure(bestByStop, frontierStopIds, transferMap) {
             durationSeconds: transfer.walkSeconds,
           },
         });
+
         if (!marked.has(transfer.toStopId)) {
           marked.add(transfer.toStopId);
           queue.push(transfer.toStopId);
@@ -216,40 +285,69 @@ function applyWalkingClosure(bestByStop, frontierStopIds, transferMap) {
       }
     }
   }
+
   return Array.from(marked);
 }
 
 function chooseBoardingsPerTrip(boardings, bestByStop) {
   const bestByTrip = new Map();
+
   for (const row of boardings) {
     const reached = bestByStop.get(row.board_stop_id);
     if (!reached) continue;
+
     const existing = bestByTrip.get(row.trip_id);
-    if (!existing || Number(row.board_departure_seconds) < Number(existing.board_departure_seconds)) {
+
+    if (
+      !existing ||
+      Number(row.board_departure_seconds) <
+        Number(existing.board_departure_seconds)
+    ) {
       bestByTrip.set(row.trip_id, row);
     }
   }
+
   return Array.from(bestByTrip.values());
 }
 
 function groupTripRows(rows) {
   const map = new Map();
+
   for (const row of rows) {
     if (!map.has(row.trip_id)) map.set(row.trip_id, []);
     map.get(row.trip_id).push(row);
   }
+
   return map;
 }
 
-function buildDestinationCandidate(bestByStop, destinationStops, destination, currentBest) {
+function buildDestinationCandidate(
+  bestByStop,
+  destinationStops,
+  destination,
+  currentBest
+) {
   let best = currentBest || null;
+
   for (const stop of destinationStops) {
     const state = bestByStop.get(stop.id);
     if (!state) continue;
+
     const finalWalkMeters = getDistanceMeters(stop, destination);
-    if (finalWalkMeters > Math.max(Number(env.MAX_WALKING_METERS || 500) * 2.5, 1200)) continue;
-    const finalWalkSeconds = Math.max(60, Math.round(finalWalkMeters / WALKING_SPEED_MPS));
+    const maxFinalWalk = Math.max(
+      Number(env.MAX_WALKING_METERS || 500) * 2.5,
+      1200
+    );
+
+    if (finalWalkMeters > maxFinalWalk) continue;
+
+    const finalWalkSeconds = Math.max(
+      60,
+      Math.round(finalWalkMeters / WALKING_SPEED_MPS)
+    );
+
     const totalArrival = state.arrivalSeconds + finalWalkSeconds;
+
     if (!best || totalArrival < best.totalArrivalSeconds) {
       best = {
         stop,
@@ -260,14 +358,17 @@ function buildDestinationCandidate(bestByStop, destinationStops, destination, cu
       };
     }
   }
+
   return best;
 }
 
 function reconstructLegs(bestByStop, destinationCandidate, origin, destination) {
   const legs = [];
   let state = destinationCandidate.state;
+
   while (state?.prev) {
     const prev = state.prev;
+
     if (prev.type === 'ride') {
       legs.push({
         type: 'ride',
@@ -282,6 +383,7 @@ function reconstructLegs(bestByStop, destinationCandidate, origin, destination) 
         fromStop: prev.fromStop,
         toStop: state.stop,
       });
+
       state = bestByStop.get(prev.fromStop.id);
       continue;
     }
@@ -292,9 +394,13 @@ function reconstructLegs(bestByStop, destinationCandidate, origin, destination) 
         walkKind: 'transfer',
         distanceMeters: prev.distanceMeters,
         durationSeconds: prev.durationSeconds,
-        fromStop: { id: prev.fromStopId, name: prev.fromStopName },
+        fromStop: {
+          id: prev.fromStopId,
+          name: prev.fromStopName,
+        },
         toStop: state.stop,
       });
+
       state = bestByStop.get(prev.fromStopId);
       continue;
     }
@@ -308,12 +414,14 @@ function reconstructLegs(bestByStop, destinationCandidate, origin, destination) 
         fromCoord: origin,
         toStop: state.stop,
       });
+
       state = null;
       break;
     }
   }
 
   legs.reverse();
+
   legs.push({
     type: 'walk',
     walkKind: 'egress',
@@ -322,96 +430,152 @@ function reconstructLegs(bestByStop, destinationCandidate, origin, destination) 
     fromStop: destinationCandidate.stop,
     toCoord: destination,
   });
+
   return legs;
 }
 
 function legsToJourneySteps(legs) {
   const steps = [];
+
   for (const leg of legs) {
     if (leg.type === 'walk') {
       const walkMinutes = secondsToMinutes(leg.durationSeconds) || 1;
+
       if (leg.walkKind === 'access') {
-        steps.push({ icon: 'walk', title: 'Eik iki stotelės', subtitle: `Iki „${leg.toStop.name}“ • ${walkMinutes} min pėsčiomis`, type: 'walk', mode: 'walk', stopId: leg.toStop.id, stopName: leg.toStop.name });
+        steps.push({
+          icon: 'walk',
+          title: 'Eik iki stotelės',
+          subtitle: `Iki „${leg.toStop.name}“ • ${walkMinutes} min pėsčiomis`,
+          type: 'walk',
+          mode: 'walk',
+          stopId: leg.toStop.id,
+          stopName: leg.toStop.name,
+          durationMinutes: walkMinutes,
+          minutes: walkMinutes,
+        });
       } else if (leg.walkKind === 'transfer') {
-        steps.push({ icon: 'walk', title: 'Pereik iki kitos stotelės', subtitle: `Iki „${leg.toStop.name}“ • ${walkMinutes} min pėsčiomis`, type: 'walk', mode: 'walk', stopId: leg.toStop.id, stopName: leg.toStop.name });
+        steps.push({
+          icon: 'walk',
+          title: 'Pereik iki kitos stotelės',
+          subtitle: `Iki „${leg.toStop.name}“ • ${walkMinutes} min pėsčiomis`,
+          type: 'transfer',
+          mode: 'walk',
+          stopId: leg.toStop.id,
+          stopName: leg.toStop.name,
+          durationMinutes: walkMinutes,
+          minutes: walkMinutes,
+        });
       } else {
-        steps.push({ icon: 'walk', title: 'Eik iki tikslo', subtitle: `${walkMinutes} min pėsčiomis`, type: 'walk', mode: 'walk' });
+        steps.push({
+          icon: 'walk',
+          title: 'Eik iki tikslo',
+          subtitle: `${walkMinutes} min pėsčiomis`,
+          type: 'walk',
+          mode: 'walk',
+          durationMinutes: walkMinutes,
+          minutes: walkMinutes,
+        });
       }
+
       continue;
     }
 
     if (leg.type === 'ride') {
       const modeIcon = leg.mode === 'train' ? 'train' : 'bus';
-      steps.push({ icon: modeIcon, title: leg.mode === 'train' ? `Lipk į traukinį ${leg.routeLabel}` : `Lipk į autobusą ${leg.routeLabel}`, subtitle: leg.headsign || `Nuo „${leg.fromStop.name}“`, type: 'board', mode: leg.mode, stopId: leg.fromStop.id, stopName: leg.fromStop.name, routeId: leg.routeId });
-      steps.push({ icon: modeIcon, title: leg.mode === 'train' ? 'Važiuok traukiniu' : 'Važiuok autobusu', subtitle: `Iki „${leg.toStop.name}“ • ${secondsToMinutes(leg.arrivalSeconds - leg.departureSeconds) || 1} min • ${leg.stopCount} st.`, type: 'ride', mode: leg.mode, fromStopId: leg.fromStop.id, toStopId: leg.toStop.id, stopCount: leg.stopCount });
-      steps.push({ icon: 'flag-checkered', title: 'Išlipk', subtitle: `„${leg.toStop.name}“`, type: 'alight', stopId: leg.toStop.id, stopName: leg.toStop.name });
+      const rideMinutes =
+        secondsToMinutes(leg.arrivalSeconds - leg.departureSeconds) || 1;
+
+      steps.push({
+        icon: modeIcon,
+        title:
+          leg.mode === 'train'
+            ? `Lipk į traukinį ${leg.routeLabel}`
+            : `Lipk į autobusą ${leg.routeLabel}`,
+        subtitle: leg.headsign || `Nuo „${leg.fromStop.name}“`,
+        type: 'board',
+        mode: leg.mode,
+        stopId: leg.fromStop.id,
+        stopName: leg.fromStop.name,
+        routeId: leg.routeId,
+        routeNumber: leg.routeLabel,
+      });
+
+      steps.push({
+        icon: modeIcon,
+        title: leg.mode === 'train' ? 'Važiuok traukiniu' : 'Važiuok autobusu',
+        subtitle: `Iki „${leg.toStop.name}“ • ${rideMinutes} min • ${leg.stopCount} st.`,
+        type: 'ride',
+        mode: leg.mode,
+        fromStopId: leg.fromStop.id,
+        fromStopName: leg.fromStop.name,
+        toStopId: leg.toStop.id,
+        toStopName: leg.toStop.name,
+        stopCount: leg.stopCount,
+        durationMinutes: rideMinutes,
+        minutes: rideMinutes,
+        routeId: leg.routeId,
+        routeNumber: leg.routeLabel,
+      });
+
+      steps.push({
+        icon: 'flag-checkered',
+        title: 'Išlipk',
+        subtitle: `„${leg.toStop.name}“`,
+        type: 'alight',
+        stopId: leg.toStop.id,
+        stopName: leg.toStop.name,
+      });
     }
   }
+
   return steps;
 }
 
 async function enrichPlanWithLiveVehicle(plan) {
-  if (!plan?.journeySteps?.length || !plan.originStop?.id) return plan;
-  const firstRide = plan.journeySteps.find((step) => step.type === 'board' && step.routeId);
-  if (!firstRide?.routeId) return plan;
-
-  try {
-    const vehicles = await fetchLiveVehicles();
-    const routeMatchId = String(plan.summary.routeLabel || firstRide.routeId).split('•')[0].trim();
-    const best = pickBestVehicleForStop({
-      vehicles,
-      routeId: routeMatchId || firstRide.routeId,
-      stop: plan.originStop,
-      destinationStop: plan.destinationStop,
-      headsign: plan.summary.headsign || null,
-    });
-
-    if (!best) return plan;
-
-    const severity = best.etaSeconds > 20 * 60 ? 'warning' : 'info';
-    return {
-      ...plan,
-      liveVehicle: {
-        vehicleId: best.vehicle.vehicleId || best.vehicle.id,
-        id: best.vehicle.id,
-        directionName: best.vehicle.directionName || null,
-      },
-      summary: {
-        ...plan.summary,
-        etaMinutes: secondsToMinutes(best.etaSeconds),
-        nextStopName: plan.originStop.name,
-        boardingState: best.etaSeconds <= 3 * 60 ? 'boarding_soon' : 'on_the_way',
-        alertSignals: [
-          {
-            type: 'live_eta',
-            title: 'Live ETA',
-            message: `Autobusas ${routeMatchId || ''} iki stotelės „${plan.originStop.name}“ atvyks maždaug po ${secondsToMinutes(best.etaSeconds)} min.`,
-            severity,
-          },
-        ],
-      },
-    };
-  } catch {
-    return plan;
-  }
+  // PRO FIX:
+  // /transit/plan turi atsakyti greitai.
+  // Live GPS ETA negali stabdyti routing atsakymo.
+  // Live ETA bus jungiama atskiru lightweight requestu kitame etape.
+  return plan;
 }
 
-async function buildPlanFromDestinationCandidate({ origin, destination, destinationCandidate }) {
-  const legs = reconstructLegs(destinationCandidate.bestByStop, destinationCandidate, origin, destination);
+async function buildPlanFromDestinationCandidate({
+  origin,
+  destination,
+  destinationCandidate,
+}) {
+  const legs = reconstructLegs(
+    destinationCandidate.bestByStop,
+    destinationCandidate,
+    origin,
+    destination
+  );
+
   const rideLegs = legs.filter((leg) => leg.type === 'ride');
   const walkLegs = legs.filter((leg) => leg.type === 'walk');
   const modes = uniqueModes(rideLegs.map((leg) => leg.mode));
+
   const firstRide = rideLegs[0];
   const lastRide = rideLegs[rideLegs.length - 1];
-  const totalWalkMinutes = walkLegs.reduce((sum, leg) => sum + (secondsToMinutes(leg.durationSeconds) || 0), 0);
-  const totalRideMinutes = rideLegs.reduce((sum, leg) => sum + (secondsToMinutes(leg.arrivalSeconds - leg.departureSeconds) || 0), 0);
+
+  const totalWalkMinutes = walkLegs.reduce((sum, leg) => {
+    return sum + (secondsToMinutes(leg.durationSeconds) || 0);
+  }, 0);
+
+  const totalRideMinutes = rideLegs.reduce((sum, leg) => {
+    return sum + (secondsToMinutes(leg.arrivalSeconds - leg.departureSeconds) || 0);
+  }, 0);
+
   const totalDurationMinutes = totalWalkMinutes + totalRideMinutes;
+
   const previewPoints = await buildPreviewPoints({ origin, destination, legs });
   const journeySteps = legsToJourneySteps(legs);
 
   const basePlan = {
-    id: `plan-${firstRide?.routeId || 'walk'}-${destinationCandidate.stop.id}-${Math.round(destinationCandidate.totalArrivalSeconds)}`,
-    mode: rideLegs.length ? planModeFromModes(modes) : 'bus',
+    id: `plan-${firstRide?.routeId || 'walk'}-${destinationCandidate.stop.id}-${Math.round(
+      destinationCandidate.totalArrivalSeconds
+    )}`,
+    mode: rideLegs.length ? planModeFromModes(modes) : 'walk',
     routeId: firstRide?.routeId || 'walk',
     summary: {
       totalDurationMinutes,
@@ -419,14 +583,20 @@ async function buildPlanFromDestinationCandidate({ origin, destination, destinat
       totalBusMinutes: totalRideMinutes,
       boardStopName: firstRide?.fromStop?.name || destinationCandidate.stop.name,
       alightStopName: lastRide?.toStop?.name || destinationCandidate.stop.name,
-      routeLabel: rideLegs.length ? rideLegs.map((leg) => leg.routeLabel).join(' → ') : 'Walk',
+      routeLabel: rideLegs.length
+        ? rideLegs.map((leg) => leg.routeLabel).join(' → ')
+        : 'Pėsčiomis',
       etaMinutes: totalDurationMinutes,
-      stopCount: rideLegs.reduce((sum, leg) => sum + Number(leg.stopCount || 0), 0),
+      stopCount: rideLegs.reduce((sum, leg) => {
+        return sum + Number(leg.stopCount || 0);
+      }, 0),
       transfersCount: Math.max(0, rideLegs.length - 1),
       directionCode: firstRide?.headsign || null,
       headsign: firstRide?.headsign || null,
       journeyMessage: rideLegs.length
-        ? `Eik iki „${firstRide.fromStop.name}“, tada ${rideLegs.map((leg) => leg.routeLabel).join(' → ')}, išlipk „${lastRide.toStop.name}“`
+        ? `Eik iki „${firstRide.fromStop.name}“, tada ${rideLegs
+            .map((leg) => leg.routeLabel)
+            .join(' → ')}, išlipk „${lastRide.toStop.name}“`
         : 'Eik pėsčiomis iki tikslo',
       modes,
     },
@@ -440,44 +610,116 @@ async function buildPlanFromDestinationCandidate({ origin, destination, destinat
   return enrichPlanWithLiveVehicle(basePlan);
 }
 
-function validateCoordinate(point) {
-  return point && Number.isFinite(Number(point.latitude)) && Number.isFinite(Number(point.longitude));
+function normalizeRequestCoordinate(point) {
+  if (!point) return null;
+
+  const latitude = Number(point.latitude ?? point.lat);
+  const longitude = Number(point.longitude ?? point.lon ?? point.lng);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+  return { latitude, longitude };
 }
 
-async function runTimedSearch({ origin, destination, serviceDate, departureSeconds, profile }) {
-  const nearbyOriginStops = (await getNearbyStops(origin, profile.originRadius, profile.stopLimit)).map(normalizeNearbyStop);
-  const nearbyDestinationStops = (await getNearbyStops(destination, profile.destinationRadius, profile.stopLimit)).map(normalizeNearbyStop);
+function validateCoordinate(point) {
+  return Boolean(normalizeRequestCoordinate(point));
+}
+
+async function runTimedSearch({
+  origin,
+  destination,
+  serviceDate,
+  departureSeconds,
+  profile,
+}) {
+  const nearbyOriginStops = (
+    await getNearbyStops(origin, profile.originRadius, profile.stopLimit)
+  ).map(normalizeNearbyStop);
+
+  const nearbyDestinationStops = (
+    await getNearbyStops(destination, profile.destinationRadius, profile.stopLimit)
+  ).map(normalizeNearbyStop);
 
   if (!nearbyOriginStops.length || !nearbyDestinationStops.length) {
-    return { plan: null, options: [], meta: { reason: 'NO_NEARBY_STOPS', serviceDate, departureSeconds, nearbyOriginStops, nearbyDestinationStops, searchProfile: profile } };
+    return {
+      plan: null,
+      options: [],
+      meta: {
+        reason: 'NO_NEARBY_STOPS',
+        serviceDate,
+        departureSeconds,
+        nearbyOriginStops,
+        nearbyDestinationStops,
+        searchProfile: profile,
+      },
+    };
   }
 
-  const allCandidateStopIds = Array.from(new Set([...nearbyOriginStops, ...nearbyDestinationStops].map((s) => s.id)));
-  const transferRows = await getWalkingTransfers(allCandidateStopIds, Math.min(profile.transferRadius, Number(env.MAX_WALKING_METERS || 500)), 32);
+  const allCandidateStopIds = Array.from(
+    new Set(
+      [...nearbyOriginStops, ...nearbyDestinationStops].map((stop) => stop.id)
+    )
+  );
+
+  const transferRows = await getWalkingTransfers(
+    allCandidateStopIds,
+    Math.min(profile.transferRadius, Number(env.MAX_WALKING_METERS || 500)),
+    24
+  );
+
   const transferMap = buildWalkingTransfersMap(transferRows);
 
-  const bestByStop = createBestStateMap(nearbyOriginStops, origin, departureSeconds);
-  let frontierStopIds = nearbyOriginStops.map((stop) => stop.id);
-  frontierStopIds = frontierStopIds.concat(applyWalkingClosure(bestByStop, frontierStopIds, transferMap));
+  const bestByStop = createBestStateMap(
+    nearbyOriginStops,
+    origin,
+    departureSeconds
+  );
 
-  let bestDestination = buildDestinationCandidate(bestByStop, nearbyDestinationStops, destination, null);
+  let frontierStopIds = nearbyOriginStops.map((stop) => stop.id);
+  frontierStopIds = frontierStopIds.concat(
+    applyWalkingClosure(bestByStop, frontierStopIds, transferMap)
+  );
+
+  let bestDestination = buildDestinationCandidate(
+    bestByStop,
+    nearbyDestinationStops,
+    destination,
+    null
+  );
 
   const maxTransfers = Math.min(profile.maxTransfers, Number(env.MAX_TRANSFERS || 3));
+
   for (let rideCount = 0; rideCount <= maxTransfers; rideCount += 1) {
     const frontierEntries = frontierStopIds
-      .map((stopId) => ({ stopId, earliestArrivalSeconds: bestByStop.get(stopId)?.arrivalSeconds }))
+      .map((stopId) => ({
+        stopId,
+        earliestArrivalSeconds: bestByStop.get(stopId)?.arrivalSeconds,
+      }))
       .filter((entry) => Number.isFinite(entry.earliestArrivalSeconds));
 
     if (!frontierEntries.length) break;
 
-    const boardings = await getCandidateBoardings(frontierEntries, serviceDate, profile.perStopBoardLimit, profile.horizonSeconds);
+    const boardings = await getCandidateBoardings(
+      frontierEntries,
+      serviceDate,
+      profile.perStopBoardLimit,
+      profile.horizonSeconds
+    );
+
     if (!boardings.length) break;
 
     const chosenBoardings = chooseBoardingsPerTrip(boardings, bestByStop);
-    const minBoardSequenceByTrip = {};
-    for (const row of chosenBoardings) minBoardSequenceByTrip[row.trip_id] = Number(row.board_sequence || 0);
 
-    const tripRows = await getTripStopSequences(chosenBoardings.map((row) => row.trip_id), minBoardSequenceByTrip);
+    const minBoardSequenceByTrip = {};
+    for (const row of chosenBoardings) {
+      minBoardSequenceByTrip[row.trip_id] = Number(row.board_sequence || 0);
+    }
+
+    const tripRows = await getTripStopSequences(
+      chosenBoardings.map((row) => row.trip_id),
+      minBoardSequenceByTrip
+    );
+
     const tripMap = groupTripRows(tripRows);
     const nextFrontier = new Set();
 
@@ -495,10 +737,14 @@ async function runTimedSearch({ origin, destination, serviceDate, departureSecon
       for (const stopRow of tripStops) {
         const stopSequence = Number(stopRow.stop_sequence || 0);
         const arrivalSeconds = Number(stopRow.arrival_seconds);
-        if (stopSequence <= boardSequence || !Number.isFinite(arrivalSeconds)) continue;
+
+        if (stopSequence <= boardSequence || !Number.isFinite(arrivalSeconds)) {
+          continue;
+        }
 
         const current = bestByStop.get(stopRow.stop_id);
         const nextArrivalSeconds = arrivalSeconds;
+
         if (!current || nextArrivalSeconds < current.arrivalSeconds - 30) {
           bestByStop.set(stopRow.stop_id, {
             stop: {
@@ -522,14 +768,26 @@ async function runTimedSearch({ origin, destination, serviceDate, departureSecon
               fromStop: boardStop,
             },
           });
+
           nextFrontier.add(stopRow.stop_id);
         }
       }
     }
 
-    const closureStops = applyWalkingClosure(bestByStop, Array.from(nextFrontier), transferMap);
+    const closureStops = applyWalkingClosure(
+      bestByStop,
+      Array.from(nextFrontier),
+      transferMap
+    );
+
     frontierStopIds = Array.from(new Set([...nextFrontier, ...closureStops]));
-    bestDestination = buildDestinationCandidate(bestByStop, nearbyDestinationStops, destination, bestDestination);
+
+    bestDestination = buildDestinationCandidate(
+      bestByStop,
+      nearbyDestinationStops,
+      destination,
+      bestDestination
+    );
   }
 
   if (!bestDestination) {
@@ -548,7 +806,13 @@ async function runTimedSearch({ origin, destination, serviceDate, departureSecon
   }
 
   bestDestination.bestByStop = bestByStop;
-  const plan = await buildPlanFromDestinationCandidate({ origin, destination, destinationCandidate: bestDestination });
+
+  const plan = await buildPlanFromDestinationCandidate({
+    origin,
+    destination,
+    destinationCandidate: bestDestination,
+  });
+
   return {
     plan,
     options: [plan],
@@ -564,45 +828,55 @@ async function runTimedSearch({ origin, destination, serviceDate, departureSecon
 }
 
 async function planJourney({ origin, destination, serviceDate, departureSeconds }) {
-  const results = [];
   let lastResult = null;
+
   for (const profile of SEARCH_PROFILES) {
-    const result = await runTimedSearch({ origin, destination, serviceDate, departureSeconds, profile });
+    const startedAt = Date.now();
+
+    const result = await runTimedSearch({
+      origin,
+      destination,
+      serviceDate,
+      departureSeconds,
+      profile,
+    });
+
     lastResult = result;
-    if (result.plan) results.push(result);
-    if (results.length >= 3) break;
+
+    if (result.plan) {
+      return {
+        plan: result.plan,
+        options: [result.plan],
+        meta: {
+          ...(result.meta || {}),
+          reason: 'OK',
+          responseMs: Date.now() - startedAt,
+        },
+      };
+    }
+
+    if (Date.now() - startedAt > 4500) {
+      break;
+    }
   }
 
-  if (!results.length) {
-    return lastResult || { plan: null, options: [], meta: { reason: 'NO_JOURNEY_FOUND', serviceDate, departureSeconds } };
-  }
-
-  const uniquePlans = [];
-  const seen = new Set();
-  for (const result of results) {
-    const plan = result.plan;
-    if (!plan) continue;
-    const key = `${plan.summary.routeLabel}|${plan.summary.boardStopName}|${plan.summary.alightStopName}|${plan.summary.totalDurationMinutes}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    uniquePlans.push(plan);
-  }
-
-  const sortedPlans = uniquePlans.sort((a, b) => (a.summary.totalDurationMinutes || 9999) - (b.summary.totalDurationMinutes || 9999)).slice(0, 3);
-
-  return {
-    plan: sortedPlans[0] || null,
-    options: sortedPlans,
-    meta: {
-      ...(results[0]?.meta || {}),
-      reason: sortedPlans.length ? 'OK' : 'NO_JOURNEY_FOUND',
-    },
-  };
+  return (
+    lastResult || {
+      plan: null,
+      options: [],
+      meta: {
+        reason: 'NO_JOURNEY_FOUND',
+        serviceDate,
+        departureSeconds,
+      },
+    }
+  );
 }
 
 async function planJourneyFromRequest(body) {
-  const origin = body?.origin;
-  const destination = body?.destination;
+  const origin = normalizeRequestCoordinate(body?.origin ?? body?.from);
+  const destination = normalizeRequestCoordinate(body?.destination ?? body?.to);
+
   if (!validateCoordinate(origin) || !validateCoordinate(destination)) {
     const error = new Error('origin and destination coordinates are required');
     error.statusCode = 400;
@@ -611,7 +885,10 @@ async function planJourneyFromRequest(body) {
 
   const localNow = nowInVilniusParts();
   const serviceDate = String(body?.serviceDate || localNow.date);
-  const departureSeconds = Number(body?.departureSeconds || (serviceDate === localNow.date ? localNow.seconds : 0));
+
+  const departureSeconds = Number(
+    body?.departureSeconds || (serviceDate === localNow.date ? localNow.seconds : 0)
+  );
 
   return planJourney({
     origin: toCoordinate(origin.latitude, origin.longitude),
@@ -621,4 +898,7 @@ async function planJourneyFromRequest(body) {
   });
 }
 
-module.exports = { planJourney, planJourneyFromRequest };
+module.exports = {
+  planJourney,
+  planJourneyFromRequest,
+};

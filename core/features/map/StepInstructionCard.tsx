@@ -6,9 +6,9 @@ import type { TransitStep } from "../transit/models/transitTypes";
 type Props = { step: TransitStep };
 
 function iconName(type: TransitStep["type"]) {
-  if (type === "bus") return "bus";
+  if (type === "bus" || type === "board" || type === "ride") return "bus";
   if (type === "transfer") return "swap-horizontal";
-  if (type === "arrive") return "flag-checkered";
+  if (type === "arrive" || type === "alight") return "flag-checkered";
   return "walk";
 }
 

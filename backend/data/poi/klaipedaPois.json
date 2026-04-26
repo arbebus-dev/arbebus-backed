@@ -1,0 +1,82 @@
+[
+  {
+    "id": "poi-akropolis-klaipeda",
+    "title": "Akropolis",
+    "name": "Akropolis Klaipėda",
+    "subtitle": "Taikos pr. 61, Klaipėda",
+    "type": "place",
+    "latitude": 55.68962,
+    "longitude": 21.14691,
+    "keywords": ["akropolis", "akropolis klaipeda", "prekybos centras", "pc akropolis"]
+  },
+  {
+    "id": "poi-klaipeda-as",
+    "title": "Klaipėdos autobusų stotis",
+    "name": "Klaipėdos AS",
+    "subtitle": "Butkų Juzės g. 9, Klaipėda",
+    "type": "place",
+    "latitude": 55.71725,
+    "longitude": 21.1377,
+    "keywords": ["klaipedos as", "klaipeda autobusų stotis", "autobusu stotis", "klaipeda"]
+  },
+  {
+    "id": "poi-palanga-as",
+    "title": "Palangos autobusų stotis",
+    "name": "Palangos AS",
+    "subtitle": "Klaipėdos pl. 42, Palanga",
+    "type": "place",
+    "latitude": 55.917,
+    "longitude": 21.068,
+    "keywords": ["palanga", "palangos as", "palangos autobusų stotis", "autobusu stotis palanga"]
+  },
+  {
+    "id": "poi-kretinga-as",
+    "title": "Kretingos autobusų stotis",
+    "name": "Kretingos AS",
+    "subtitle": "Kretinga",
+    "type": "place",
+    "latitude": 55.8894,
+    "longitude": 21.2447,
+    "keywords": ["kretinga", "kretingos as", "kretingos autobusų stotis", "autobusu stotis kretinga"]
+  },
+  {
+    "id": "poi-palanga-airport",
+    "title": "Palangos oro uostas",
+    "name": "Palanga Airport (PLQ)",
+    "subtitle": "Liepojos pl. 1, Palanga",
+    "type": "place",
+    "latitude": 55.9732,
+    "longitude": 21.0939,
+    "keywords": ["oro uostas", "palanga airport", "plq", "palangos oro uostas"]
+  },
+  {
+    "id": "poi-svyturio-arena",
+    "title": "Švyturio arena",
+    "name": "Švyturio arena",
+    "subtitle": "Dubysos g. 10, Klaipėda",
+    "type": "place",
+    "latitude": 55.6891,
+    "longitude": 21.1439,
+    "keywords": ["arena", "svyturio arena", "švyturio arena"]
+  },
+  {
+    "id": "poi-klaipeda-university",
+    "title": "Klaipėdos universitetas",
+    "name": "Klaipėdos universitetas",
+    "subtitle": "H. Manto g., Klaipėda",
+    "type": "place",
+    "latitude": 55.731,
+    "longitude": 21.1287,
+    "keywords": ["universitetas", "klaipedos universitetas", "ku"]
+  },
+  {
+    "id": "poi-jurine-ligonine",
+    "title": "Jūrininkų ligoninė",
+    "name": "Klaipėdos jūrininkų ligoninė",
+    "subtitle": "Liepojos g. 45, Klaipėda",
+    "type": "place",
+    "latitude": 55.7388,
+    "longitude": 21.1304,
+    "keywords": ["ligonine", "ligoninė", "jurininku", "jūrininkų ligoninė"]
+  }
+]

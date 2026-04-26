@@ -24,7 +24,7 @@ export default function TopSearchBar({
   onClear,
 }: Props) {
   return (
-    <View style={styles.wrapper}>
+    <View style={styles.wrapper} pointerEvents="box-none">
       <View style={styles.searchBox}>
         <Ionicons name="search" size={20} color="#AEB7D8" />
 
@@ -32,18 +32,22 @@ export default function TopSearchBar({
           value={value}
           onChangeText={onChangeText}
           onSubmitEditing={onSubmit}
-          placeholder="Kur važiuojam?"
+          placeholder="Kur važiuojam? Pvz. Akropolis, Palanga"
           placeholderTextColor="#7F8AB0"
           returnKeyType="search"
           autoCorrect={false}
+          autoCapitalize="none"
+          clearButtonMode="never"
           style={styles.input}
         />
 
-        {isSearching ? <ActivityIndicator size="small" /> : null}
+        {isSearching ? (
+          <ActivityIndicator size="small" color="#35F2B4" />
+        ) : null}
 
         {value.trim().length > 0 ? (
-          <Pressable onPress={onClear} hitSlop={10}>
-            <Ionicons name="close-circle" size={20} color="#AEB7D8" />
+          <Pressable onPress={onClear} hitSlop={12} style={styles.clearButton}>
+            <Ionicons name="close-circle" size={21} color="#AEB7D8" />
           </Pressable>
         ) : null}
       </View>
@@ -57,24 +61,36 @@ const styles = StyleSheet.create({
     top: 58,
     left: 16,
     right: 16,
-    zIndex: 30,
+    zIndex: 45,
+    elevation: 45,
   },
   searchBox: {
-    minHeight: 54,
-    borderRadius: 22,
+    minHeight: 56,
+    borderRadius: 24,
     paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    backgroundColor: "rgba(8, 13, 27, 0.92)",
+    backgroundColor: "rgba(8, 13, 27, 0.94)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderColor: "rgba(255,255,255,0.13)",
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
   },
   input: {
     flex: 1,
     color: "white",
     fontSize: 16,
-    fontWeight: "700",
+    fontWeight: "800",
     paddingVertical: 12,
+  },
+  clearButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
