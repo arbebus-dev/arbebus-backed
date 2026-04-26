@@ -474,32 +474,34 @@ async function buildPlanFromDestinationCandidate({ origin, destination, destinat
   const journeySteps = legsToJourneySteps(legs);
 
   const basePlan = {
-    id: `plan-${firstRide?.routeId || 'walk'}-${destinationCandidate.stop.id}-${Math.round(destinationCandidate.totalArrivalSeconds)}`,
-    mode: rideLegs.length ? planModeFromModes(modes) : 'walk',
-    routeId: firstRide?.routeId || 'walk',
-    summary: {
-      totalDurationMinutes,
-      totalWalkMinutes,
-      totalBusMinutes: totalRideMinutes,
-      boardStopName: firstRide?.fromStop?.name || destinationCandidate.stop.name,
-      alightStopName: lastRide?.toStop?.name || destinationCandidate.stop.name,
-      routeLabel: rideLegs.length ? rideLegs.map((leg) => leg.routeLabel).join(' → ') : 'Pėsčiomis',
-      etaMinutes: totalDurationMinutes,
-      stopCount: rideLegs.reduce((sum, leg) => sum + Number(leg.stopCount || 0), 0),
-      transfersCount: Math.max(0, rideLegs.length - 1),
-      directionCode: firstRide?.headsign || null,
-      headsign: firstRide?.headsign || null,
-      journeyMessage: rideLegs.length
-        ? `Eik iki „${firstRide.fromStop.name}“, tada ${rideLegs.map((leg) => leg.routeLabel).join(' → ')}, išlipk „${lastRide.toStop.name}“`
-        : 'Eik pėsčiomis iki tikslo',
-      modes,
-    },
-    originStop: firstRide?.fromStop || destinationCandidate.state.stop,
-    destinationStop: destinationCandidate.stop,
-    previewPoints,
-    journeySteps,
-    liveVehicle: null,
-  };
+  id: `plan-${firstRide?.routeId || 'walk'}-${destinationCandidate.stop.id}-${Math.round(destinationCandidate.totalArrivalSeconds)}`,
+  shapeId: firstRide?.shapeId || null,
+  mode: rideLegs.length ? planModeFromModes(modes) : 'walk',
+  routeId: firstRide?.routeId || 'walk',
+  summary: {
+    totalDurationMinutes,
+    totalWalkMinutes,
+    totalBusMinutes: totalRideMinutes,
+    boardStopName: firstRide?.fromStop?.name || destinationCandidate.stop.name,
+    alightStopName: lastRide?.toStop?.name || destinationCandidate.stop.name,
+    routeLabel: rideLegs.length ? rideLegs.map((leg) => leg.routeLabel).join(' → ') : 'Pėsčiomis',
+    shapeId: firstRide?.shapeId || null,
+    etaMinutes: totalDurationMinutes,
+    stopCount: rideLegs.reduce((sum, leg) => sum + Number(leg.stopCount || 0), 0),
+    transfersCount: Math.max(0, rideLegs.length - 1),
+    directionCode: firstRide?.headsign || null,
+    headsign: firstRide?.headsign || null,
+    journeyMessage: rideLegs.length
+      ? `Eik iki „${firstRide.fromStop.name}“, tada ${rideLegs.map((leg) => leg.routeLabel).join(' → ')}, išlipk „${lastRide.toStop.name}“`
+      : 'Eik pėsčiomis iki tikslo',
+    modes,
+  },
+  originStop: firstRide?.fromStop || destinationCandidate.state.stop,
+  destinationStop: destinationCandidate.stop,
+  previewPoints,
+  journeySteps,
+  liveVehicle: null,
+};
 
   return enrichPlanWithLiveVehicle(basePlan);
 }
