@@ -23,6 +23,17 @@ function toCoordinate(input: any): Coordinate | null {
   return { latitude, longitude };
 }
 
+function distanceMeters(a: Coordinate, b: Coordinate) {
+  const dx = (a.latitude - b.latitude) * 111320;
+  const dy =
+    (a.longitude - b.longitude) *
+    40075000 *
+    Math.cos((a.latitude * Math.PI) / 180) /
+    360;
+
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
 function normalizePlace(item: ApiPlaceResult | any): PlaceSearchResult | null {
   const coordinate = toCoordinate(item);
   if (!coordinate) return null;
@@ -253,6 +264,53 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
   useEffect(() => {
     selectedRouteRef.current = selectedRoute;
   }, [selectedRoute]);
+
+  useEffect(() => {
+    if (!selectedRoute || !userLocation) return;
+
+    const autoStates: TransitFlowState[] = [
+      "walking_to_stop",
+      "waiting_bus",
+      "onboard",
+      "transfer",
+      "arriving",
+    ];
+
+    if (!autoStates.includes(flowState)) return;
+
+    const origin = selectedRoute.originStop.coordinate;
+    const destination = selectedRoute.destinationStop.coordinate;
+
+    const distToOrigin = distanceMeters(userLocation, origin);
+    const distToDestination = distanceMeters(userLocation, destination);
+
+    if (distToDestination <= 40) {
+      setFlowState("completed");
+      return;
+    }
+
+    if (distToDestination <= 120) {
+      setFlowState("arriving");
+      return;
+    }
+
+    if (distToOrigin > 60) {
+      setFlowState("walking_to_stop");
+      return;
+    }
+
+    if (distToOrigin <= 60 && flowState === "walking_to_stop") {
+      setFlowState("waiting_bus");
+      return;
+    }
+
+    if (
+      selectedRoute.boardingState === "boarding_soon" &&
+      flowState === "waiting_bus"
+    ) {
+      setFlowState("onboard");
+    }
+  }, [flowState, selectedRoute, userLocation]);
 
   const activeInstruction = useMemo(() => {
     if (!selectedRoute) return null;
