@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Coordinate,
   PlaceSearchResult,
@@ -19,7 +19,6 @@ import {
 function toCoordinate(input: any): Coordinate | null {
   const latitude = Number(input?.latitude ?? input?.lat ?? input?.coordinate?.latitude);
   const longitude = Number(input?.longitude ?? input?.lon ?? input?.lng ?? input?.coordinate?.longitude);
-
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
 }
@@ -42,7 +41,6 @@ function normalizePlace(item: ApiPlaceResult | any): PlaceSearchResult | null {
 
 function normalizeStep(step: any, index: number): TransitStep {
   const rawType = String(step?.type ?? step?.mode ?? "bus");
-
   const type: TransitStepType =
     rawType === "walk" ||
     rawType === "transfer" ||
@@ -128,7 +126,6 @@ function normalizeRoute(
   destination: PlaceSearchResult
 ): TransitRouteOption {
   const summary = route?.summary ?? {};
-
   const apiSteps = Array.isArray(route?.journeySteps)
     ? route.journeySteps
     : Array.isArray(route?.steps)
@@ -136,7 +133,6 @@ function normalizeRoute(
       : [];
 
   const steps = apiSteps.map(normalizeStep);
-
   const routeLabel = String(route?.routeLabel ?? summary?.routeLabel ?? route?.title ?? "Autobusas");
 
   const routeNumbers = Array.isArray(route?.routeNumbers)
@@ -151,7 +147,6 @@ function normalizeRoute(
         : [origin, destination.coordinate];
 
   const originStopCoordinate = toCoordinate(route?.originStop) ?? previewPoints[0] ?? origin;
-
   const destinationStopCoordinate =
     toCoordinate(route?.destinationStop) ??
     previewPoints[previewPoints.length - 1] ??
@@ -230,10 +225,7 @@ function normalizeRoute(
   } as TransitRouteOption;
 }
 
-function mergeRouteUpdate(
-  route: TransitRouteOption,
-  update: Partial<TransitRouteOption>
-): TransitRouteOption {
+function mergeRouteUpdate(route: TransitRouteOption, update: Partial<TransitRouteOption>): TransitRouteOption {
   return {
     ...route,
     ...update,
@@ -256,56 +248,115 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
   const [isPlanning, setIsPlanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const selectedRouteRef = useRef<TransitRouteOption | null>(null);
+
+  useEffect(() => {
+    selectedRouteRef.current = selectedRoute;
+  }, [selectedRoute]);
+
   const activeInstruction = useMemo(() => {
     if (!selectedRoute) return null;
     return selectedRoute.journeySteps?.[currentStepIndex] || null;
   }, [currentStepIndex, selectedRoute]);
 
-  const hydrateRouteDetails = useCallback(async (route: TransitRouteOption) => {
-    let nextRoute = route;
+  const applyRouteUpdate = useCallback((routeId: string, update: Partial<TransitRouteOption>) => {
+    setRouteOptions((current) =>
+      current.map((item) => (item.id === routeId ? mergeRouteUpdate(item, update) : item))
+    );
 
-    try {
-      const [shapePoints, liveEta] = await Promise.all([
-        fetchTransitShape(route.shapeId).catch(() => []),
-        fetchLiveEta(route).catch(() => null),
-      ]);
-
-      const update: Partial<TransitRouteOption> = {};
-
-      if (shapePoints.length >= 2) {
-        update.previewPoints = shapePoints;
-        update.polyline = shapePoints;
-      }
-
-      if (liveEta?.eta) {
-        update.liveEta = liveEta.eta;
-        update.etaMinutes = liveEta.eta.etaMinutes;
-        update.departureText = `Atvyksta po ${liveEta.eta.etaMinutes} min`;
-      }
-
-      if (liveEta?.boardingState) {
-        update.boardingState = liveEta.boardingState;
-      }
-
-      if (liveEta?.vehicle) {
-        update.liveVehicle = liveEta.vehicle;
-      }
-
-      nextRoute = mergeRouteUpdate(route, update);
-
-      setRouteOptions((current) =>
-        current.map((item) => (item.id === route.id ? mergeRouteUpdate(item, update) : item))
-      );
-
-      setSelectedRoute((current) =>
-        current?.id === route.id ? mergeRouteUpdate(current, update) : current
-      );
-    } catch {
-      // Plan already works. Shape/ETA are progressive enhancements.
-    }
-
-    return nextRoute;
+    setSelectedRoute((current) =>
+      current?.id === routeId ? mergeRouteUpdate(current, update) : current
+    );
   }, []);
+
+  const hydrateRouteDetails = useCallback(
+    async (route: TransitRouteOption, options?: { shape?: boolean; eta?: boolean }) => {
+      const shouldLoadShape = options?.shape ?? true;
+      const shouldLoadEta = options?.eta ?? true;
+
+      try {
+        const [shapePoints, liveEta] = await Promise.all([
+          shouldLoadShape ? fetchTransitShape(route.shapeId).catch(() => []) : Promise.resolve([]),
+          shouldLoadEta ? fetchLiveEta(route).catch(() => null) : Promise.resolve(null),
+        ]);
+
+        const update: Partial<TransitRouteOption> = {};
+
+        if (shapePoints.length >= 2) {
+          update.previewPoints = shapePoints;
+          update.polyline = shapePoints;
+        }
+
+        if (liveEta?.eta) {
+          update.liveEta = liveEta.eta;
+          update.etaMinutes = liveEta.eta.etaMinutes;
+          update.departureText = `Atvyksta po ${liveEta.eta.etaMinutes} min`;
+        }
+
+        if (liveEta?.boardingState) {
+          update.boardingState = liveEta.boardingState;
+        }
+
+        if (liveEta?.vehicle) {
+          update.liveVehicle = liveEta.vehicle;
+        }
+
+        if (Object.keys(update).length) {
+          applyRouteUpdate(route.id, update);
+        }
+
+        return mergeRouteUpdate(route, update);
+      } catch {
+        return route;
+      }
+    },
+    [applyRouteUpdate]
+  );
+
+  useEffect(() => {
+    const isActiveTrip = [
+      "route_options",
+      "route_selected",
+      "walking_to_stop",
+      "waiting_bus",
+      "onboard",
+      "transfer",
+      "arriving",
+    ].includes(flowState);
+
+    if (!selectedRoute || !isActiveTrip) return;
+
+    let cancelled = false;
+
+    const refreshEta = async () => {
+      const currentRoute = selectedRouteRef.current;
+      if (!currentRoute || cancelled) return;
+
+      try {
+        const liveEta = await fetchLiveEta(currentRoute);
+        if (!liveEta?.eta || cancelled) return;
+
+        applyRouteUpdate(currentRoute.id, {
+          liveEta: liveEta.eta,
+          etaMinutes: liveEta.eta.etaMinutes,
+          departureText: `Atvyksta po ${liveEta.eta.etaMinutes} min`,
+          boardingState: liveEta.boardingState ?? currentRoute.boardingState,
+          liveVehicle: liveEta.vehicle ?? currentRoute.liveVehicle,
+        });
+      } catch {
+        // silent refresh
+      }
+    };
+
+    void refreshEta();
+
+    const timer = setInterval(refreshEta, 15000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [applyRouteUpdate, flowState, selectedRoute]);
 
   const runSearch = useCallback(
     async (text?: string) => {
@@ -395,7 +446,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         if (options.length) {
           setFlowState("route_options");
           setError(null);
-          void hydrateRouteDetails(options[0]);
+          void hydrateRouteDetails(options[0], { shape: true, eta: true });
         } else {
           setFlowState("destination_selected");
           setError("Maršrutų nerasta. Backend atsakė, bet nėra tinkamų steps/polyline.");
@@ -417,7 +468,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       setSelectedRoute(route);
       setCurrentStepIndex(0);
       setFlowState("route_selected");
-      void hydrateRouteDetails(route);
+      void hydrateRouteDetails(route, { shape: true, eta: true });
     },
     [hydrateRouteDetails]
   );
@@ -434,7 +485,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       setFlowState("waiting_bus");
     }
 
-    void hydrateRouteDetails(selectedRoute);
+    void hydrateRouteDetails(selectedRoute, { shape: false, eta: true });
   }, [hydrateRouteDetails, selectedRoute]);
 
   const nextStep = useCallback(() => {
