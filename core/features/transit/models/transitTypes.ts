@@ -71,6 +71,8 @@ export type TransitStopPoint = {
 export type TransitStep = {
   id: string;
   type: TransitStepType;
+  legIndex?: number;
+  sequenceIndex?: number;
   mode?: "walk" | "bus" | "train" | "mixed" | string;
   icon?: string;
   title: string;
@@ -78,6 +80,10 @@ export type TransitStep = {
   description?: string;
   routeId?: string;
   routeNumber?: string;
+  routeLabel?: string;
+  transferFromRoute?: string;
+  transferToRoute?: string;
+  transferWaitMinutes?: number;
   stopId?: string;
   stopName?: string;
   fromStopId?: string;
@@ -90,6 +96,8 @@ export type TransitStep = {
   distanceMeters?: number;
   departureTime?: string;
   arrivalTime?: string;
+  platform?: string;
+  headsign?: string | null;
   polyline?: Coordinate[];
 };
 
@@ -97,6 +105,21 @@ export type TransitLiveEta = {
   etaSeconds?: number;
   etaMinutes?: number;
   distanceMeters?: number | null;
+};
+
+export type TransitRouteLeg = {
+  id?: string;
+  mode?: "walk" | "bus" | "train" | "mixed" | string;
+  routeId?: string;
+  routeNumber?: string;
+  routeLabel?: string;
+  fromStopName?: string;
+  toStopName?: string;
+  fromStop?: TransitStopPoint;
+  toStop?: TransitStopPoint;
+  durationMinutes?: number;
+  stopCount?: number;
+  polyline?: Coordinate[];
 };
 
 export type TransitRouteOption = {
@@ -108,6 +131,9 @@ export type TransitRouteOption = {
   shapeId?: string | null;
   routeLabel: string;
   routeNumbers: string[];
+  legs?: TransitRouteLeg[];
+  transferStops?: TransitStopPoint[];
+  transferMessages?: string[];
   totalMinutes: number;
   totalDurationMinutes: number;
   walkingMinutes: number;

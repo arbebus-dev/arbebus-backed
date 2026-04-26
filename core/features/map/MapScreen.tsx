@@ -64,6 +64,41 @@ function normalizeVehiclePoint(vehicle: any): MapPoint | null {
   return { latitude, longitude };
 }
 
+function cameraForFlow(flowState: string) {
+  switch (flowState) {
+    case "walking_to_stop":
+      return { zoom: 17.1, pitch: 50 };
+    case "waiting_bus":
+      return { zoom: 16.6, pitch: 45 };
+    case "onboard":
+      return { zoom: 15.8, pitch: 52 };
+    case "transfer":
+      return { zoom: 16.5, pitch: 48 };
+    case "arriving":
+      return { zoom: 17.2, pitch: 50 };
+    default:
+      return { zoom: 16.2, pitch: 45 };
+  }
+}
+
+function averagePoint(points: MapPoint[]): MapPoint | null {
+  const valid = validPoints(points);
+  if (!valid.length) return null;
+
+  const sum = valid.reduce(
+    (acc, point) => ({
+      latitude: acc.latitude + point.latitude,
+      longitude: acc.longitude + point.longitude,
+    }),
+    { latitude: 0, longitude: 0 }
+  );
+
+  return {
+    latitude: sum.latitude / valid.length,
+    longitude: sum.longitude / valid.length,
+  };
+}
+
 export default function MapScreen() {
   const mapRef = useRef<MapView | null>(null);
   const lastFollowAt = useRef(0);
@@ -101,6 +136,37 @@ export default function MapScreen() {
   const selectedVehicleCoordinate = useMemo(() => {
     return normalizeVehiclePoint(selectedLiveBus) ?? normalizeVehiclePoint(selectedRoute?.liveVehicle);
   }, [selectedLiveBus, selectedRoute]);
+
+  const activeCameraTarget = useMemo(() => {
+    if (!selectedRoute) return userLocation;
+
+    if (planner.flowState === "onboard" && selectedVehicleCoordinate) {
+      return selectedVehicleCoordinate;
+    }
+
+    if (planner.flowState === "waiting_bus") {
+      return selectedRoute.originStop?.coordinate ?? userLocation;
+    }
+
+    if (planner.flowState === "arriving") {
+      return selectedRoute.destinationStop?.coordinate ?? userLocation;
+    }
+
+    if (planner.flowState === "transfer") {
+      const steps = selectedRoute.journeySteps || selectedRoute.steps || [];
+      const current = steps[planner.currentStepIndex];
+      const point = averagePoint(current?.polyline || []);
+      return point ?? userLocation;
+    }
+
+    return userLocation;
+  }, [
+    planner.currentStepIndex,
+    planner.flowState,
+    selectedRoute,
+    selectedVehicleCoordinate,
+    userLocation,
+  ]);
 
   const focusCoords = useMemo(() => {
     const coords: MapPoint[] = [];
@@ -142,28 +208,24 @@ export default function MapScreen() {
   useEffect(() => {
     if (!mapRef.current) return;
     if (!isActiveTrip(planner.flowState)) return;
-
-    const followTarget =
-      planner.flowState === "onboard" && selectedVehicleCoordinate
-        ? selectedVehicleCoordinate
-        : userLocation;
-
-    if (!followTarget) return;
+    if (!activeCameraTarget) return;
 
     const now = Date.now();
-    if (now - lastFollowAt.current < 2500) return;
+    if (now - lastFollowAt.current < 2200) return;
     lastFollowAt.current = now;
+
+    const camera = cameraForFlow(planner.flowState);
 
     mapRef.current.animateCamera(
       {
-        center: followTarget,
-        zoom: planner.flowState === "onboard" ? 15.8 : 16.3,
-        pitch: planner.flowState === "onboard" ? 50 : 45,
+        center: activeCameraTarget,
+        zoom: camera.zoom,
+        pitch: camera.pitch,
         heading: 0,
       },
       { duration: 850 }
     );
-  }, [planner.flowState, selectedVehicleCoordinate, userLocation]);
+  }, [activeCameraTarget, planner.flowState]);
 
   return (
     <View style={styles.screen}>
