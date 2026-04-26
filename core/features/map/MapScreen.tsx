@@ -31,6 +31,16 @@ function isRouteFlow(flowState: string) {
   ].includes(flowState);
 }
 
+function isActiveTrip(flowState: string) {
+  return [
+    "walking_to_stop",
+    "waiting_bus",
+    "onboard",
+    "transfer",
+    "arriving",
+  ].includes(flowState);
+}
+
 function validPoints(points?: Array<{ latitude: number; longitude: number }>) {
   return (points || []).filter(
     (point) =>
@@ -42,6 +52,7 @@ function validPoints(points?: Array<{ latitude: number; longitude: number }>) {
 
 export default function MapScreen() {
   const mapRef = useRef<MapView | null>(null);
+  const lastFollowAt = useRef(0);
 
   const { userLocation } = useUserLocation();
   const { buses } = useLiveBuses();
@@ -57,7 +68,6 @@ export default function MapScreen() {
 
   const selectedRouteLabel = selectedRoute?.routeLabel || null;
 
-  // 🔥 NAUJA – konkretus autobusas
   const selectedVehicleId =
     selectedRoute?.liveVehicle?.vehicleId ||
     selectedRoute?.liveVehicle?.id ||
@@ -75,8 +85,7 @@ export default function MapScreen() {
       coords.push(...routePreview);
     } else {
       if (userLocation) coords.push(userLocation);
-      if (selectedDestination?.coordinate)
-        coords.push(selectedDestination.coordinate);
+      if (selectedDestination?.coordinate) coords.push(selectedDestination.coordinate);
     }
 
     return validPoints(coords);
@@ -84,6 +93,7 @@ export default function MapScreen() {
 
   useEffect(() => {
     if (!mapRef.current || focusCoords.length < 2) return;
+    if (isActiveTrip(planner.flowState)) return;
 
     const timer = setTimeout(() => {
       mapRef.current?.fitToCoordinates(focusCoords, {
@@ -98,7 +108,26 @@ export default function MapScreen() {
     }, 350);
 
     return () => clearTimeout(timer);
-  }, [focusCoords, selectedRoute]);
+  }, [focusCoords, planner.flowState, selectedRoute]);
+
+  useEffect(() => {
+    if (!mapRef.current || !userLocation) return;
+    if (!isActiveTrip(planner.flowState)) return;
+
+    const now = Date.now();
+    if (now - lastFollowAt.current < 2500) return;
+    lastFollowAt.current = now;
+
+    mapRef.current.animateCamera(
+      {
+        center: userLocation,
+        zoom: planner.flowState === "onboard" ? 15.5 : 16.3,
+        pitch: 45,
+        heading: 0,
+      },
+      { duration: 850 }
+    );
+  }, [planner.flowState, userLocation]);
 
   return (
     <View style={styles.screen}>
@@ -107,14 +136,10 @@ export default function MapScreen() {
 
         <RoutePolylineLayer route={selectedRoute} />
 
-        <WalkingPolylineLayer
-          route={selectedRoute}
-          userLocation={userLocation}
-        />
+        <WalkingPolylineLayer route={selectedRoute} userLocation={userLocation} />
 
         <StopsLayer route={selectedRoute} />
 
-        {/* 🔥 UPDATED */}
         <LiveBusesLayer
           buses={buses}
           selectedRouteLabel={selectedRouteLabel}
@@ -144,9 +169,7 @@ export default function MapScreen() {
         visible={searchVisible}
         results={planner.searchResults}
         isLoading={planner.isSearching}
-        error={
-          planner.flowState === "searching" ? planner.error : null
-        }
+        error={planner.flowState === "searching" ? planner.error : null}
         onSelect={(item) => {
           Keyboard.dismiss();
           void planner.selectDestination(item);
@@ -158,9 +181,7 @@ export default function MapScreen() {
         liveBusCount={buses.length}
         routeOptions={planner.routeOptions}
         selectedRoute={selectedRoute}
-        error={
-          planner.flowState !== "searching" ? planner.error : null
-        }
+        error={planner.flowState !== "searching" ? planner.error : null}
         onChooseRoute={planner.chooseRoute}
         onStartJourney={planner.startJourney}
         onNextStep={planner.nextStep}
