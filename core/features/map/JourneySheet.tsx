@@ -68,9 +68,41 @@ function liveCta(route: TransitRouteOption | null, flowState: TransitFlowState) 
   if (flowState === "walking_to_stop") {
     return {
       title: "Eik iki stotelės",
-      subtitle: route ? `Įlipimas: ${route.boardStopName}` : "Sek mėlyną liniją iki stotelės.",
+      subtitle: route
+        ? `${route.boardStopName}${eta != null ? ` • autobusas po ${eta} min` : ""}`
+        : "Sek mėlyną liniją iki stotelės.",
       icon: "walk" as const,
+      button: "EINU",
     };
+  }
+
+  if (flowState === "waiting_bus" || flowState === "route_selected" || flowState === "route_options") {
+    if (eta != null && (eta <= 2 || state === "boarding_soon")) {
+      return {
+        title: "Lipk dabar",
+        subtitle: route ? `Autobusas ${route.routeLabel} atvyko į ${route.boardStopName}` : "Autobusas atvyko.",
+        icon: "alert-circle" as const,
+        button: "LIPK DABAR",
+      };
+    }
+
+    if (eta != null && eta <= 5) {
+      return {
+        title: `Lauk autobuso • ${eta} min`,
+        subtitle: route ? `Stotelė: ${route.boardStopName}` : "Autobusas jau netoli.",
+        icon: "time" as const,
+        button: "LAUKIU",
+      };
+    }
+
+    if (eta != null) {
+      return {
+        title: `Autobusas po ${eta} min`,
+        subtitle: route ? `Eik į stotelę: ${route.boardStopName}` : "Sek ETA realiu laiku.",
+        icon: "bus" as const,
+        button: "GO",
+      };
+    }
   }
 
   if (flowState === "onboard") {
@@ -78,6 +110,16 @@ function liveCta(route: TransitRouteOption | null, flowState: TransitFlowState) 
       title: "Važiuok autobusu",
       subtitle: route ? `Išlipk: ${route.alightStopName}` : "Sek kelionės žingsnius.",
       icon: "bus" as const,
+      button: "TOLIAU",
+    };
+  }
+
+  if (flowState === "transfer") {
+    return {
+      title: "Persėsk",
+      subtitle: "Sek kitą žingsnį ir lipk į kitą autobusą.",
+      icon: "swap-horizontal" as const,
+      button: "PERSĖDAU",
     };
   }
 
@@ -86,30 +128,7 @@ function liveCta(route: TransitRouteOption | null, flowState: TransitFlowState) 
       title: "Išlipk dabar",
       subtitle: route ? route.alightStopName : "Artėji prie tikslo.",
       icon: "flag" as const,
-    };
-  }
-
-  if (eta != null) {
-    if (eta <= 2 || state === "boarding_soon") {
-      return {
-        title: "Lipk dabar",
-        subtitle: route ? `Autobusas ${route.routeLabel} jau prie stotelės` : "Autobusas atvyksta.",
-        icon: "alert-circle" as const,
-      };
-    }
-
-    if (eta <= 5) {
-      return {
-        title: `Lauk autobuso • ${eta} min`,
-        subtitle: route ? `Stotelė: ${route.boardStopName}` : "Autobusas jau netoli.",
-        icon: "time" as const,
-      };
-    }
-
-    return {
-      title: `Autobusas po ${eta} min`,
-      subtitle: route ? `Eik / lauk: ${route.boardStopName}` : "Sek ETA realiu laiku.",
-      icon: "bus" as const,
+      button: "IŠLIPAU",
     };
   }
 
@@ -470,7 +489,7 @@ export default function JourneySheet({
       {showNext ? (
         <Pressable style={styles.primaryButton} onPress={onNextStep}>
           <Text style={styles.primaryText}>
-            {selectedRoute?.boardingState === "boarding_soon" ? "LIPK DABAR" : "TOLIAU"}
+            {liveCta(selectedRoute, flowState)?.button || "TOLIAU"}
           </Text>
           <Ionicons name="arrow-forward" color="#03110B" size={20} />
         </Pressable>
