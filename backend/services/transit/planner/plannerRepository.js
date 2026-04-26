@@ -1,4 +1,4 @@
-const { getPool } = require('../../../db/pool');
+const { getPool } = require("../../../db/pool");
 
 function dbQuery(sql, params = []) {
   const pool = getPool();
@@ -22,7 +22,7 @@ async function getNearbyStops(point, radiusMeters, limit = 8) {
       ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
       $3
     )
-    ORDER BY distance_meters ASC
+    ORDER BY geom <-> ST_SetSRID(ST_MakePoint($1, $2), 4326), distance_meters ASC
     LIMIT $4
   `;
 
@@ -36,33 +36,46 @@ async function getNearbyStops(point, radiusMeters, limit = 8) {
   return result.rows;
 }
 
-async function getWalkingTransfers(stopIds, radiusMeters = 350, limitPerStop = 24) {
+async function getWalkingTransfers(stopIds, radiusMeters = 350, limitPerStop = 12) {
   if (!Array.isArray(stopIds) || !stopIds.length) return [];
+
+  const cleanStopIds = Array.from(new Set(stopIds.map(String))).slice(0, 40);
 
   const sql = `
     WITH origins AS (
-      SELECT DISTINCT unnest($1::text[]) AS stop_id
+      SELECT
+        stop_id,
+        stop_name,
+        stop_lat,
+        stop_lon,
+        geom
+      FROM transit.stops
+      WHERE stop_id = ANY($1::text[])
     ),
     ranked AS (
       SELECT
-        s1.stop_id AS from_stop_id,
-        s1.stop_name AS from_stop_name,
-        s1.stop_lat AS from_stop_lat,
-        s1.stop_lon AS from_stop_lon,
+        o.stop_id AS from_stop_id,
+        o.stop_name AS from_stop_name,
+        o.stop_lat AS from_stop_lat,
+        o.stop_lon AS from_stop_lon,
         s2.stop_id AS to_stop_id,
         s2.stop_name AS to_stop_name,
         s2.stop_lat AS to_stop_lat,
         s2.stop_lon AS to_stop_lon,
-        ST_DistanceSphere(s1.geom, s2.geom) AS walk_meters,
+        ST_DistanceSphere(o.geom, s2.geom) AS walk_meters,
         ROW_NUMBER() OVER (
-          PARTITION BY s1.stop_id
-          ORDER BY ST_DistanceSphere(s1.geom, s2.geom) ASC, s2.stop_id ASC
+          PARTITION BY o.stop_id
+          ORDER BY o.geom <-> s2.geom, s2.stop_id ASC
         ) AS rn
       FROM origins o
-      JOIN transit.stops s1 ON s1.stop_id = o.stop_id
-      JOIN transit.stops s2
-        ON s2.stop_id <> s1.stop_id
-       AND ST_DWithin(s1.geom::geography, s2.geom::geography, $2)
+      JOIN LATERAL (
+        SELECT stop_id, stop_name, stop_lat, stop_lon, geom
+        FROM transit.stops
+        WHERE stop_id <> o.stop_id
+          AND ST_DWithin(o.geom::geography, geom::geography, $2)
+        ORDER BY o.geom <-> geom
+        LIMIT $3
+      ) s2 ON true
     )
     SELECT *
     FROM ranked
@@ -70,32 +83,51 @@ async function getWalkingTransfers(stopIds, radiusMeters = 350, limitPerStop = 2
     ORDER BY from_stop_id ASC, walk_meters ASC
   `;
 
-  const result = await dbQuery(sql, [stopIds, radiusMeters, limitPerStop]);
+  const result = await dbQuery(sql, [cleanStopIds, radiusMeters, limitPerStop]);
   return result.rows;
 }
 
-async function getCandidateBoardings(frontierEntries, serviceDate, perStopLimit = 10, horizonSeconds = 21600) {
+async function getCandidateBoardings(
+  frontierEntries,
+  serviceDate,
+  perStopLimit = 6,
+  horizonSeconds = 14400
+) {
   if (!Array.isArray(frontierEntries) || !frontierEntries.length) return [];
+
+  const cleanFrontier = frontierEntries
+    .filter((entry) => entry?.stopId)
+    .slice(0, 40)
+    .map((entry) => ({
+      stopId: String(entry.stopId),
+      earliestArrivalSeconds: Math.max(
+        0,
+        Math.floor(Number(entry.earliestArrivalSeconds || 0))
+      ),
+    }));
+
+  if (!cleanFrontier.length) return [];
 
   const values = [];
   const params = [serviceDate, perStopLimit, horizonSeconds];
+
   let paramIndex = params.length;
 
-  for (const entry of frontierEntries) {
+  for (const entry of cleanFrontier) {
     paramIndex += 1;
     const stopParam = `$${paramIndex}`;
     params.push(entry.stopId);
 
     paramIndex += 1;
     const timeParam = `$${paramIndex}`;
-    params.push(Math.max(0, Math.floor(Number(entry.earliestArrivalSeconds || 0))));
+    params.push(entry.earliestArrivalSeconds);
 
     values.push(`(${stopParam}::text, ${timeParam}::int)`);
   }
 
   const sql = `
     WITH frontier(stop_id, earliest_arrival_seconds) AS (
-      VALUES ${values.join(', ')}
+      VALUES ${values.join(", ")}
     ),
     ranked AS (
       SELECT
@@ -118,11 +150,20 @@ async function getCandidateBoardings(frontierEntries, serviceDate, perStopLimit 
           ORDER BY st.departure_seconds ASC, st.trip_id ASC
         ) AS rn
       FROM frontier f
-      JOIN transit.stop_times st
-        ON st.stop_id = f.stop_id
-       AND st.departure_seconds IS NOT NULL
-       AND st.departure_seconds >= f.earliest_arrival_seconds
-       AND st.departure_seconds <= f.earliest_arrival_seconds + $3
+      JOIN LATERAL (
+        SELECT
+          trip_id,
+          stop_sequence,
+          departure_seconds,
+          arrival_seconds
+        FROM transit.stop_times
+        WHERE stop_id = f.stop_id
+          AND departure_seconds IS NOT NULL
+          AND departure_seconds >= f.earliest_arrival_seconds
+          AND departure_seconds <= f.earliest_arrival_seconds + $3
+        ORDER BY departure_seconds ASC
+        LIMIT $2
+      ) st ON true
       JOIN transit.trips tr ON tr.trip_id = st.trip_id
       JOIN transit.routes r ON r.route_id = tr.route_id
       JOIN transit.service_days sd
@@ -142,13 +183,15 @@ async function getCandidateBoardings(frontierEntries, serviceDate, perStopLimit 
 async function getTripStopSequences(tripIds, minBoardSequenceByTrip = {}) {
   if (!Array.isArray(tripIds) || !tripIds.length) return [];
 
-  const boardTripIds = Object.keys(minBoardSequenceByTrip || {});
-  let sequenceFilter = '';
-  let params = [tripIds];
+  const cleanTripIds = Array.from(new Set(tripIds.map(String))).slice(0, 80);
+
+  const boardTripIds = Object.keys(minBoardSequenceByTrip || {}).slice(0, 80);
+
+  let sequenceFilter = "";
+  let params = [cleanTripIds];
 
   if (boardTripIds.length) {
     const tripSeqValues = [];
-    params = [tripIds];
     let idx = 1;
 
     for (const tripId of boardTripIds) {
@@ -164,7 +207,7 @@ async function getTripStopSequences(tripIds, minBoardSequenceByTrip = {}) {
     }
 
     sequenceFilter = `
-      JOIN (VALUES ${tripSeqValues.join(', ')}) AS mins(trip_id, min_board_sequence)
+      JOIN (VALUES ${tripSeqValues.join(", ")}) AS mins(trip_id, min_board_sequence)
         ON mins.trip_id = st.trip_id
        AND st.stop_sequence >= mins.min_board_sequence
     `;
@@ -211,9 +254,10 @@ async function getShapePoints(shapeId) {
     FROM transit.shape_points
     WHERE shape_id = $1
     ORDER BY shape_pt_sequence ASC
+    LIMIT 1500
   `;
 
-  const result = await dbQuery(sql, [shapeId]);
+  const result = await dbQuery(sql, [String(shapeId)]);
   return result.rows;
 }
 
