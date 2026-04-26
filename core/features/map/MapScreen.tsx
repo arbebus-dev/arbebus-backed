@@ -17,6 +17,11 @@ import MapCanvas from "./MapCanvas";
 import SearchResultsSheet from "./SearchResultsSheet";
 import TopSearchBar from "./TopSearchBar";
 
+type MapPoint = {
+  latitude: number;
+  longitude: number;
+};
+
 function isRouteFlow(flowState: string) {
   return [
     "routes_loading",
@@ -41,13 +46,22 @@ function isActiveTrip(flowState: string) {
   ].includes(flowState);
 }
 
-function validPoints(points?: Array<{ latitude: number; longitude: number }>) {
+function validPoints(points?: MapPoint[]) {
   return (points || []).filter(
     (point) =>
       point &&
       Number.isFinite(Number(point.latitude)) &&
       Number.isFinite(Number(point.longitude))
   );
+}
+
+function normalizeVehiclePoint(vehicle: any): MapPoint | null {
+  const latitude = Number(vehicle?.latitude ?? vehicle?.coordinate?.latitude);
+  const longitude = Number(vehicle?.longitude ?? vehicle?.coordinate?.longitude);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+  return { latitude, longitude };
 }
 
 export default function MapScreen() {
@@ -73,8 +87,23 @@ export default function MapScreen() {
     selectedRoute?.liveVehicle?.id ||
     null;
 
+  const selectedLiveBus = useMemo(() => {
+    if (!selectedVehicleId) return null;
+
+    return (
+      buses.find((bus) => {
+        const busVehicleId = bus.vehicleId || bus.id;
+        return String(busVehicleId) === String(selectedVehicleId);
+      }) || null
+    );
+  }, [buses, selectedVehicleId]);
+
+  const selectedVehicleCoordinate = useMemo(() => {
+    return normalizeVehiclePoint(selectedLiveBus) ?? normalizeVehiclePoint(selectedRoute?.liveVehicle);
+  }, [selectedLiveBus, selectedRoute]);
+
   const focusCoords = useMemo(() => {
-    const coords: Array<{ latitude: number; longitude: number }> = [];
+    const coords: MapPoint[] = [];
 
     const routeLine = validPoints(selectedRoute?.polyline);
     const routePreview = validPoints(selectedRoute?.previewPoints);
@@ -111,8 +140,15 @@ export default function MapScreen() {
   }, [focusCoords, planner.flowState, selectedRoute]);
 
   useEffect(() => {
-    if (!mapRef.current || !userLocation) return;
+    if (!mapRef.current) return;
     if (!isActiveTrip(planner.flowState)) return;
+
+    const followTarget =
+      planner.flowState === "onboard" && selectedVehicleCoordinate
+        ? selectedVehicleCoordinate
+        : userLocation;
+
+    if (!followTarget) return;
 
     const now = Date.now();
     if (now - lastFollowAt.current < 2500) return;
@@ -120,14 +156,14 @@ export default function MapScreen() {
 
     mapRef.current.animateCamera(
       {
-        center: userLocation,
-        zoom: planner.flowState === "onboard" ? 15.5 : 16.3,
-        pitch: 45,
+        center: followTarget,
+        zoom: planner.flowState === "onboard" ? 15.8 : 16.3,
+        pitch: planner.flowState === "onboard" ? 50 : 45,
         heading: 0,
       },
       { duration: 850 }
     );
-  }, [planner.flowState, userLocation]);
+  }, [planner.flowState, selectedVehicleCoordinate, userLocation]);
 
   return (
     <View style={styles.screen}>
@@ -135,10 +171,10 @@ export default function MapScreen() {
         <UserLocationLayer coordinate={userLocation} />
 
         <RoutePolylineLayer
-  route={selectedRoute}
-  flowState={planner.flowState}
-  currentStepIndex={planner.currentStepIndex}
-/>
+          route={selectedRoute}
+          flowState={planner.flowState}
+          currentStepIndex={planner.currentStepIndex}
+        />
 
         <WalkingPolylineLayer route={selectedRoute} userLocation={userLocation} />
 
