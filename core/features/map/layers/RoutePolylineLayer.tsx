@@ -38,28 +38,47 @@ function getRoutePoints(route: TransitRouteOption | null): Coordinate[] {
   return [];
 }
 
-function activeSegment(points: Coordinate[], flowState?: TransitFlowState) {
+function getStepBasedSegment(
+  points: Coordinate[],
+  route: TransitRouteOption | null,
+  flowState?: TransitFlowState,
+  currentStepIndex?: number
+) {
   if (points.length < 2) return [];
 
-  if (
-    flowState === "walking_to_stop" ||
-    flowState === "waiting_bus" ||
-    flowState === "route_selected" ||
-    flowState === "route_options"
-  ) {
-    const end = Math.max(2, Math.floor(points.length * 0.22));
+  const steps = route?.journeySteps || route?.steps || [];
+  const safeIndex = Math.max(0, Number(currentStepIndex || 0));
+  const totalSteps = Math.max(1, steps.length);
+
+  const step = steps[safeIndex];
+
+  if (step?.polyline && step.polyline.length >= 2) {
+    return step.polyline.filter(isValidPoint) as Coordinate[];
+  }
+
+  if (flowState === "route_options" || flowState === "route_selected") {
+    const end = Math.max(2, Math.floor(points.length * 0.28));
     return points.slice(0, end);
   }
 
-  if (flowState === "onboard" || flowState === "transfer") {
-    const start = Math.max(0, Math.floor(points.length * 0.18));
-    const end = Math.max(start + 2, Math.floor(points.length * 0.86));
-    return points.slice(start, end);
+  if (flowState === "walking_to_stop" || flowState === "waiting_bus") {
+    const end = Math.max(2, Math.floor(points.length * 0.22));
+    return points.slice(0, end);
   }
 
   if (flowState === "arriving") {
     const start = Math.max(0, Math.floor(points.length * 0.72));
     return points.slice(start);
+  }
+
+  if (flowState === "onboard" || flowState === "transfer") {
+    const progressStart = safeIndex / totalSteps;
+    const progressEnd = Math.min(1, (safeIndex + 2) / totalSteps);
+
+    const start = Math.max(0, Math.floor(points.length * progressStart));
+    const end = Math.max(start + 2, Math.floor(points.length * progressEnd));
+
+    return points.slice(start, Math.min(points.length, end));
   }
 
   return points;
@@ -68,12 +87,13 @@ function activeSegment(points: Coordinate[], flowState?: TransitFlowState) {
 export default function RoutePolylineLayer({
   route,
   flowState,
+  currentStepIndex,
 }: Props) {
   const points = useMemo(() => getRoutePoints(route), [route]);
 
   const activePoints = useMemo(() => {
-    return activeSegment(points, flowState);
-  }, [points, flowState]);
+    return getStepBasedSegment(points, route, flowState, currentStepIndex);
+  }, [points, route, flowState, currentStepIndex]);
 
   if (points.length < 2) return null;
 
@@ -81,8 +101,8 @@ export default function RoutePolylineLayer({
     <>
       <Polyline
         coordinates={points}
-        strokeWidth={13}
-        strokeColor="rgba(53,242,180,0.14)"
+        strokeWidth={14}
+        strokeColor="rgba(53,242,180,0.12)"
         lineCap="round"
         lineJoin="round"
       />
@@ -90,7 +110,7 @@ export default function RoutePolylineLayer({
       <Polyline
         coordinates={points}
         strokeWidth={7}
-        strokeColor="rgba(53,242,180,0.38)"
+        strokeColor="rgba(53,242,180,0.34)"
         lineCap="round"
         lineJoin="round"
       />
@@ -99,8 +119,8 @@ export default function RoutePolylineLayer({
         <>
           <Polyline
             coordinates={activePoints}
-            strokeWidth={12}
-            strokeColor="rgba(255,255,255,0.22)"
+            strokeWidth={13}
+            strokeColor="rgba(255,255,255,0.24)"
             lineCap="round"
             lineJoin="round"
           />
