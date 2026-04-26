@@ -43,12 +43,7 @@ async function getWalkingTransfers(stopIds, radiusMeters = 350, limitPerStop = 1
 
   const sql = `
     WITH origins AS (
-      SELECT
-        stop_id,
-        stop_name,
-        stop_lat,
-        stop_lon,
-        geom
+      SELECT stop_id, stop_name, stop_lat, stop_lon, geom
       FROM transit.stops
       WHERE stop_id = ANY($1::text[])
     ),
@@ -110,22 +105,21 @@ async function getCandidateBoardings(
 
   const values = [];
   const params = [serviceDate, perStopLimit, horizonSeconds];
-
   let paramIndex = params.length;
 
   for (const entry of cleanFrontier) {
     paramIndex += 1;
-    const stopParam = `$${paramIndex}`;
     params.push(entry.stopId);
+    const stopParam = `$${paramIndex}`;
 
     paramIndex += 1;
-    const timeParam = `$${paramIndex}`;
     params.push(entry.earliestArrivalSeconds);
+    const timeParam = `$${paramIndex}`;
 
     values.push(`(${stopParam}::text, ${timeParam}::int)`);
   }
 
-  const sql = `
+  const buildSql = (useServiceDays) => `
     WITH frontier(stop_id, earliest_arrival_seconds) AS (
       VALUES ${values.join(", ")}
     ),
@@ -151,11 +145,7 @@ async function getCandidateBoardings(
         ) AS rn
       FROM frontier f
       JOIN LATERAL (
-        SELECT
-          trip_id,
-          stop_sequence,
-          departure_seconds,
-          arrival_seconds
+        SELECT trip_id, stop_sequence, departure_seconds, arrival_seconds
         FROM transit.stop_times
         WHERE stop_id = f.stop_id
           AND departure_seconds IS NOT NULL
@@ -166,9 +156,15 @@ async function getCandidateBoardings(
       ) st ON true
       JOIN transit.trips tr ON tr.trip_id = st.trip_id
       JOIN transit.routes r ON r.route_id = tr.route_id
+      ${
+        useServiceDays
+          ? `
       JOIN transit.service_days sd
         ON sd.service_id = tr.service_id
        AND sd.service_date = $1::date
+          `
+          : ""
+      }
     )
     SELECT *
     FROM ranked
@@ -176,7 +172,12 @@ async function getCandidateBoardings(
     ORDER BY board_departure_seconds ASC, route_type ASC NULLS LAST
   `;
 
-  const result = await dbQuery(sql, params);
+  let result = await dbQuery(buildSql(true), params);
+
+  if (!result.rows.length) {
+    result = await dbQuery(buildSql(false), params);
+  }
+
   return result.rows;
 }
 
@@ -184,7 +185,6 @@ async function getTripStopSequences(tripIds, minBoardSequenceByTrip = {}) {
   if (!Array.isArray(tripIds) || !tripIds.length) return [];
 
   const cleanTripIds = Array.from(new Set(tripIds.map(String))).slice(0, 80);
-
   const boardTripIds = Object.keys(minBoardSequenceByTrip || {}).slice(0, 80);
 
   let sequenceFilter = "";
