@@ -49,7 +49,14 @@ export type TransitFlowState =
   | "arriving"
   | "completed";
 
-export type TransitStepType = "walk" | "bus" | "transfer" | "arrive" | "board" | "ride" | "alight";
+export type TransitStepType =
+  | "walk"
+  | "bus"
+  | "transfer"
+  | "arrive"
+  | "board"
+  | "ride"
+  | "alight";
 
 export type TransitStopPoint = {
   id?: string;
@@ -86,12 +93,19 @@ export type TransitStep = {
   polyline?: Coordinate[];
 };
 
+export type TransitLiveEta = {
+  etaSeconds?: number;
+  etaMinutes?: number;
+  distanceMeters?: number | null;
+};
+
 export type TransitRouteOption = {
   id: string;
   title: string;
   subtitle?: string;
   mode?: string;
   routeId?: string;
+  shapeId?: string | null;
   routeLabel: string;
   routeNumbers: string[];
   totalMinutes: number;
@@ -100,6 +114,8 @@ export type TransitRouteOption = {
   totalWalkMinutes: number;
   totalBusMinutes?: number;
   etaMinutes?: number | null;
+  liveEta?: TransitLiveEta | null;
+  boardingState?: string | null;
   transfers: number;
   transfersCount: number;
   stopCount: number;
@@ -118,8 +134,18 @@ export type TransitRouteOption = {
   liveVehicle?: {
     id?: string;
     vehicleId?: string;
+    vehicleLabel?: string;
+    routeId?: string;
+    route?: string;
+    latitude?: number;
+    longitude?: number;
+    heading?: number;
+    speedKph?: number;
     directionName?: string | null;
+    delaySeconds?: number;
+    fetchedAt?: string;
   } | null;
+  summary?: any;
 };
 
 export type TransitPlan = {
@@ -130,6 +156,7 @@ export type TransitPlan = {
     totalWalkMinutes?: number;
     totalBusMinutes?: number;
     routeLabel?: string;
+    shapeId?: string | null;
     boardStopName?: string;
     alightStopName?: string;
     etaMinutes?: number | null;

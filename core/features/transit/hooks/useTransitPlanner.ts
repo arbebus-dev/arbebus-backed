@@ -8,6 +8,8 @@ import type {
   TransitStepType,
 } from "../models/transitTypes";
 import {
+  fetchLiveEta,
+  fetchTransitShape,
   planTransitRoute,
   searchPlaces,
   type PlaceResult as ApiPlaceResult,
@@ -15,12 +17,8 @@ import {
 } from "../services/transitApi";
 
 function toCoordinate(input: any): Coordinate | null {
-  const latitude = Number(
-    input?.latitude ?? input?.lat ?? input?.coordinate?.latitude
-  );
-  const longitude = Number(
-    input?.longitude ?? input?.lon ?? input?.lng ?? input?.coordinate?.longitude
-  );
+  const latitude = Number(input?.latitude ?? input?.lat ?? input?.coordinate?.latitude);
+  const longitude = Number(input?.longitude ?? input?.lon ?? input?.lng ?? input?.coordinate?.longitude);
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
@@ -33,15 +31,9 @@ function normalizePlace(item: ApiPlaceResult | any): PlaceSearchResult | null {
   return {
     id: String(item.id ?? item.stop_id ?? `${coordinate.latitude},${coordinate.longitude}`),
     title: String(item.title ?? item.name ?? item.stopName ?? item.stop_name ?? "Vieta"),
-    subtitle:
-      item.subtitle ??
-      item.address ??
-      item.description ??
-      item.stop_desc ??
-      "Klaipėda",
+    subtitle: item.subtitle ?? item.address ?? item.description ?? item.stop_desc ?? "Klaipėda",
     type: item.type ?? (item.stop_id ? "stop" : "place"),
-    distanceMeters:
-      item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
+    distanceMeters: item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
     latitude: coordinate.latitude,
     longitude: coordinate.longitude,
     coordinate,
@@ -64,6 +56,8 @@ function normalizeStep(step: any, index: number): TransitStep {
   return {
     id: String(step?.id ?? `${type}-${index}`),
     type,
+    mode: step?.mode,
+    icon: step?.icon,
     title: String(
       step?.title ??
         (type === "walk"
@@ -76,6 +70,7 @@ function normalizeStep(step: any, index: number): TransitStep {
     ),
     subtitle: step?.subtitle,
     description: step?.description ?? step?.subtitle,
+    routeId: step?.routeId != null ? String(step.routeId) : undefined,
     routeNumber:
       step?.routeNumber != null
         ? String(step.routeNumber)
@@ -84,6 +79,10 @@ function normalizeStep(step: any, index: number): TransitStep {
           : step?.routeId != null
             ? String(step.routeId)
             : undefined,
+    stopId: step?.stopId != null ? String(step.stopId) : undefined,
+    stopName: step?.stopName,
+    fromStopId: step?.fromStopId != null ? String(step.fromStopId) : undefined,
+    toStopId: step?.toStopId != null ? String(step.toStopId) : undefined,
     fromStopName: step?.fromStopName ?? step?.fromStop ?? step?.from,
     toStopName: step?.toStopName ?? step?.toStop ?? step?.to,
     stopCount: step?.stopCount != null ? Number(step.stopCount) : undefined,
@@ -99,12 +98,13 @@ function normalizeStep(step: any, index: number): TransitStep {
         : step?.minutes != null
           ? Number(step.minutes)
           : undefined,
+    distanceMeters: step?.distanceMeters != null ? Number(step.distanceMeters) : undefined,
     departureTime: step?.departureTime ?? step?.departureText,
     arrivalTime: step?.arrivalTime ?? step?.arrivalText,
     polyline: Array.isArray(step?.polyline)
       ? (step.polyline.map(toCoordinate).filter(Boolean) as Coordinate[])
       : undefined,
-  } as TransitStep;
+  };
 }
 
 function stopPoint(name: string, coordinate: Coordinate, raw?: any) {
@@ -117,8 +117,7 @@ function stopPoint(name: string, coordinate: Coordinate, raw?: any) {
     latitude: fixedCoordinate.latitude,
     longitude: fixedCoordinate.longitude,
     coordinate: fixedCoordinate,
-    distanceMeters:
-      raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
+    distanceMeters: raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
   };
 }
 
@@ -138,19 +137,11 @@ function normalizeRoute(
 
   const steps = apiSteps.map(normalizeStep);
 
-  const routeLabel = String(
-    route?.routeLabel ??
-      summary?.routeLabel ??
-      route?.title ??
-      "Autobusas"
-  );
+  const routeLabel = String(route?.routeLabel ?? summary?.routeLabel ?? route?.title ?? "Autobusas");
 
   const routeNumbers = Array.isArray(route?.routeNumbers)
     ? route.routeNumbers.map(String).filter(Boolean)
-    : routeLabel
-        .split("→")
-        .map((part) => part.trim())
-        .filter(Boolean);
+    : routeLabel.split("→").map((part) => part.trim()).filter(Boolean);
 
   const previewPoints =
     Array.isArray(route?.previewPoints) && route.previewPoints.length >= 2
@@ -159,8 +150,7 @@ function normalizeRoute(
         ? (route.polyline.map(toCoordinate).filter(Boolean) as Coordinate[])
         : [origin, destination.coordinate];
 
-  const originStopCoordinate =
-    toCoordinate(route?.originStop) ?? previewPoints[0] ?? origin;
+  const originStopCoordinate = toCoordinate(route?.originStop) ?? previewPoints[0] ?? origin;
 
   const destinationStopCoordinate =
     toCoordinate(route?.destinationStop) ??
@@ -168,31 +158,19 @@ function normalizeRoute(
     destination.coordinate;
 
   const boardStopName = String(
-    route?.boardStopName ??
-      summary?.boardStopName ??
-      route?.originStop?.name ??
-      "Artimiausia stotelė"
+    route?.boardStopName ?? summary?.boardStopName ?? route?.originStop?.name ?? "Artimiausia stotelė"
   );
 
   const alightStopName = String(
-    route?.alightStopName ??
-      summary?.alightStopName ??
-      route?.destinationStop?.name ??
-      destination.title
+    route?.alightStopName ?? summary?.alightStopName ?? route?.destinationStop?.name ?? destination.title
   );
 
   const totalMinutes = Number(
-    route?.totalMinutes ??
-      route?.totalDurationMinutes ??
-      summary?.totalDurationMinutes ??
-      0
+    route?.totalMinutes ?? route?.totalDurationMinutes ?? summary?.totalDurationMinutes ?? 0
   );
 
   const walkingMinutes = Number(
-    route?.walkingMinutes ??
-      route?.totalWalkMinutes ??
-      summary?.totalWalkMinutes ??
-      0
+    route?.walkingMinutes ?? route?.totalWalkMinutes ?? summary?.totalWalkMinutes ?? 0
   );
 
   const transfers = Number(
@@ -205,18 +183,16 @@ function normalizeRoute(
   const stopCount = Number(
     route?.stopCount ??
       summary?.stopCount ??
-      steps.reduce((sum: number, step: TransitStep) => {
-        return sum + Number(step.stopCount ?? 0);
-      }, 0)
+      steps.reduce((sum: number, step: TransitStep) => sum + Number(step.stopCount ?? 0), 0)
   );
 
   return {
     id: String(route?.id ?? `route-${index}`),
     title: routeLabel,
-    subtitle:
-      route?.subtitle ??
-      summary?.journeyMessage ??
-      `${boardStopName} → ${alightStopName}`,
+    subtitle: route?.subtitle ?? summary?.journeyMessage ?? `${boardStopName} → ${alightStopName}`,
+    mode: route?.mode,
+    routeId: route?.routeId != null ? String(route.routeId) : undefined,
+    shapeId: route?.shapeId ?? summary?.shapeId ?? null,
     routeLabel,
     routeNumbers,
     totalMinutes,
@@ -229,48 +205,52 @@ function normalizeRoute(
         : summary?.etaMinutes != null
           ? Number(summary.etaMinutes)
           : null,
+    liveEta: route?.liveEta ?? null,
+    boardingState: route?.boardingState ?? null,
     transfers,
     transfersCount: transfers,
     stopCount,
     boardStopName,
     alightStopName,
     originStop: stopPoint(boardStopName, originStopCoordinate, route?.originStop),
-    destinationStop: stopPoint(
-      alightStopName,
-      destinationStopCoordinate,
-      route?.destinationStop
-    ),
+    destinationStop: stopPoint(alightStopName, destinationStopCoordinate, route?.destinationStop),
     previewPoints,
     polyline: previewPoints,
     steps,
     journeySteps: steps,
     departureText:
       route?.departureText ??
-      (summary?.etaMinutes != null
-        ? `Atvyksta po ${summary.etaMinutes} min`
-        : undefined),
+      (summary?.etaMinutes != null ? `Atvyksta po ${summary.etaMinutes} min` : undefined),
     arrivalText: route?.arrivalText,
     journeyMessage: route?.journeyMessage ?? summary?.journeyMessage,
     totalBusMinutes: route?.totalBusMinutes ?? summary?.totalBusMinutes,
-    headsign:
-      route?.headsign ??
-      summary?.headsign ??
-      summary?.directionCode ??
-      null,
+    headsign: route?.headsign ?? summary?.headsign ?? summary?.directionCode ?? null,
     liveVehicle: route?.liveVehicle ?? null,
     summary,
   } as TransitRouteOption;
+}
+
+function mergeRouteUpdate(
+  route: TransitRouteOption,
+  update: Partial<TransitRouteOption>
+): TransitRouteOption {
+  return {
+    ...route,
+    ...update,
+    summary: {
+      ...(route.summary ?? {}),
+      ...(update.summary ?? {}),
+    },
+  };
 }
 
 export function useTransitPlanner(userLocation: Coordinate | null) {
   const [flowState, setFlowState] = useState<TransitFlowState>("idle");
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<PlaceSearchResult[]>([]);
-  const [selectedDestination, setSelectedDestination] =
-    useState<PlaceSearchResult | null>(null);
+  const [selectedDestination, setSelectedDestination] = useState<PlaceSearchResult | null>(null);
   const [routeOptions, setRouteOptions] = useState<TransitRouteOption[]>([]);
-  const [selectedRoute, setSelectedRoute] =
-    useState<TransitRouteOption | null>(null);
+  const [selectedRoute, setSelectedRoute] = useState<TransitRouteOption | null>(null);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
   const [isPlanning, setIsPlanning] = useState(false);
@@ -280,6 +260,52 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     if (!selectedRoute) return null;
     return selectedRoute.journeySteps?.[currentStepIndex] || null;
   }, [currentStepIndex, selectedRoute]);
+
+  const hydrateRouteDetails = useCallback(async (route: TransitRouteOption) => {
+    let nextRoute = route;
+
+    try {
+      const [shapePoints, liveEta] = await Promise.all([
+        fetchTransitShape(route.shapeId).catch(() => []),
+        fetchLiveEta(route).catch(() => null),
+      ]);
+
+      const update: Partial<TransitRouteOption> = {};
+
+      if (shapePoints.length >= 2) {
+        update.previewPoints = shapePoints;
+        update.polyline = shapePoints;
+      }
+
+      if (liveEta?.eta) {
+        update.liveEta = liveEta.eta;
+        update.etaMinutes = liveEta.eta.etaMinutes;
+        update.departureText = `Atvyksta po ${liveEta.eta.etaMinutes} min`;
+      }
+
+      if (liveEta?.boardingState) {
+        update.boardingState = liveEta.boardingState;
+      }
+
+      if (liveEta?.vehicle) {
+        update.liveVehicle = liveEta.vehicle;
+      }
+
+      nextRoute = mergeRouteUpdate(route, update);
+
+      setRouteOptions((current) =>
+        current.map((item) => (item.id === route.id ? mergeRouteUpdate(item, update) : item))
+      );
+
+      setSelectedRoute((current) =>
+        current?.id === route.id ? mergeRouteUpdate(current, update) : current
+      );
+    } catch {
+      // Plan already works. Shape/ETA are progressive enhancements.
+    }
+
+    return nextRoute;
+  }, []);
 
   const runSearch = useCallback(
     async (text?: string) => {
@@ -299,9 +325,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
 
       try {
         const rawResults = await searchPlaces(nextQuery);
-        const results = rawResults
-          .map(normalizePlace)
-          .filter(Boolean) as PlaceSearchResult[];
+        const results = rawResults.map(normalizePlace).filter(Boolean) as PlaceSearchResult[];
 
         setSearchResults(results);
 
@@ -354,9 +378,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         });
 
         const options = rawOptions
-          .map((route, index) =>
-            normalizeRoute(route, index, userLocation, destination)
-          )
+          .map((route, index) => normalizeRoute(route, index, userLocation, destination))
           .filter((route) => {
             return (
               Array.isArray(route.previewPoints) &&
@@ -373,6 +395,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         if (options.length) {
           setFlowState("route_options");
           setError(null);
+          void hydrateRouteDetails(options[0]);
         } else {
           setFlowState("destination_selected");
           setError("Maršrutų nerasta. Backend atsakė, bet nėra tinkamų steps/polyline.");
@@ -386,14 +409,18 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         setIsPlanning(false);
       }
     },
-    [userLocation]
+    [hydrateRouteDetails, userLocation]
   );
 
-  const chooseRoute = useCallback((route: TransitRouteOption) => {
-    setSelectedRoute(route);
-    setCurrentStepIndex(0);
-    setFlowState("route_selected");
-  }, []);
+  const chooseRoute = useCallback(
+    (route: TransitRouteOption) => {
+      setSelectedRoute(route);
+      setCurrentStepIndex(0);
+      setFlowState("route_selected");
+      void hydrateRouteDetails(route);
+    },
+    [hydrateRouteDetails]
+  );
 
   const startJourney = useCallback(() => {
     if (!selectedRoute) return;
@@ -406,7 +433,9 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     } else {
       setFlowState("waiting_bus");
     }
-  }, [selectedRoute]);
+
+    void hydrateRouteDetails(selectedRoute);
+  }, [hydrateRouteDetails, selectedRoute]);
 
   const nextStep = useCallback(() => {
     if (!selectedRoute) return;

@@ -31,6 +31,15 @@ function isRouteFlow(flowState: string) {
   ].includes(flowState);
 }
 
+function validPoints(points?: Array<{ latitude: number; longitude: number }>) {
+  return (points || []).filter(
+    (point) =>
+      point &&
+      Number.isFinite(Number(point.latitude)) &&
+      Number.isFinite(Number(point.longitude))
+  );
+}
+
 export default function MapScreen() {
   const mapRef = useRef<MapView | null>(null);
 
@@ -42,28 +51,28 @@ export default function MapScreen() {
   const selectedDestination = planner.selectedDestination;
 
   const searchVisible =
-    planner.flowState === "searching" && !selectedRoute && !isRouteFlow(planner.flowState);
+    planner.flowState === "searching" &&
+    !selectedRoute &&
+    !isRouteFlow(planner.flowState);
 
   const selectedRouteLabel = selectedRoute?.routeLabel || null;
 
   const focusCoords = useMemo(() => {
     const coords: Array<{ latitude: number; longitude: number }> = [];
 
-    if (selectedRoute?.previewPoints?.length) {
-      coords.push(...selectedRoute.previewPoints);
-    } else if (selectedRoute?.polyline?.length) {
-      coords.push(...selectedRoute.polyline);
+    const routeLine = validPoints(selectedRoute?.polyline);
+    const routePreview = validPoints(selectedRoute?.previewPoints);
+
+    if (routeLine.length >= 2) {
+      coords.push(...routeLine);
+    } else if (routePreview.length >= 2) {
+      coords.push(...routePreview);
     } else {
       if (userLocation) coords.push(userLocation);
       if (selectedDestination?.coordinate) coords.push(selectedDestination.coordinate);
     }
 
-    return coords.filter(
-      (point) =>
-        point &&
-        Number.isFinite(point.latitude) &&
-        Number.isFinite(point.longitude)
-    );
+    return validPoints(coords);
   }, [selectedDestination, selectedRoute, userLocation]);
 
   useEffect(() => {
@@ -91,17 +100,11 @@ export default function MapScreen() {
 
         <RoutePolylineLayer route={selectedRoute} />
 
-        <WalkingPolylineLayer
-          route={selectedRoute}
-          userLocation={userLocation}
-        />
+        <WalkingPolylineLayer route={selectedRoute} userLocation={userLocation} />
 
         <StopsLayer route={selectedRoute} />
 
-        <LiveBusesLayer
-          buses={buses}
-          selectedRouteLabel={selectedRouteLabel}
-        />
+        <LiveBusesLayer buses={buses} selectedRouteLabel={selectedRouteLabel} />
 
         <DestinationMarkerLayer destination={selectedDestination} />
       </MapCanvas>

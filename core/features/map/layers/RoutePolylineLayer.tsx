@@ -6,50 +6,51 @@ type Props = {
   route: TransitRouteOption | null;
 };
 
+function isValidPoint(point: any) {
+  return (
+    point &&
+    Number.isFinite(Number(point.latitude)) &&
+    Number.isFinite(Number(point.longitude))
+  );
+}
+
 export default function RoutePolylineLayer({ route }: Props) {
   const points = useMemo(() => {
     if (!route) return [];
 
-    // 1️⃣ prioritetas – previewPoints (backend)
-    if (Array.isArray(route.previewPoints) && route.previewPoints.length >= 2) {
-      return route.previewPoints.filter(
-        (p) =>
-          p &&
-          Number.isFinite(p.latitude) &&
-          Number.isFinite(p.longitude)
-      );
-    }
+    const polyline = Array.isArray(route.polyline)
+      ? route.polyline.filter(isValidPoint)
+      : [];
 
-    // 2️⃣ fallback – polyline
-    if (Array.isArray(route.polyline) && route.polyline.length >= 2) {
-      return route.polyline.filter(
-        (p) =>
-          p &&
-          Number.isFinite(p.latitude) &&
-          Number.isFinite(p.longitude)
-      );
-    }
+    if (polyline.length >= 2) return polyline;
+
+    const previewPoints = Array.isArray(route.previewPoints)
+      ? route.previewPoints.filter(isValidPoint)
+      : [];
+
+    if (previewPoints.length >= 2) return previewPoints;
 
     return [];
   }, [route]);
 
-  // 🔴 jei čia 0 – reiškia problema NE šiame faile
   if (points.length < 2) return null;
 
   return (
     <>
-      {/* glow */}
       <Polyline
         coordinates={points}
-        strokeWidth={10}
-        strokeColor="rgba(53,242,180,0.25)"
+        strokeWidth={11}
+        strokeColor="rgba(53,242,180,0.20)"
+        lineCap="round"
+        lineJoin="round"
       />
 
-      {/* main line */}
       <Polyline
         coordinates={points}
-        strokeWidth={5}
+        strokeWidth={6}
         strokeColor="#35F2B4"
+        lineCap="round"
+        lineJoin="round"
       />
     </>
   );
