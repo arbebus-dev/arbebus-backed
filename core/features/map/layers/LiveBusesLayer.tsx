@@ -10,15 +10,17 @@ type Props = {
   selectedVehicleId?: string | null;
 };
 
-function routeNumberFromLabel(label?: string | null) {
-  return String(label ?? "")
-    .split("•")[0]
-    .split(" ")[0]
-    .trim();
-}
-
 function normalizeId(value?: string | null) {
   return String(value ?? "").trim();
+}
+
+function routeNumberFromLabel(label?: string | null) {
+  return String(label ?? "")
+    .trim()
+    .split("•")[0]
+    .split(" ")[0]
+    .replace(/^0+/, "")
+    .toUpperCase();
 }
 
 export default function LiveBusesLayer({
@@ -33,9 +35,10 @@ export default function LiveBusesLayer({
     <>
       {buses.map((bus) => {
         const routeNumber = String(bus.number ?? bus.route ?? bus.routeId ?? "");
-        const vehicleId = normalizeId(bus.vehicleId || bus.id);
-        const isSelectedVehicle = Boolean(selectedVehicle && vehicleId === selectedVehicle);
-        const isSelectedRoute = Boolean(selectedNumber && routeNumber === selectedNumber);
+        const normalizedRoute = routeNumberFromLabel(bus.routeId || bus.route || bus.number);
+        const ids = [bus.vehicleId, bus.id, bus.vehicleLabel].map(normalizeId);
+        const isSelectedVehicle = Boolean(selectedVehicle && ids.includes(selectedVehicle));
+        const isSelectedRoute = Boolean(selectedNumber && normalizedRoute === selectedNumber);
         const isImportant = isSelectedVehicle || isSelectedRoute;
         const heading = Number(bus.heading ?? bus.bearing ?? 0);
 
@@ -45,7 +48,7 @@ export default function LiveBusesLayer({
             coordinate={bus.coordinate}
             anchor={{ x: 0.5, y: 0.5 }}
             tracksViewChanges={false}
-            zIndex={isSelectedVehicle ? 2000 : isSelectedRoute ? 999 : 10}
+            zIndex={isSelectedVehicle ? 3000 : isSelectedRoute ? 1200 : 10}
           >
             <View style={styles.markerWrap}>
               {isImportant ? (
@@ -101,8 +104,8 @@ export default function LiveBusesLayer({
 
 const styles = StyleSheet.create({
   markerWrap: {
-    width: 68,
-    height: 68,
+    width: 70,
+    height: 70,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -116,19 +119,19 @@ const styles = StyleSheet.create({
     borderColor: "rgba(53,242,180,0.35)",
   },
   glowVehicle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "rgba(53,242,180,0.28)",
-    borderColor: "rgba(255,255,255,0.55)",
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    backgroundColor: "rgba(53,242,180,0.30)",
+    borderColor: "rgba(255,255,255,0.65)",
   },
   ring: {
     position: "absolute",
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.70)",
+    borderColor: "rgba(255,255,255,0.80)",
   },
   marker: {
     minWidth: 36,
@@ -149,9 +152,9 @@ const styles = StyleSheet.create({
     borderColor: "#FFFFFF",
   },
   markerVehicle: {
-    minWidth: 48,
-    height: 48,
-    borderRadius: 24,
+    minWidth: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: "#35F2B4",
     borderColor: "#FFFFFF",
     borderWidth: 3,

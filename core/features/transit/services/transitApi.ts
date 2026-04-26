@@ -29,6 +29,42 @@ function apiBase() {
   return API_ENDPOINTS.transitPlan.replace(/\/transit\/plan$/, "");
 }
 
+const API_TIMEOUT_MS = 9000;
+const API_RETRY_COUNT = 1;
+
+async function fetchWithTimeout(input: string, init?: RequestInit, timeoutMs = API_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...(init || {}),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchWithRetry(input: string, init?: RequestInit, retries = API_RETRY_COUNT) {
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetchWithTimeout(input, init);
+      if (response.ok || attempt >= retries || response.status < 500) return response;
+      lastError = new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries) break;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 450 * (attempt + 1)));
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Network request failed");
+}
+
 async function safeJson<T>(response: Response): Promise<T> {
   const text = await response.text();
 
@@ -276,7 +312,7 @@ function normalizeBackendPlan(
 }
 
 export async function getLiveBuses(): Promise<LiveBus[]> {
-  const response = await fetch(API_ENDPOINTS.liveBuses);
+  const response = await fetchWithRetry(API_ENDPOINTS.liveBuses);
 
   if (!response.ok) {
     throw new Error(`Live buses failed: ${response.status}`);
@@ -307,7 +343,7 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
 
   for (const url of urls) {
     try {
-      const response = await fetch(url);
+      const response = await fetchWithRetry(url);
       if (!response.ok) continue;
 
       const data = await safeJson<any>(response);
@@ -368,7 +404,7 @@ export async function planTransitRoute(params: {
       coordinate: params.to,
     };
 
-  const response = await fetch(API_ENDPOINTS.transitPlan, {
+  const response = await fetchWithRetry(API_ENDPOINTS.transitPlan, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -413,7 +449,7 @@ export async function fetchTransitShape(shapeId?: string | null): Promise<Coordi
   if (!shapeId) return [];
 
   const url = `${apiBase()}/transit/shape/${encodeURIComponent(shapeId)}`;
-  const response = await fetch(url);
+  const response = await fetchWithRetry(url);
 
   if (!response.ok) {
     throw new Error(`Transit shape failed: ${response.status}`);
@@ -451,7 +487,7 @@ export async function fetchLiveEta(route: TransitRouteOption): Promise<LiveEtaRe
     params.set("headsign", route.headsign);
   }
 
-  const response = await fetch(`${apiBase()}/transit/live-eta?${params.toString()}`);
+  const response = await fetchWithRetry(`${apiBase()}/transit/live-eta?${params.toString()}`);
 
   if (!response.ok) {
     throw new Error(`Live ETA failed: ${response.status}`);

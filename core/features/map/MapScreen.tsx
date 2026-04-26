@@ -55,6 +55,19 @@ function validPoints(points?: MapPoint[]) {
   );
 }
 
+function normalizeId(value: any) {
+  return String(value ?? "").trim();
+}
+
+function normalizeRouteNumber(value: any) {
+  return String(value ?? "")
+    .trim()
+    .split("•")[0]
+    .split(" ")[0]
+    .replace(/^0+/, "")
+    .toUpperCase();
+}
+
 function normalizeVehiclePoint(vehicle: any): MapPoint | null {
   const latitude = Number(vehicle?.latitude ?? vehicle?.coordinate?.latitude);
   const longitude = Number(vehicle?.longitude ?? vehicle?.coordinate?.longitude);
@@ -62,6 +75,17 @@ function normalizeVehiclePoint(vehicle: any): MapPoint | null {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
 
   return { latitude, longitude };
+}
+
+function distanceMeters(a: MapPoint, b: MapPoint) {
+  const dx = (a.latitude - b.latitude) * 111320;
+  const dy =
+    (a.longitude - b.longitude) *
+    40075000 *
+    Math.cos((a.latitude * Math.PI) / 180) /
+    360;
+
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
 function cameraForFlow(flowState: string) {
@@ -117,21 +141,75 @@ export default function MapScreen() {
 
   const selectedRouteLabel = selectedRoute?.routeLabel || null;
 
-  const selectedVehicleId =
-    selectedRoute?.liveVehicle?.vehicleId ||
-    selectedRoute?.liveVehicle?.id ||
-    null;
+  const selectedRouteNumber = useMemo(() => {
+    return normalizeRouteNumber(
+      selectedRoute?.routeNumbers?.[0] ?? selectedRoute?.routeId ?? selectedRoute?.routeLabel
+    );
+  }, [selectedRoute]);
 
   const selectedLiveBus = useMemo(() => {
-    if (!selectedVehicleId) return null;
+    if (!selectedRoute) return null;
 
-    return (
-      buses.find((bus) => {
-        const busVehicleId = bus.vehicleId || bus.id;
-        return String(busVehicleId) === String(selectedVehicleId);
-      }) || null
-    );
-  }, [buses, selectedVehicleId]);
+    const liveVehicle = selectedRoute.liveVehicle;
+    const liveVehicleId = normalizeId(liveVehicle?.vehicleId || liveVehicle?.id || liveVehicle?.vehicleLabel);
+    const liveVehiclePoint = normalizeVehiclePoint(liveVehicle);
+
+    // 1) Strong lock: exact vehicle id / id / label from live ETA.
+    if (liveVehicleId) {
+      const exact = buses.find((bus) => {
+        const ids = [bus.vehicleId, bus.id, bus.vehicleLabel].map(normalizeId);
+        return ids.includes(liveVehicleId);
+      });
+
+      if (exact) return exact;
+    }
+
+    // 2) Coordinate lock: live ETA vehicle point is close to a live marker.
+    if (liveVehiclePoint) {
+      const closestByPoint = buses
+        .map((bus) => {
+          const point = normalizeVehiclePoint(bus);
+          if (!point) return null;
+          return { bus, distance: distanceMeters(point, liveVehiclePoint) };
+        })
+        .filter(Boolean) as Array<{ bus: (typeof buses)[number]; distance: number }>;
+
+      closestByPoint.sort((a, b) => a.distance - b.distance);
+      if (closestByPoint[0] && closestByPoint[0].distance <= 120) {
+        return closestByPoint[0].bus;
+      }
+    }
+
+    // 3) Fallback lock: same route number, closest to boarding stop.
+    if (!selectedRouteNumber) return null;
+
+    const originPoint = selectedRoute.originStop?.coordinate;
+    const candidates = buses
+      .filter((bus) => {
+        const number = normalizeRouteNumber(bus.routeId || bus.route || bus.number);
+        return number === selectedRouteNumber;
+      })
+      .map((bus) => {
+        const point = normalizeVehiclePoint(bus);
+        const distance = point && originPoint ? distanceMeters(point, originPoint) : Number.POSITIVE_INFINITY;
+        const delay = Number(bus.delaySeconds || 0);
+        const speed = Number(bus.speedKph || 0);
+        const score = distance + Math.max(0, delay) * 0.2 - Math.min(speed, 60) * 3;
+        return { bus, score };
+      })
+      .sort((a, b) => a.score - b.score);
+
+    return candidates[0]?.bus ?? null;
+  }, [buses, selectedRoute, selectedRouteNumber]);
+
+  const selectedVehicleId =
+    selectedLiveBus?.vehicleId ||
+    selectedLiveBus?.id ||
+    selectedLiveBus?.vehicleLabel ||
+    selectedRoute?.liveVehicle?.vehicleId ||
+    selectedRoute?.liveVehicle?.id ||
+    selectedRoute?.liveVehicle?.vehicleLabel ||
+    null;
 
   const selectedVehicleCoordinate = useMemo(() => {
     return normalizeVehiclePoint(selectedLiveBus) ?? normalizeVehiclePoint(selectedRoute?.liveVehicle);
@@ -221,11 +299,11 @@ export default function MapScreen() {
         center: activeCameraTarget,
         zoom: camera.zoom,
         pitch: camera.pitch,
-        heading: 0,
+        heading: selectedLiveBus?.heading ?? selectedLiveBus?.bearing ?? 0,
       },
       { duration: 850 }
     );
-  }, [activeCameraTarget, planner.flowState]);
+  }, [activeCameraTarget, planner.flowState, selectedLiveBus]);
 
   return (
     <View style={styles.screen}>
@@ -284,6 +362,10 @@ export default function MapScreen() {
         routeOptions={planner.routeOptions}
         selectedRoute={selectedRoute}
         error={planner.flowState !== "searching" ? planner.error : null}
+        isOffline={planner.isOffline}
+        offlineMessage={planner.offlineMessage}
+        isRerouting={planner.isRerouting}
+        reroutingMessage={planner.reroutingMessage}
         onChooseRoute={planner.chooseRoute}
         onStartJourney={planner.startJourney}
         onNextStep={planner.nextStep}

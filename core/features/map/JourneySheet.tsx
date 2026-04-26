@@ -23,6 +23,10 @@ type Props = {
   routeOptions: TransitRouteOption[];
   selectedRoute: TransitRouteOption | null;
   error?: string | null;
+  isOffline?: boolean;
+  offlineMessage?: string | null;
+  isRerouting?: boolean;
+  reroutingMessage?: string | null;
   onChooseRoute: (route: TransitRouteOption) => void;
   onStartJourney: () => void;
   onNextStep: () => void;
@@ -311,7 +315,7 @@ function StepRow({ step, index, last, active }: { step: TransitStep; index: numb
   );
 }
 
-export default function JourneySheet({ flowState, liveBusCount, routeOptions, selectedRoute, error, onChooseRoute, onStartJourney, onNextStep, onReset }: Props) {
+export default function JourneySheet({ flowState, liveBusCount, routeOptions, selectedRoute, error, isOffline, offlineMessage, isRerouting, reroutingMessage, onChooseRoute, onStartJourney, onNextStep, onReset }: Props) {
   const [snap, setSnap] = useState<SnapPoint>("medium");
 
   const animatedHeight = useRef(new Animated.Value(SNAP_HEIGHTS.medium)).current;
@@ -381,7 +385,23 @@ export default function JourneySheet({ flowState, liveBusCount, routeOptions, se
         {summary?.duration ? <Text style={styles.statusPill}>{summary.duration} min</Text> : null}
         {hasTransfers ? <Text style={styles.transferPill}>{summary?.transfers} persėd.</Text> : null}
         {selectedRoute?.liveEta?.etaMinutes != null ? <Text style={styles.livePill}>ETA {selectedRoute.liveEta.etaMinutes} min</Text> : null}
+        {isOffline ? <Text style={styles.offlinePill}>OFFLINE</Text> : null}
+        {isRerouting ? <Text style={styles.reroutePill}>REROUTE</Text> : null}
       </View>
+
+      {isOffline || offlineMessage ? (
+        <View style={styles.offlineBox}>
+          <Ionicons name="cloud-offline" size={17} color="#FFD38A" />
+          <Text style={styles.offlineText}>{offlineMessage || "Nėra ryšio – naudojame saugų fallback režimą."}</Text>
+        </View>
+      ) : null}
+
+      {isRerouting || reroutingMessage ? (
+        <View style={styles.rerouteBox}>
+          <Ionicons name="navigate-circle" size={17} color="#CFFFEA" />
+          <Text style={styles.rerouteText}>{reroutingMessage || "Perskaičiuojame maršrutą..."}</Text>
+        </View>
+      ) : null}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -458,6 +478,62 @@ const styles = StyleSheet.create({
   transferPill: { color: "#06111F", fontSize: 12, fontWeight: "900", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 99, backgroundColor: "#FFB84D", overflow: "hidden" },
   livePill: { color: "#03110B", fontSize: 12, fontWeight: "900", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 99, backgroundColor: "#35F2B4", overflow: "hidden" },
   error: { color: "#FF8F8F", marginTop: 10, fontWeight: "800" },
+  offlinePill: {
+    color: "#3B2600",
+    fontSize: 12,
+    fontWeight: "900",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 99,
+    backgroundColor: "#FFD38A",
+    overflow: "hidden",
+  },
+  reroutePill: {
+    color: "#03110B",
+    fontSize: 12,
+    fontWeight: "900",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 99,
+    backgroundColor: "#CFFFEA",
+    overflow: "hidden",
+  },
+  offlineBox: {
+    marginTop: 10,
+    borderRadius: 16,
+    padding: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    backgroundColor: "rgba(255,211,138,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,211,138,0.24)",
+  },
+  offlineText: {
+    flex: 1,
+    color: "#FFD38A",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17,
+  },
+  rerouteBox: {
+    marginTop: 10,
+    borderRadius: 16,
+    padding: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    backgroundColor: "rgba(53,242,180,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(53,242,180,0.22)",
+  },
+  rerouteText: {
+    flex: 1,
+    color: "#CFFFEA",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17,
+  },
   routeList: { gap: 10, paddingVertical: 14 },
   routeCard: { width: 330, minHeight: 106, borderRadius: 22, padding: 12, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.10)" },
   routeCardSelected: { borderColor: "rgba(58,255,184,0.85)", backgroundColor: "rgba(58,255,184,0.11)" },
