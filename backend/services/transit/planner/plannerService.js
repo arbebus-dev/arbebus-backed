@@ -4,7 +4,6 @@ const {
   getWalkingTransfers,
   getCandidateBoardings,
   getTripStopSequences,
-  getShapePoints,
 } = require('./plannerRepository');
 const { getDistanceMeters } = require('./geo');
 
@@ -103,55 +102,6 @@ function dedupeCoords(coords) {
   return result;
 }
 
-function shapeRowsToCoords(rows) {
-  return rows.map((row) => ({
-    latitude: Number(row.latitude),
-    longitude: Number(row.longitude),
-  }));
-}
-
-function nearestPointIndex(points, target) {
-  if (!points.length || !target) return -1;
-
-  let bestIndex = 0;
-  let bestDistance = Number.POSITIVE_INFINITY;
-
-  for (let i = 0; i < points.length; i += 1) {
-    const distance = getDistanceMeters(points[i], target);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      bestIndex = i;
-    }
-  }
-
-  return bestIndex;
-}
-
-function sliceShapeBetweenStops(shapePoints, fromStop, toStop) {
-  if (!Array.isArray(shapePoints) || shapePoints.length < 2 || !fromStop || !toStop) {
-    return [];
-  }
-
-  const fromCoord = stopToCoord(fromStop);
-  const toCoord = stopToCoord(toStop);
-
-  let fromIndex = nearestPointIndex(shapePoints, fromCoord);
-  let toIndex = nearestPointIndex(shapePoints, toCoord);
-
-  if (fromIndex < 0 || toIndex < 0) return [];
-
-  if (fromIndex > toIndex) {
-    const temp = fromIndex;
-    fromIndex = toIndex;
-    toIndex = temp;
-  }
-
-  const sliced = shapePoints.slice(fromIndex, toIndex + 1);
-
-  if (sliced.length < 2) return [];
-  return sliced;
-}
-
 async function buildPreviewPoints({ origin, destination, legs }) {
   const points = [origin];
 
@@ -165,23 +115,8 @@ async function buildPreviewPoints({ origin, destination, legs }) {
     }
 
     if (leg.type === 'ride') {
-      const fromStopCoord = leg.fromStop ? stopToCoord(leg.fromStop) : null;
-      const toStopCoord = leg.toStop ? stopToCoord(leg.toStop) : null;
-
-      if (fromStopCoord) points.push(fromStopCoord);
-
-      const shapeRows = await getShapePoints(leg.shapeId);
-      const shapePoints = shapeRowsToCoords(shapeRows);
-      const slicedShape = sliceShapeBetweenStops(shapePoints, leg.fromStop, leg.toStop);
-
-      if (slicedShape.length) {
-        points.push(...slicedShape);
-      } else {
-        if (fromStopCoord) points.push(fromStopCoord);
-        if (toStopCoord) points.push(toStopCoord);
-      }
-
-      if (toStopCoord) points.push(toStopCoord);
+      if (leg.fromStop) points.push(stopToCoord(leg.fromStop));
+      if (leg.toStop) points.push(stopToCoord(leg.toStop));
     }
   }
 
