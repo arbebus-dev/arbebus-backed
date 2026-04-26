@@ -134,7 +134,11 @@ export default function MapScreen() {
       <MapCanvas ref={mapRef} onPress={() => Keyboard.dismiss()}>
         <UserLocationLayer coordinate={userLocation} />
 
-        <RoutePolylineLayer route={selectedRoute} />
+        <RoutePolylineLayer
+  route={selectedRoute}
+  flowState={planner.flowState}
+  currentStepIndex={planner.currentStepIndex}
+/>
 
         <WalkingPolylineLayer route={selectedRoute} userLocation={userLocation} />
 
