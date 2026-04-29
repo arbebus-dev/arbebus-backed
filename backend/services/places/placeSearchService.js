@@ -1,5 +1,5 @@
-const { getPool } = require('../db/pool');
-const pois = require('../data/poi/klaipedaPois.json');
+const { getPool } = require('../../db/pool');
+const pois = require('../../data/poi/klaipedaPois.json');
 
 const KLAIPEDA_CENTER = { latitude: 55.7033, longitude: 21.1443 };
 
