@@ -1,9 +1,15 @@
 const express = require('express');
 const cors = require('cors');
 const { env } = require('./config/env');
-const { initializeMonitoring, performanceMiddleware, errorMiddleware, monitorApiCall } = require('./monitoring');
 
-// Initialize monitoring
+const {
+  initializeMonitoring,
+  performanceMiddleware,
+  errorMiddleware,
+  monitorApiCall,
+  createHealthCheck,
+} = require('./monitoring');
+
 initializeMonitoring();
 
 const { fetchLiveVehicles } = require('./services/transit/klaipedaGateway');
@@ -12,7 +18,10 @@ const { getPool } = require('./db/pool');
 const { handleTransitPlan } = require('./services/transit/planner/plannerController');
 const { getShapePoints } = require('./services/transit/planner/plannerRepository');
 const { buildNewsFeed } = require('./services/newsService');
-const { searchPlaces } = require('./places/placesSearchService');
+
+// ✅ FIX: tavo realus search failo kelias
+const { searchPlaces } = require('./services/places/placeSearchService');
+
 const {
   startLeaveAlertEngine,
   registerExpoPushToken,
@@ -23,7 +32,6 @@ const {
 
 const app = express();
 
-// Add monitoring middleware
 app.use(performanceMiddleware);
 
 if (env.ENABLE_CORS) {
@@ -35,6 +43,11 @@ app.use(express.json({ limit: '1mb' }));
 app.get('/', (_req, res) => {
   res.send('Arbebus backend is running 🚀');
 });
+
+// ✅ paprastas monitoring health
+if (typeof createHealthCheck === 'function') {
+  app.get('/monitoring/health', createHealthCheck());
+}
 
 app.get('/health', async (_req, res) => {
   const now = new Date().toISOString();
@@ -105,7 +118,8 @@ app.get('/live-buses', async (_req, res) => {
   try {
     const vehicles = await fetchLiveVehicles();
     res.json(vehicles);
-  } catch {
+  } catch (error) {
+    console.error('GET /live-buses error:', error.message);
     res.status(500).json([]);
   }
 });
@@ -215,14 +229,22 @@ app.get('/places/search', async (req, res) => {
   const lon = Number(req.query.lon);
   const limit = Math.min(Math.max(Number(req.query.limit || 12), 1), 30);
 
-  if (q.length < 2) return res.json({ ok: true, items: [], results: [], places: [] });
+  if (q.length < 2) {
+    return res.json({ ok: true, items: [], results: [], places: [] });
+  }
 
   try {
     const items = await searchPlaces({ q, lat, lon, limit });
     res.json({ ok: true, items, results: items, places: items });
   } catch (error) {
     console.error('GET /places/search error:', error.message);
-    res.status(500).json({ ok: false, items: [], results: [], places: [], error: error.message });
+    res.status(500).json({
+      ok: false,
+      items: [],
+      results: [],
+      places: [],
+      error: error.message,
+    });
   }
 });
 
@@ -263,6 +285,9 @@ app.get('/stops/search', async (req, res) => {
       items: result.rows.map((row) => ({
         id: row.id,
         name: row.name,
+        title: row.name,
+        subtitle: 'Stotelė',
+        type: 'stop',
         latitude: Number(row.latitude),
         longitude: Number(row.longitude),
         distanceMeters: Number(row.distance_meters || 0),
@@ -366,7 +391,6 @@ app.get('/leave-alerts', (_req, res) => {
 
 startLeaveAlertEngine();
 
-// Add error handling middleware (must be last)
 app.use(errorMiddleware);
 
 app.listen(env.PORT, env.HOST, () => {
