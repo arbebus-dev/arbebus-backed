@@ -1,6 +1,11 @@
 const express = require('express');
 const cors = require('cors');
 const { env } = require('./config/env');
+const { initializeMonitoring, performanceMiddleware, errorMiddleware, monitorApiCall } = require('./monitoring');
+
+// Initialize monitoring
+initializeMonitoring();
+
 const { fetchLiveVehicles } = require('./services/transit/klaipedaGateway');
 const { pickBestVehicleForStop } = require('./services/transit/etaEstimator');
 const { getPool } = require('./db/pool');
@@ -17,6 +22,9 @@ const {
 } = require('./services/leaveAlertEngine');
 
 const app = express();
+
+// Add monitoring middleware
+app.use(performanceMiddleware);
 
 if (env.ENABLE_CORS) {
   app.use(cors({ origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN }));
@@ -266,7 +274,7 @@ app.get('/stops/search', async (req, res) => {
   }
 });
 
-app.post('/transit/plan', handleTransitPlan);
+app.post('/transit/plan', monitorApiCall('transit.plan'), handleTransitPlan);
 
 app.get('/transit/shape/:shapeId', async (req, res) => {
   const shapeId = String(req.params.shapeId || '').trim();
@@ -357,6 +365,9 @@ app.get('/leave-alerts', (_req, res) => {
 });
 
 startLeaveAlertEngine();
+
+// Add error handling middleware (must be last)
+app.use(errorMiddleware);
 
 app.listen(env.PORT, env.HOST, () => {
   console.log(`🚀 Running on http://${env.HOST}:${env.PORT}`);
