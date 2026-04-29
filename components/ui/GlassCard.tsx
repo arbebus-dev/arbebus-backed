@@ -1,11 +1,13 @@
 import { BlurView } from "expo-blur";
 import React, { type ReactNode } from "react";
-import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import { Platform, StyleSheet, TouchableOpacity, View, type StyleProp, type ViewStyle } from "react-native";
 
 type GlassCardProps = {
   children?: ReactNode;
   style?: StyleProp<ViewStyle>;
   intensity?: number;
+  onPress?: () => void;
+  testID?: string;
 };
 
 const COLORS = {
@@ -13,13 +15,15 @@ const COLORS = {
   border: "rgba(255, 255, 255, 0.14)",
 };
 
-export default function GlassCard({ children, style, intensity = 35 }: GlassCardProps) {
+export default function GlassCard({ children, style, intensity = 35, onPress, testID }: GlassCardProps) {
+  const Container = onPress ? TouchableOpacity : View;
+
   return (
-    <View style={[styles.glassCardWrap, style]}>
+    <Container style={[styles.glassCardWrap, style]} onPress={onPress} testID={testID}>
       <BlurView intensity={Platform.OS === "ios" ? intensity : 20} tint="dark" style={StyleSheet.absoluteFillObject} />
       <View pointerEvents="none" style={styles.glassCardBorder} />
       <View style={styles.glassCardInner}>{children}</View>
-    </View>
+    </Container>
   );
 }
 

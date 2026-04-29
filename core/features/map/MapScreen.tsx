@@ -2,9 +2,13 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { Keyboard, StyleSheet, View } from "react-native";
 import MapView from "react-native-maps";
 
+
 import { useLiveBuses } from "../transit/hooks/useLiveBuses";
 import { useTransitPlanner } from "../transit/hooks/useTransitPlanner";
 import { useUserLocation } from "../transit/hooks/useUserLocation";
+
+import { analytics } from "../../services/analytics";
+import { monitoring } from "../../services/monitoring";
 
 import JourneySheet from "./JourneySheet";
 import DestinationMarkerLayer from "./layers/DestinationMarkerLayer";
@@ -133,6 +137,41 @@ export default function MapScreen() {
 
   const selectedRoute = planner.selectedRoute;
   const selectedDestination = planner.selectedDestination;
+
+  // Initialize analytics and monitoring
+  useEffect(() => {
+    analytics.initialize();
+    monitoring.initialize();
+
+    // Track screen view
+    analytics.trackScreenView('map');
+
+    // Track live bus view
+    if (buses.length > 0) {
+      analytics.trackLiveBusView(buses.length);
+    }
+  }, []);
+
+  // Track route planning events
+  useEffect(() => {
+    if (selectedRoute && selectedDestination) {
+      analytics.trackRoutePlanning(
+        'current_location',
+        'destination',
+        true
+      );
+    }
+  }, [selectedRoute, selectedDestination]);
+
+  // Monitor performance
+  useEffect(() => {
+    const startTime = Date.now();
+
+    return () => {
+      const loadTime = Date.now() - startTime;
+      analytics.trackPerformanceMetric('map_screen_load', loadTime, 'ms');
+    };
+  }, []);
 
   const searchVisible =
     planner.flowState === "searching" &&

@@ -23,6 +23,20 @@ function routeNumberFromLabel(label?: string | null) {
     .toUpperCase();
 }
 
+function isValidCoordinate(bus: LiveBus) {
+  return (
+    bus.coordinate &&
+    Number.isFinite(Number(bus.coordinate.latitude)) &&
+    Number.isFinite(Number(bus.coordinate.longitude))
+  );
+}
+
+function busLabel(bus: LiveBus) {
+  const label = bus.number || bus.route || bus.routeId || bus.vehicleLabel || "";
+  const clean = String(label).replace("undefined", "").trim();
+  return clean || "—";
+}
+
 export default function LiveBusesLayer({
   buses,
   selectedRouteLabel,
@@ -33,13 +47,15 @@ export default function LiveBusesLayer({
 
   return (
     <>
-      {buses.map((bus) => {
-        const routeNumber = String(bus.number ?? bus.route ?? bus.routeId ?? "");
+      {buses.filter(isValidCoordinate).map((bus) => {
+        const routeNumber = busLabel(bus);
         const normalizedRoute = routeNumberFromLabel(bus.routeId || bus.route || bus.number);
         const ids = [bus.vehicleId, bus.id, bus.vehicleLabel].map(normalizeId);
+
         const isSelectedVehicle = Boolean(selectedVehicle && ids.includes(selectedVehicle));
         const isSelectedRoute = Boolean(selectedNumber && normalizedRoute === selectedNumber);
         const isImportant = isSelectedVehicle || isSelectedRoute;
+
         const heading = Number(bus.heading ?? bus.bearing ?? 0);
 
         return (
@@ -85,7 +101,7 @@ export default function LiveBusesLayer({
                   ]}
                   numberOfLines={1}
                 >
-                  {routeNumber || "BUS"}
+                  {routeNumber}
                 </Text>
               </View>
 

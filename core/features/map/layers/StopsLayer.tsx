@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import React, { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Marker } from "react-native-maps";
-import type { TransitRouteOption } from "../../transit/models/transitTypes";
+import type { TransitRouteOption, TransitStep } from "../../transit/models/transitTypes";
 
 type Props = {
   route: TransitRouteOption | null;
@@ -12,10 +12,11 @@ type StopPoint = {
   id: string;
   name: string;
   coordinate: { latitude: number; longitude: number };
-  type: "origin" | "destination" | "intermediate";
+  type: "board" | "ride" | "alight";
+  order: number;
 };
 
-function isValid(point: any) {
+function isValidCoordinate(point: any) {
   return (
     point &&
     Number.isFinite(Number(point.latitude)) &&
@@ -23,106 +24,147 @@ function isValid(point: any) {
   );
 }
 
+function coordinateFromStop(stop: any) {
+  if (isValidCoordinate(stop?.coordinate)) return stop.coordinate;
+  if (isValidCoordinate(stop)) {
+    return {
+      latitude: Number(stop.latitude),
+      longitude: Number(stop.longitude),
+    };
+  }
+  return null;
+}
+
+function stopName(stop: any, fallback = "Stotelė") {
+  return String(stop?.name ?? stop?.title ?? stop?.stopName ?? stop?.stop_name ?? fallback).trim();
+}
+
+function makeStop(raw: any, type: StopPoint["type"], order: number, fallbackName?: string): StopPoint | null {
+  const coordinate = coordinateFromStop(raw);
+  if (!coordinate) return null;
+
+  return {
+    id: String(raw?.id ?? raw?.stop_id ?? `${type}-${order}-${coordinate.latitude}-${coordinate.longitude}`),
+    name: stopName(raw, fallbackName),
+    coordinate,
+    type,
+    order,
+  };
+}
+
+function getStopsFromRideStep(step: TransitStep, orderStart: number) {
+  const raw: any = step;
+  const stops = raw.stops ?? raw.rideStops ?? raw.routeStops ?? raw.stopList ?? [];
+
+  if (!Array.isArray(stops) || !stops.length) return [];
+
+  return stops
+    .map((stop: any, index: number) => makeStop(stop, "ride", orderStart + index, stopName(stop)))
+    .filter(Boolean) as StopPoint[];
+}
+
+function stopsFromRoute(route: TransitRouteOption): StopPoint[] {
+  const result: StopPoint[] = [];
+  let order = 0;
+
+  const board = makeStop(route.originStop, "board", order++, route.boardStopName);
+  if (board) result.push(board);
+
+  const steps = route.journeySteps || route.steps || [];
+
+  for (const step of steps) {
+    if (step.type === "ride" || step.type === "bus") {
+      const rideStops = getStopsFromRideStep(step, order);
+      result.push(...rideStops);
+      order += rideStops.length;
+      continue;
+    }
+
+    if (step.type === "board" && step.stopName) {
+      const firstPoint = Array.isArray(step.polyline) ? step.polyline[0] : null;
+      const maybeStop = makeStop(
+        { id: step.stopId, name: step.stopName, coordinate: firstPoint },
+        "board",
+        order++,
+        step.stopName
+      );
+      if (maybeStop) result.push(maybeStop);
+    }
+
+    if ((step.type === "alight" || step.type === "arrive") && step.stopName) {
+      const lastPoint = Array.isArray(step.polyline) ? step.polyline[step.polyline.length - 1] : null;
+      const maybeStop = makeStop(
+        { id: step.stopId, name: step.stopName, coordinate: lastPoint },
+        "alight",
+        order++,
+        step.stopName
+      );
+      if (maybeStop) result.push(maybeStop);
+    }
+  }
+
+  const alight = makeStop(route.destinationStop, "alight", order++, route.alightStopName);
+  if (alight) result.push(alight);
+
+  const deduped = new Map<string, StopPoint>();
+
+  for (const stop of result) {
+    const key = `${stop.coordinate.latitude.toFixed(6)}:${stop.coordinate.longitude.toFixed(6)}`;
+    const existing = deduped.get(key);
+
+    if (!existing) {
+      deduped.set(key, stop);
+      continue;
+    }
+
+    if (existing.type === "ride" && stop.type !== "ride") {
+      deduped.set(key, stop);
+    }
+  }
+
+  return Array.from(deduped.values()).sort((a, b) => a.order - b.order);
+}
+
 export default function StopsLayer({ route }: Props) {
   const stops = useMemo(() => {
-    if (!route) return [];
-
-    const result: StopPoint[] = [];
-
-    // 🔥 ORIGIN
-    if (route.originStop?.coordinate && isValid(route.originStop.coordinate)) {
-      result.push({
-        id: "origin",
-        name: route.originStop.name,
-        coordinate: route.originStop.coordinate,
-        type: "origin",
-      });
-    }
-
-    // 🔥 INTERMEDIATE (iš step'ų)
-    const stepStops =
-      route.journeySteps
-        ?.map((step, i) => {
-          if (!step.stopName || !step.toStopName) return null;
-
-          const coord = step.polyline?.[0];
-          if (!isValid(coord)) return null;
-
-          return {
-            id: `step-${i}`,
-            name: step.toStopName || step.stopName,
-            coordinate: coord,
-            type: "intermediate" as const,
-          };
-        })
-        .filter(Boolean) || [];
-
-    result.push(...stepStops);
-
-    // 🔥 DESTINATION
-    if (
-      route.destinationStop?.coordinate &&
-      isValid(route.destinationStop.coordinate)
-    ) {
-      result.push({
-        id: "destination",
-        name: route.destinationStop.name,
-        coordinate: route.destinationStop.coordinate,
-        type: "destination",
-      });
-    }
-
-    return result;
+    if (!route || route.mode === "walk_only" || route.mode === "walk") return [];
+    return stopsFromRoute(route);
   }, [route]);
 
   if (!route || stops.length === 0) return null;
 
   return (
     <>
-      {stops.map((stop) => {
-        const isOrigin = stop.type === "origin";
-        const isDestination = stop.type === "destination";
+      {stops.map((stop, index) => {
+        const isBoard = stop.type === "board";
+        const isAlight = stop.type === "alight";
 
         return (
           <Marker
-            key={stop.id}
+            key={`${stop.id}-${index}`}
             coordinate={stop.coordinate}
             anchor={{ x: 0.5, y: 0.95 }}
           >
             <View style={styles.pinWrap}>
-              {/* 🔥 MAIN PIN */}
               <View
                 style={[
                   styles.pin,
-                  isOrigin && styles.stopIn,
-                  isDestination && styles.stopOut,
+                  isBoard && styles.stopIn,
+                  isAlight && styles.stopOut,
                 ]}
               >
-                {isOrigin && (
-                  <Ionicons name="bus" size={14} color="#06111F" />
-                )}
-
-                {isDestination && (
-                  <Ionicons name="flag" size={13} color="#06111F" />
-                )}
-
-                {!isOrigin && !isDestination && (
-                  <Ionicons name="ellipse" size={10} color="#35F2B4" />
-                )}
-
-                {(isOrigin || isDestination) && (
-                  <Text style={styles.text}>
-                    {isOrigin ? "ĮLIPK" : "IŠLIPK"}
-                  </Text>
-                )}
+                {isBoard ? <Ionicons name="bus" size={14} color="#06111F" /> : null}
+                {isAlight ? <Ionicons name="flag" size={13} color="#06111F" /> : null}
+                {!isBoard && !isAlight ? <Text style={styles.number}>{index + 1}</Text> : null}
+                {(isBoard || isAlight) ? (
+                  <Text style={styles.text}>{isBoard ? "ĮLIPK" : "IŠLIPK"}</Text>
+                ) : null}
               </View>
-
-              {/* 🔥 DOT */}
               <View
                 style={[
                   styles.pinDot,
-                  isOrigin && { backgroundColor: "#35F2B4" },
-                  isDestination && { backgroundColor: "#FFB84D" },
+                  isBoard && { backgroundColor: "#35F2B4" },
+                  isAlight && { backgroundColor: "#FFB84D" },
                 ]}
               />
             </View>
@@ -138,7 +180,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   pin: {
     minWidth: 28,
     height: 28,
@@ -152,21 +193,18 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#35F2B4",
   },
-
   stopIn: {
     minWidth: 72,
     height: 34,
     backgroundColor: "#35F2B4",
     borderColor: "white",
   },
-
   stopOut: {
     minWidth: 76,
     height: 34,
     backgroundColor: "#FFB84D",
     borderColor: "white",
   },
-
   pinDot: {
     marginTop: -1,
     width: 8,
@@ -176,10 +214,14 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "white",
   },
-
   text: {
     color: "#06111F",
     fontSize: 10,
+    fontWeight: "900",
+  },
+  number: {
+    color: "#CFFFEA",
+    fontSize: 11,
     fontWeight: "900",
   },
 });

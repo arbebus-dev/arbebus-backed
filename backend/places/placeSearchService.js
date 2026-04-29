@@ -4,76 +4,6 @@ const pois = require('../../data/poi/klaipedaPois.json');
 const KLAIPEDA_CENTER = { latitude: 55.7033, longitude: 21.1443 };
 const DEFAULT_COUNTRY_CODE = 'lt';
 
-const IMPORTANT_POI_ALIASES = [
-  {
-    id: 'poi-akropolis-klaipeda',
-    title: 'Akropolis',
-    name: 'Akropolis Klaipėda',
-    subtitle: 'Taikos pr. 61, Klaipėda',
-    type: 'shopping',
-    latitude: 55.684946,
-    longitude: 21.158473,
-    keywords: [
-      'akropolis',
-      'akropolis klaipeda',
-      'klaipedos akropolis',
-      'klaipėdos akropolis',
-      'pc akropolis',
-      'prekybos centras akropolis',
-      'taikos 61',
-      'taikos pr 61',
-      'taikos prospektas 61',
-    ],
-    priority: 500,
-  },
-  {
-    id: 'poi-klaipeda-bus-station',
-    title: 'Klaipėdos autobusų stotis',
-    name: 'Klaipėdos autobusų stotis',
-    subtitle: 'Butkų Juzės g. 9, Klaipėda',
-    type: 'transport',
-    latitude: 55.71737,
-    longitude: 21.13437,
-    keywords: [
-      'autobusu stotis',
-      'autobusų stotis',
-      'klaipedos autobusu stotis',
-      'klaipėdos autobusų stotis',
-      'bus station',
-      'stotis',
-    ],
-    priority: 450,
-  },
-  {
-    id: 'poi-palanga',
-    title: 'Palanga',
-    name: 'Palanga',
-    subtitle: 'Palanga, Lietuva',
-    type: 'city',
-    latitude: 55.92073,
-    longitude: 21.06737,
-    keywords: ['palanga', 'palangos miestas'],
-    priority: 350,
-  },
-  {
-    id: 'poi-palanga-airport',
-    title: 'Palangos oro uostas',
-    name: 'Palangos oro uostas',
-    subtitle: 'Liepojos pl. 1, Palanga',
-    type: 'airport',
-    latitude: 55.97323,
-    longitude: 21.09361,
-    keywords: [
-      'palangos oro uostas',
-      'oro uostas',
-      'airport',
-      'palanga airport',
-      'plq',
-    ],
-    priority: 360,
-  },
-];
-
 function normalizeText(value) {
   return String(value || '')
     .toLowerCase()
@@ -102,10 +32,12 @@ function queryTokens(value) {
 
 function distanceMeters(a, b) {
   if (!a || !b) return 0;
+
   const lat1 = Number(a.latitude);
   const lon1 = Number(a.longitude);
   const lat2 = Number(b.latitude);
   const lon2 = Number(b.longitude);
+
   if (![lat1, lon1, lat2, lon2].every(Number.isFinite)) return 0;
 
   const R = 6371000;
@@ -115,6 +47,7 @@ function distanceMeters(a, b) {
   const s1 = Math.sin(dLat / 2);
   const s2 = Math.sin(dLon / 2);
   const x = s1 * s1 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * s2 * s2;
+
   return Math.round(R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x)));
 }
 
@@ -128,7 +61,6 @@ function normalizePoi(poi) {
     latitude: Number(poi.latitude),
     longitude: Number(poi.longitude),
     keywords: Array.isArray(poi.keywords) ? poi.keywords : [],
-    priority: Number(poi.priority || 0),
   };
 }
 
@@ -144,30 +76,25 @@ function poiScore(poi, q) {
   const haystack = normalizeText([title, name, subtitle, ...keywords].join(' '));
   const tokens = queryTokens(query);
 
-  let score = Number(item.priority || 0);
+  if (title === query || name === query) return 420;
+  if (keywords.some((keyword) => keyword === query)) return 390;
+  if (title.startsWith(query) || name.startsWith(query)) return 340;
+  if (title.includes(query) || name.includes(query)) return 290;
+  if (keywords.some((keyword) => keyword.includes(query))) return 260;
+  if (haystack.includes(query)) return 220;
 
-  if (title === query || name === query) score += 1000;
-  else if (keywords.some((keyword) => keyword === query)) score += 950;
-  else if (title.startsWith(query) || name.startsWith(query)) score += 850;
-  else if (title.includes(query) || name.includes(query)) score += 760;
-  else if (keywords.some((keyword) => keyword.includes(query))) score += 720;
-  else if (haystack.includes(query)) score += 620;
-  else {
-    const matchedTokens = tokens.filter((token) => haystack.includes(token)).length;
-    if (matchedTokens > 0 && tokens.length > 0) {
-      score += Math.round((matchedTokens / tokens.length) * 420);
-    }
+  const matchedTokens = tokens.filter((token) => haystack.includes(token)).length;
+  if (matchedTokens > 0 && tokens.length > 0) {
+    return Math.round((matchedTokens / tokens.length) * 160);
   }
 
-  if (score <= Number(item.priority || 0)) return 0;
-
-  if (item.type === 'shopping' || item.type === 'transport' || item.type === 'airport') score += 40;
-  return score;
+  return 0;
 }
 
 function normalizeResult(item, userPoint, source) {
   const latitude = Number(item.latitude);
   const longitude = Number(item.longitude);
+
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
 
   return {
@@ -178,7 +105,9 @@ function normalizeResult(item, userPoint, source) {
     type: item.type || source,
     latitude,
     longitude,
-    distanceMeters: userPoint ? distanceMeters(userPoint, { latitude, longitude }) : distanceMeters(KLAIPEDA_CENTER, { latitude, longitude }),
+    distanceMeters: userPoint
+      ? distanceMeters(userPoint, { latitude, longitude })
+      : distanceMeters(KLAIPEDA_CENTER, { latitude, longitude }),
     score: Number(item.score || 0),
     source,
   };
@@ -194,12 +123,89 @@ function openCageBounds(userPoint) {
   const lon = Number(center.longitude);
 
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-    return '20.6,55.2,22.1,56.2';
+    return '20.2,54.8,22.8,56.4';
   }
 
-  const deltaLat = 0.65;
-  const deltaLon = 0.95;
+  const deltaLat = 0.9;
+  const deltaLon = 1.25;
+
   return `${lon - deltaLon},${lat - deltaLat},${lon + deltaLon},${lat + deltaLat}`;
+}
+
+function classifyOpenCageType(components = {}) {
+  if (components.road || components.street || components.house_number) return 'address';
+  if (components.city || components.town || components.village || components.hamlet) return 'place';
+  if (components.shopping || components.shop || components.commercial) return 'place';
+  if (components.aeroway || components.airport) return 'airport';
+  return 'place';
+}
+
+function openCageTitle(result, query) {
+  const components = result.components || {};
+
+  return String(
+    components.name ||
+      components.shopping ||
+      components.shop ||
+      components.attraction ||
+      components.building ||
+      components.amenity ||
+      components.road ||
+      components.street ||
+      components.village ||
+      components.town ||
+      components.city ||
+      components.hamlet ||
+      result.formatted ||
+      query
+  );
+}
+
+function openCageSubtitle(result) {
+  const components = result.components || {};
+
+  const settlement =
+    components.city ||
+    components.town ||
+    components.village ||
+    components.hamlet ||
+    components.municipality ||
+    components.county ||
+    null;
+
+  const road = components.road || components.street || null;
+  const house = components.house_number || null;
+
+  if (road && house && settlement) return `${road} ${house}, ${settlement}`;
+  if (road && settlement) return `${road}, ${settlement}`;
+  if (settlement && components.state) return `${settlement}, ${components.state}`;
+  if (settlement) return `${settlement}, Lietuva`;
+
+  return String(result.formatted || 'Lietuva');
+}
+
+function openCageScore(result, index, query, userPoint) {
+  const confidence = Number(result.confidence || 0);
+  const title = normalizeText(openCageTitle(result, query));
+  const formatted = normalizeText(result.formatted || '');
+  const normalizedQuery = normalizeText(query);
+
+  let score = 700 + confidence * 35 - index * 6;
+
+  if (title === normalizedQuery) score += 260;
+  else if (title.startsWith(normalizedQuery)) score += 180;
+  else if (formatted.includes(normalizedQuery)) score += 120;
+
+  const geometry = {
+    latitude: Number(result?.geometry?.lat),
+    longitude: Number(result?.geometry?.lng),
+  };
+
+  const distance = distanceMeters(userPoint, geometry);
+  if (distance < 30000) score += 70;
+  else if (distance < 80000) score += 35;
+
+  return score;
 }
 
 async function searchOpenCage(q, userPoint, limit) {
@@ -209,7 +215,7 @@ async function searchOpenCage(q, userPoint, limit) {
   const url = new URL('https://api.opencagedata.com/geocode/v1/json');
   url.searchParams.set('q', q);
   url.searchParams.set('key', apiKey);
-  url.searchParams.set('limit', String(Math.min(Math.max(limit, 3), 8)));
+  url.searchParams.set('limit', String(Math.min(Math.max(limit, 5), 10)));
   url.searchParams.set('countrycode', DEFAULT_COUNTRY_CODE);
   url.searchParams.set('language', 'lt');
   url.searchParams.set('no_annotations', '1');
@@ -238,47 +244,23 @@ async function searchOpenCage(q, userPoint, limit) {
       .map((result, index) => {
         const latitude = Number(result?.geometry?.lat);
         const longitude = Number(result?.geometry?.lng);
+
         if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
 
-        const components = result.components || {};
-        const confidence = Number(result.confidence || 0);
-        const formatted = String(result.formatted || q);
-        const settlement =
-          components.city ||
-          components.town ||
-          components.village ||
-          components.hamlet ||
-          components.municipality ||
-          components.county ||
-          '';
-
-        const road = components.road || components.street || '';
-        const house = components.house_number || '';
-        const title =
-          components.name ||
-          components.shopping ||
-          components.attraction ||
-          components.building ||
-          (road ? `${road}${house ? ` ${house}` : ''}` : '') ||
-          settlement ||
-          formatted;
-
-        const subtitleParts = [
-          settlement && settlement !== title ? settlement : null,
-          components.state,
-          'Lietuva',
-        ].filter(Boolean);
+        const title = openCageTitle(result, q);
+        const subtitle = openCageSubtitle(result);
+        const type = classifyOpenCageType(result.components || {});
 
         return {
           id: `opencage-${index}-${latitude.toFixed(5)}-${longitude.toFixed(5)}`,
           title,
           name: title,
-          subtitle: subtitleParts.length ? subtitleParts.join(', ') : formatted,
-          type: road || house ? 'address' : 'place',
+          subtitle,
+          type,
           latitude,
           longitude,
           distanceMeters: distanceMeters(userPoint, { latitude, longitude }),
-          score: 180 + confidence * 20 - index,
+          score: openCageScore(result, index, q, userPoint),
           source: 'opencage',
         };
       })
@@ -304,10 +286,10 @@ async function searchStops(q, userPoint, limit) {
         ST_SetSRID(ST_MakePoint($2, $3), 4326)
       ) AS distance_meters,
       CASE
-        WHEN lower(unaccent(stop_name)) = lower(unaccent($1)) THEN 500
-        WHEN lower(unaccent(stop_name)) LIKE lower(unaccent($1 || '%')) THEN 360
-        WHEN lower(unaccent(stop_name)) LIKE lower(unaccent('%' || $1 || '%')) THEN 260
-        ELSE 80
+        WHEN lower(unaccent(stop_name)) = lower(unaccent($1)) THEN 520
+        WHEN lower(unaccent(stop_name)) LIKE lower(unaccent($1 || '%')) THEN 420
+        WHEN lower(unaccent(stop_name)) LIKE lower(unaccent('%' || $1 || '%')) THEN 300
+        ELSE 100
       END AS text_score
     FROM transit.stops
     WHERE
@@ -319,6 +301,7 @@ async function searchStops(q, userPoint, limit) {
   `;
 
   const result = await pool.query(sql, params);
+
   return result.rows.map((row) => ({
     id: String(row.id),
     title: String(row.name),
@@ -333,11 +316,35 @@ async function searchStops(q, userPoint, limit) {
   }));
 }
 
+function searchLocalPois(q, userPoint, limit) {
+  const list = Array.isArray(pois) ? pois : [];
+
+  return list
+    .map((poi) => {
+      const normalized = normalizePoi(poi);
+      const score = poiScore(normalized, q);
+      if (!score) return null;
+
+      return normalizeResult(
+        {
+          ...normalized,
+          score,
+        },
+        userPoint,
+        normalized.type || 'place'
+      );
+    })
+    .filter(Boolean)
+    .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
+    .slice(0, limit);
+}
+
 function dedupeResults(results) {
   const map = new Map();
 
   for (const item of results) {
     if (!item) continue;
+
     const key = `${normalizeText(item.title)}:${Number(item.latitude).toFixed(5)}:${Number(item.longitude).toFixed(5)}`;
     const current = map.get(key);
 
@@ -369,51 +376,28 @@ async function searchPlaces({ q, lat, lon, limit = 12 }) {
     ? { latitude: Number(lat), longitude: Number(lon) }
     : KLAIPEDA_CENTER;
 
-  const allPois = [
-    ...IMPORTANT_POI_ALIASES,
-    ...(Array.isArray(pois) ? pois : []),
-  ];
+  const [geocodeMatches, stopMatches] = await Promise.all([
+    searchOpenCage(query, userPoint, Math.max(8, limit)).catch((error) => {
+      console.error('OpenCage fallback failed:', error.message);
+      return [];
+    }),
+    searchStops(query, userPoint, Math.max(8, limit)).catch((error) => {
+      console.error('Stop search failed:', error.message);
+      return [];
+    }),
+  ]);
 
-  const poiMatches = allPois
-    .map((poi) => {
-      const normalized = normalizePoi(poi);
-      const score = poiScore(normalized, query);
-      if (!score) return null;
+  const poiMatches = searchLocalPois(query, userPoint, Math.max(4, Math.floor(limit / 3)));
 
-      return normalizeResult(
-        {
-          ...normalized,
-          score,
-        },
-        userPoint,
-        normalized.type || 'place'
-      );
-    })
-    .filter(Boolean);
-
-  let stopMatches = [];
-  try {
-    stopMatches = await searchStops(query, userPoint, Math.max(8, limit));
-  } catch (error) {
-    console.error('POI stop fallback failed:', error.message);
-  }
-
-  let geocodeMatches = [];
-  try {
-    const shouldGeocode =
-      poiMatches.length < 4 ||
-      normalizeText(query).includes('g ') ||
-      normalizeText(query).includes('gatve') ||
-      queryTokens(query).length >= 1;
-
-    if (shouldGeocode) {
-      geocodeMatches = await searchOpenCage(query, userPoint, Math.max(5, Math.floor(limit / 2)));
-    }
-  } catch (error) {
-    console.error('OpenCage fallback failed:', error.message);
-  }
-
-  const results = dedupeResults([...poiMatches, ...stopMatches, ...geocodeMatches]);
+  // Production order:
+  // 1) OpenCage real geocoder for addresses, villages, cities, POIs.
+  // 2) GTFS stops.
+  // 3) Local POI JSON only as weak fallback, never as hardcoded override.
+  const results = dedupeResults([
+    ...geocodeMatches,
+    ...stopMatches,
+    ...poiMatches,
+  ]);
 
   return sortResults(results)
     .slice(0, limit)

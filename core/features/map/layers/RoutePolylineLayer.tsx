@@ -4,6 +4,7 @@ import type {
   Coordinate,
   TransitFlowState,
   TransitRouteOption,
+  TransitStep,
 } from "../../transit/models/transitTypes";
 
 type Props = {
@@ -20,68 +21,56 @@ function isValidPoint(point: any) {
   );
 }
 
-function getRoutePoints(route: TransitRouteOption | null): Coordinate[] {
-  if (!route) return [];
-
-  const polyline = Array.isArray(route.polyline)
-    ? (route.polyline.filter(isValidPoint) as Coordinate[])
-    : [];
-
-  if (polyline.length >= 2) return polyline;
-
-  const previewPoints = Array.isArray(route.previewPoints)
-    ? (route.previewPoints.filter(isValidPoint) as Coordinate[])
-    : [];
-
-  if (previewPoints.length >= 2) return previewPoints;
-
-  return [];
+function cleanPoints(points?: Coordinate[] | null): Coordinate[] {
+  if (!Array.isArray(points)) return [];
+  return points.filter(isValidPoint) as Coordinate[];
 }
 
-function getStepBasedSegment(
-  points: Coordinate[],
-  route: TransitRouteOption | null,
+function stepKind(step: TransitStep) {
+  if (step.type === "walk" || step.type === "transfer") return "walk";
+  if (step.type === "ride" || step.type === "bus") return "ride";
+  return "other";
+}
+
+function getSegments(route: TransitRouteOption | null) {
+  const steps = route?.journeySteps || route?.steps || [];
+
+  const stepSegments = steps
+    .map((step, index) => ({
+      id: String(step.id ?? `${step.type}-${index}`),
+      index,
+      type: stepKind(step),
+      points: cleanPoints(step.polyline),
+    }))
+    .filter((segment) => segment.points.length >= 2 && segment.type !== "other");
+
+  if (stepSegments.length) return stepSegments;
+
+  const fallback = cleanPoints(route?.polyline || route?.previewPoints);
+  if (fallback.length < 2) return [];
+
+  return [
+    {
+      id: "fallback",
+      index: 0,
+      type: route?.mode === "walk_only" || route?.mode === "walk" ? "walk" : "ride",
+      points: fallback,
+    },
+  ];
+}
+
+function isActiveSegment(
+  segmentIndex: number,
   flowState?: TransitFlowState,
   currentStepIndex?: number
 ) {
-  if (points.length < 2) return [];
-
-  const steps = route?.journeySteps || route?.steps || [];
   const safeIndex = Math.max(0, Number(currentStepIndex || 0));
-  const totalSteps = Math.max(1, steps.length);
-
-  const step = steps[safeIndex];
-
-  if (step?.polyline && step.polyline.length >= 2) {
-    return step.polyline.filter(isValidPoint) as Coordinate[];
-  }
 
   if (flowState === "route_options" || flowState === "route_selected") {
-    const end = Math.max(2, Math.floor(points.length * 0.28));
-    return points.slice(0, end);
+    return segmentIndex === 0;
   }
 
-  if (flowState === "walking_to_stop" || flowState === "waiting_bus") {
-    const end = Math.max(2, Math.floor(points.length * 0.22));
-    return points.slice(0, end);
-  }
-
-  if (flowState === "arriving") {
-    const start = Math.max(0, Math.floor(points.length * 0.72));
-    return points.slice(start);
-  }
-
-  if (flowState === "onboard" || flowState === "transfer") {
-    const progressStart = safeIndex / totalSteps;
-    const progressEnd = Math.min(1, (safeIndex + 2) / totalSteps);
-
-    const start = Math.max(0, Math.floor(points.length * progressStart));
-    const end = Math.max(start + 2, Math.floor(points.length * progressEnd));
-
-    return points.slice(start, Math.min(points.length, end));
-  }
-
-  return points;
+  return segmentIndex === safeIndex;
 }
 
 export default function RoutePolylineLayer({
@@ -89,51 +78,47 @@ export default function RoutePolylineLayer({
   flowState,
   currentStepIndex,
 }: Props) {
-  const points = useMemo(() => getRoutePoints(route), [route]);
+  const segments = useMemo(() => getSegments(route), [route]);
 
-  const activePoints = useMemo(() => {
-    return getStepBasedSegment(points, route, flowState, currentStepIndex);
-  }, [points, route, flowState, currentStepIndex]);
-
-  if (points.length < 2) return null;
+  if (!segments.length) return null;
 
   return (
     <>
-      <Polyline
-        coordinates={points}
-        strokeWidth={14}
-        strokeColor="rgba(53,242,180,0.12)"
-        lineCap="round"
-        lineJoin="round"
-      />
+      {segments.map((segment) => {
+        const isWalk = segment.type === "walk";
+        const isActive = isActiveSegment(segment.index, flowState, currentStepIndex);
 
-      <Polyline
-        coordinates={points}
-        strokeWidth={7}
-        strokeColor="rgba(53,242,180,0.34)"
-        lineCap="round"
-        lineJoin="round"
-      />
+        const glowColor = isWalk
+          ? "rgba(80,170,255,0.16)"
+          : "rgba(53,242,180,0.14)";
 
-      {activePoints.length >= 2 ? (
-        <>
-          <Polyline
-            coordinates={activePoints}
-            strokeWidth={13}
-            strokeColor="rgba(255,255,255,0.24)"
-            lineCap="round"
-            lineJoin="round"
-          />
+        const baseColor = isWalk
+          ? "rgba(80,170,255,0.78)"
+          : "rgba(53,242,180,0.72)";
 
-          <Polyline
-            coordinates={activePoints}
-            strokeWidth={6}
-            strokeColor="#35F2B4"
-            lineCap="round"
-            lineJoin="round"
-          />
-        </>
-      ) : null}
+        const activeColor = isWalk ? "#50AAFF" : "#35F2B4";
+
+        return (
+          <React.Fragment key={segment.id}>
+            <Polyline
+              coordinates={segment.points}
+              strokeWidth={isActive ? 15 : 12}
+              strokeColor={glowColor}
+              lineCap="round"
+              lineJoin="round"
+            />
+
+            <Polyline
+              coordinates={segment.points}
+              strokeWidth={isActive ? 7 : 5}
+              strokeColor={isActive ? activeColor : baseColor}
+              lineCap="round"
+              lineJoin="round"
+              lineDashPattern={isWalk ? [10, 8] : undefined}
+            />
+          </React.Fragment>
+        );
+      })}
     </>
   );
 }

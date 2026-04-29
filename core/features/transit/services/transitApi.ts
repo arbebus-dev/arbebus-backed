@@ -25,6 +25,15 @@ export type LiveEtaResult = {
   message?: string;
 };
 
+export type WalkingRouteResult = {
+  geometry: Coordinate[];
+  polyline: Coordinate[];
+  points: Coordinate[];
+  durationSeconds: number | null;
+  durationMinutes: number | null;
+  distanceMeters: number | null;
+};
+
 function apiBase() {
   return API_ENDPOINTS.transitPlan.replace(/\/transit\/plan$/, "");
 }
@@ -95,6 +104,35 @@ function toCoordinate(input: any): Coordinate | null {
   return { latitude, longitude };
 }
 
+function normalizeGeometry(raw: any): Coordinate[] {
+  const candidates =
+    raw?.geometry ??
+    raw?.polyline ??
+    raw?.points ??
+    raw?.coordinates ??
+    raw?.route?.geometry ??
+    raw?.route?.polyline ??
+    raw?.features?.[0]?.geometry?.coordinates ??
+    [];
+
+  if (!Array.isArray(candidates)) return [];
+
+  // GeoJSON format: [[lon, lat], [lon, lat]]
+  if (Array.isArray(candidates[0])) {
+    return candidates
+      .map((point: any) => {
+        const longitude = Number(point?.[0]);
+        const latitude = Number(point?.[1]);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+        return { latitude, longitude };
+      })
+      .filter(Boolean) as Coordinate[];
+  }
+
+  // App format: [{ latitude, longitude }]
+  return candidates.map(toCoordinate).filter(Boolean) as Coordinate[];
+}
+
 function normalizeId(value: any) {
   return String(value ?? "").trim();
 }
@@ -162,6 +200,66 @@ function normalizeLiveBus(raw: any, index = 0): LiveBus | null {
   };
 }
 
+function normalizeStop(raw: any) {
+  const coordinate = toCoordinate(raw);
+  if (!coordinate) return null;
+
+  return {
+    id:
+      raw?.id != null
+        ? String(raw.id)
+        : raw?.stop_id != null
+          ? String(raw.stop_id)
+          : undefined,
+    title: String(raw?.title ?? raw?.name ?? raw?.stopName ?? raw?.stop_name ?? "Stotelė"),
+    name: String(raw?.name ?? raw?.title ?? raw?.stopName ?? raw?.stop_name ?? "Stotelė"),
+    stopName: String(raw?.stopName ?? raw?.stop_name ?? raw?.name ?? raw?.title ?? "Stotelė"),
+    stopSequence:
+      raw?.stopSequence != null
+        ? Number(raw.stopSequence)
+        : raw?.stop_sequence != null
+          ? Number(raw.stop_sequence)
+          : undefined,
+    latitude: coordinate.latitude,
+    longitude: coordinate.longitude,
+    coordinate,
+    distanceMeters: raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
+    arrivalSeconds:
+      raw?.arrivalSeconds != null
+        ? Number(raw.arrivalSeconds)
+        : raw?.arrival_seconds != null
+          ? Number(raw.arrival_seconds)
+          : undefined,
+    departureSeconds:
+      raw?.departureSeconds != null
+        ? Number(raw.departureSeconds)
+        : raw?.departure_seconds != null
+          ? Number(raw.departure_seconds)
+          : undefined,
+  };
+}
+
+function normalizeStops(rawStops: any): any[] {
+  if (!Array.isArray(rawStops)) return [];
+
+  return rawStops
+    .map((stop) => {
+      if (typeof stop === "string") {
+        return {
+          title: stop,
+          name: stop,
+          stopName: stop,
+          latitude: NaN,
+          longitude: NaN,
+        };
+      }
+
+      return normalizeStop(stop);
+    })
+    .filter(Boolean)
+    .filter((stop) => Number.isFinite(Number(stop.latitude)) && Number.isFinite(Number(stop.longitude)));
+}
+
 function normalizeStep(raw: any, index: number): TransitStep {
   const rawType = String(raw?.type ?? raw?.mode ?? "bus");
 
@@ -175,6 +273,24 @@ function normalizeStep(raw: any, index: number): TransitStep {
       ? rawType
       : "bus";
 
+  const stops = normalizeStops(
+    raw?.stops ??
+      raw?.rideStops ??
+      raw?.routeStops ??
+      raw?.stopList ??
+      raw?.passedStops ??
+      raw?.summary?.stops
+  );
+
+  const routeNumber =
+    raw?.routeNumber != null
+      ? String(raw.routeNumber)
+      : raw?.routeLabel != null
+        ? String(raw.routeLabel)
+        : raw?.routeId != null
+          ? String(raw.routeId)
+          : undefined;
+
   return {
     id: String(raw?.id ?? index),
     type,
@@ -184,19 +300,23 @@ function normalizeStep(raw: any, index: number): TransitStep {
     subtitle: raw?.subtitle,
     description: raw?.description ?? raw?.subtitle,
     routeId: raw?.routeId != null ? String(raw.routeId) : undefined,
-    routeNumber:
-      raw?.routeNumber != null
-        ? String(raw.routeNumber)
-        : raw?.routeId != null
-          ? String(raw.routeId)
-          : undefined,
+    routeNumber,
+    routeLabel: raw?.routeLabel != null ? String(raw.routeLabel) : routeNumber,
     stopId: raw?.stopId != null ? String(raw.stopId) : undefined,
     stopName: raw?.stopName,
     fromStopId: raw?.fromStopId != null ? String(raw.fromStopId) : undefined,
     toStopId: raw?.toStopId != null ? String(raw.toStopId) : undefined,
-    fromStopName: raw?.fromStopName ?? raw?.fromStop ?? raw?.stopName,
-    toStopName: raw?.toStopName ?? raw?.toStop,
-    stopCount: raw?.stopCount != null ? Number(raw.stopCount) : undefined,
+    fromStopName: raw?.fromStopName ?? raw?.fromStop?.name ?? raw?.fromStop ?? raw?.stopName,
+    toStopName: raw?.toStopName ?? raw?.toStop?.name ?? raw?.toStop,
+    stopCount:
+      raw?.stopCount != null
+        ? Number(raw.stopCount)
+        : stops.length > 0
+          ? Math.max(0, stops.length - 1)
+          : undefined,
+    stops,
+    rideStops: stops,
+    routeStops: stops,
     minutes:
       raw?.minutes != null
         ? Number(raw.minutes)
@@ -443,6 +563,92 @@ export async function planTransitRoute(params: {
   return uniqueRoutes.map((route: any, index: number) =>
     normalizeBackendPlan(route, index, params.from, params.to)
   );
+}
+
+export async function fetchWalkingRoute(
+  fromOrParams: Coordinate | { from: Coordinate; to: Coordinate },
+  maybeTo?: Coordinate
+): Promise<WalkingRouteResult | null> {
+  const from =
+    "from" in fromOrParams ? fromOrParams.from : fromOrParams;
+
+  const to =
+    "from" in fromOrParams ? fromOrParams.to : maybeTo;
+
+  if (!from || !to) return null;
+  const body = JSON.stringify({
+    origin: {
+      latitude: from.latitude,
+      longitude: from.longitude,
+    },
+    destination: {
+      latitude: to.latitude,
+      longitude: to.longitude,
+    },
+    from,
+    to,
+  });
+
+  const urls = [
+    `${apiBase()}/routing/walk`,
+    `${apiBase()}/route/walk`,
+    `${apiBase()}/directions/walk`,
+    `${apiBase()}/directions/foot-walking`,
+    `${apiBase()}/walk/route`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const response = await fetchWithRetry(
+        url,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        },
+        0
+      );
+
+      if (!response.ok) continue;
+
+      const data = await safeJson<any>(response);
+      const geometry = normalizeGeometry(data);
+
+      if (geometry.length >= 2) {
+        const durationSeconds =
+          data?.durationSeconds ??
+          data?.duration ??
+          data?.summary?.duration ??
+          data?.features?.[0]?.properties?.summary?.duration ??
+          null;
+
+        const distanceMeters =
+          data?.distanceMeters ??
+          data?.distance ??
+          data?.summary?.distance ??
+          data?.features?.[0]?.properties?.summary?.distance ??
+          null;
+
+        const durationNumber = Number(durationSeconds);
+        const distanceNumber = Number(distanceMeters);
+
+        return {
+          geometry,
+          polyline: geometry,
+          points: geometry,
+          durationSeconds: Number.isFinite(durationNumber) ? durationNumber : null,
+          durationMinutes: Number.isFinite(durationNumber)
+            ? Math.max(1, Math.round(durationNumber / 60))
+            : null,
+          distanceMeters: Number.isFinite(distanceNumber) ? distanceNumber : null,
+        };
+      }
+    } catch {
+      // Try next walking endpoint.
+    }
+  }
+
+  return null;
 }
 
 export async function fetchTransitShape(shapeId?: string | null): Promise<Coordinate[]> {

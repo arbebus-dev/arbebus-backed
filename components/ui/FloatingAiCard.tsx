@@ -6,6 +6,7 @@ export default function FloatingAiCard({
   visible,
   title,
   subtitle,
+  onPress,
 }: any) {
   const opacity = useRef(new Animated.Value(0)).current;
 
@@ -15,11 +16,13 @@ export default function FloatingAiCard({
       duration: 200,
       useNativeDriver: true,
     }).start();
-  }, [visible]);
+  }, [visible, opacity]);
+
+  if (!visible) return null;
 
   return (
     <Animated.View style={{ opacity }}>
-      <GlassCard>
+      <GlassCard onPress={onPress} testID="floating-ai-card">
         <View style={{ padding: 14 }}>
           <Text style={{ color: "#fff", fontWeight: "800" }}>{title}</Text>
           <Text style={{ color: "#AFC3E6" }}>{subtitle}</Text>

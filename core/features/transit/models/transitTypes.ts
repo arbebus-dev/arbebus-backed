@@ -60,12 +60,16 @@ export type TransitStepType =
 
 export type TransitStopPoint = {
   id?: string;
-  title: string;
+  title?: string;
   name?: string;
+  stopName?: string;
+  stopSequence?: number;
   latitude: number;
   longitude: number;
-  coordinate: Coordinate;
+  coordinate?: Coordinate;
   distanceMeters?: number;
+  arrivalSeconds?: number;
+  departureSeconds?: number;
 };
 
 export type TransitStep = {
@@ -91,6 +95,9 @@ export type TransitStep = {
   fromStopName?: string;
   toStopName?: string;
   stopCount?: number;
+  stops?: TransitStopPoint[];
+  rideStops?: TransitStopPoint[];
+  routeStops?: TransitStopPoint[];
   minutes?: number;
   durationMinutes?: number;
   distanceMeters?: number;
@@ -109,6 +116,7 @@ export type TransitLiveEta = {
 
 export type TransitRouteLeg = {
   id?: string;
+  type?: TransitStepType | string;
   mode?: "walk" | "bus" | "train" | "mixed" | string;
   routeId?: string;
   routeNumber?: string;
@@ -117,6 +125,7 @@ export type TransitRouteLeg = {
   toStopName?: string;
   fromStop?: TransitStopPoint;
   toStop?: TransitStopPoint;
+  stops?: TransitStopPoint[];
   durationMinutes?: number;
   stopCount?: number;
   polyline?: Coordinate[];
@@ -193,11 +202,7 @@ export type TransitPlan = {
     journeyMessage?: string;
   };
   segments?: Array<{
-    stops?: Array<{
-      stopName?: string;
-      latitude?: number;
-      longitude?: number;
-    }>;
+    stops?: TransitStopPoint[];
   }>;
   previewPoints?: Coordinate[];
 };
