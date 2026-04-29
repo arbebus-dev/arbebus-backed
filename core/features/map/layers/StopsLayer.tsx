@@ -6,6 +6,7 @@ import type { TransitRouteOption, TransitStep } from "../../transit/models/trans
 
 type Props = {
   route: TransitRouteOption | null;
+  flowState?: string;
 };
 
 type StopPoint = {
@@ -26,25 +27,38 @@ function isValidCoordinate(point: any) {
 
 function coordinateFromStop(stop: any) {
   if (isValidCoordinate(stop?.coordinate)) return stop.coordinate;
+
   if (isValidCoordinate(stop)) {
     return {
       latitude: Number(stop.latitude),
       longitude: Number(stop.longitude),
     };
   }
+
   return null;
 }
 
 function stopName(stop: any, fallback = "Stotelė") {
-  return String(stop?.name ?? stop?.title ?? stop?.stopName ?? stop?.stop_name ?? fallback).trim();
+  return String(
+    stop?.name ?? stop?.title ?? stop?.stopName ?? stop?.stop_name ?? fallback
+  ).trim();
 }
 
-function makeStop(raw: any, type: StopPoint["type"], order: number, fallbackName?: string): StopPoint | null {
+function makeStop(
+  raw: any,
+  type: StopPoint["type"],
+  order: number,
+  fallbackName?: string
+): StopPoint | null {
   const coordinate = coordinateFromStop(raw);
   if (!coordinate) return null;
 
   return {
-    id: String(raw?.id ?? raw?.stop_id ?? `${type}-${order}-${coordinate.latitude}-${coordinate.longitude}`),
+    id: String(
+      raw?.id ??
+        raw?.stop_id ??
+        `${type}-${order}-${coordinate.latitude}-${coordinate.longitude}`
+    ),
     name: stopName(raw, fallbackName),
     coordinate,
     type,
@@ -59,7 +73,9 @@ function getStopsFromRideStep(step: TransitStep, orderStart: number) {
   if (!Array.isArray(stops) || !stops.length) return [];
 
   return stops
-    .map((stop: any, index: number) => makeStop(stop, "ride", orderStart + index, stopName(stop)))
+    .map((stop: any, index: number) =>
+      makeStop(stop, "ride", orderStart + index, stopName(stop))
+    )
     .filter(Boolean) as StopPoint[];
 }
 
@@ -82,23 +98,29 @@ function stopsFromRoute(route: TransitRouteOption): StopPoint[] {
 
     if (step.type === "board" && step.stopName) {
       const firstPoint = Array.isArray(step.polyline) ? step.polyline[0] : null;
+
       const maybeStop = makeStop(
         { id: step.stopId, name: step.stopName, coordinate: firstPoint },
         "board",
         order++,
         step.stopName
       );
+
       if (maybeStop) result.push(maybeStop);
     }
 
     if ((step.type === "alight" || step.type === "arrive") && step.stopName) {
-      const lastPoint = Array.isArray(step.polyline) ? step.polyline[step.polyline.length - 1] : null;
+      const lastPoint = Array.isArray(step.polyline)
+        ? step.polyline[step.polyline.length - 1]
+        : null;
+
       const maybeStop = makeStop(
         { id: step.stopId, name: step.stopName, coordinate: lastPoint },
         "alight",
         order++,
         step.stopName
       );
+
       if (maybeStop) result.push(maybeStop);
     }
   }
@@ -125,7 +147,7 @@ function stopsFromRoute(route: TransitRouteOption): StopPoint[] {
   return Array.from(deduped.values()).sort((a, b) => a.order - b.order);
 }
 
-export default function StopsLayer({ route }: Props) {
+export default function StopsLayer({ route, flowState }: Props) {
   const stops = useMemo(() => {
     if (!route || route.mode === "walk_only" || route.mode === "walk") return [];
     return stopsFromRoute(route);
@@ -133,33 +155,53 @@ export default function StopsLayer({ route }: Props) {
 
   if (!route || stops.length === 0) return null;
 
+  const isBoardingActive =
+    flowState === "walking_to_stop" || flowState === "waiting_bus";
+
+  const isAlightActive =
+    flowState === "onboard" || flowState === "arriving";
+
   return (
     <>
       {stops.map((stop, index) => {
         const isBoard = stop.type === "board";
         const isAlight = stop.type === "alight";
 
+        const isActive =
+          (isBoard && isBoardingActive) ||
+          (isAlight && isAlightActive);
+
         return (
           <Marker
             key={`${stop.id}-${index}`}
             coordinate={stop.coordinate}
             anchor={{ x: 0.5, y: 0.95 }}
+            tracksViewChanges={false}
+            zIndex={isActive ? 900 : isBoard || isAlight ? 600 : 300}
           >
             <View style={styles.pinWrap}>
+              {isActive ? <View style={styles.activeGlow} /> : null}
+
               <View
                 style={[
                   styles.pin,
                   isBoard && styles.stopIn,
                   isAlight && styles.stopOut,
+                  isActive && styles.activePin,
                 ]}
               >
                 {isBoard ? <Ionicons name="bus" size={14} color="#06111F" /> : null}
                 {isAlight ? <Ionicons name="flag" size={13} color="#06111F" /> : null}
-                {!isBoard && !isAlight ? <Text style={styles.number}>{index + 1}</Text> : null}
-                {(isBoard || isAlight) ? (
+
+                {!isBoard && !isAlight ? (
+                  <Text style={styles.number}>{index + 1}</Text>
+                ) : null}
+
+                {isBoard || isAlight ? (
                   <Text style={styles.text}>{isBoard ? "ĮLIPK" : "IŠLIPK"}</Text>
                 ) : null}
               </View>
+
               <View
                 style={[
                   styles.pinDot,
@@ -180,6 +222,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  activeGlow: {
+    position: "absolute",
+    top: -7,
+    width: 92,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.55)",
+  },
   pin: {
     minWidth: 28,
     height: 28,
@@ -192,6 +244,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(10,16,30,0.95)",
     borderWidth: 2,
     borderColor: "#35F2B4",
+  },
+  activePin: {
+    transform: [{ scale: 1.08 }],
   },
   stopIn: {
     minWidth: 72,

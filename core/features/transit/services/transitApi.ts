@@ -260,8 +260,19 @@ function normalizeStops(rawStops: any): any[] {
     .filter((stop) => Number.isFinite(Number(stop.latitude)) && Number.isFinite(Number(stop.longitude)));
 }
 
+function cleanRouteLabel(value?: string | null) {
+  return String(value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function routeNumbersFromLabel(label?: string | null) {
+  return cleanRouteLabel(label)
+    .split("→")
+    .map((part) => cleanRouteLabel(part).split("•")[0]?.trim())
+    .filter(Boolean);
+}
+
 function normalizeStep(raw: any, index: number): TransitStep {
-  const rawType = String(raw?.type ?? raw?.mode ?? "bus");
+  const rawType = String(raw?.type ?? raw?.mode ?? "bus").toLowerCase();
 
   const type: TransitStepType =
     rawType === "walk" ||
@@ -270,7 +281,7 @@ function normalizeStep(raw: any, index: number): TransitStep {
     rawType === "board" ||
     rawType === "ride" ||
     rawType === "alight"
-      ? rawType
+      ? (rawType as TransitStepType)
       : "bus";
 
   const stops = normalizeStops(
@@ -284,59 +295,129 @@ function normalizeStep(raw: any, index: number): TransitStep {
 
   const routeNumber =
     raw?.routeNumber != null
-      ? String(raw.routeNumber)
+      ? cleanRouteLabel(raw.routeNumber)
       : raw?.routeLabel != null
-        ? String(raw.routeLabel)
+        ? cleanRouteLabel(raw.routeLabel)
         : raw?.routeId != null
-          ? String(raw.routeId)
+          ? cleanRouteLabel(raw.routeId)
           : undefined;
 
-  return {
-    id: String(raw?.id ?? index),
+  const polyline = Array.isArray(raw?.polyline)
+    ? (raw.polyline.map(toCoordinate).filter(Boolean) as Coordinate[])
+    : Array.isArray(raw?.points)
+      ? (raw.points.map(toCoordinate).filter(Boolean) as Coordinate[])
+      : undefined;
+
+  const normalized: any = {
+    id: String(raw?.id ?? `${type}-${index}`),
     type,
-    mode: raw?.mode,
+    mode: raw?.mode ?? (type === "ride" || type === "board" || type === "bus" ? "bus" : type),
     icon: raw?.icon,
     title: String(raw?.title ?? "Kelionės žingsnis"),
     subtitle: raw?.subtitle,
     description: raw?.description ?? raw?.subtitle,
     routeId: raw?.routeId != null ? String(raw.routeId) : undefined,
     routeNumber,
-    routeLabel: raw?.routeLabel != null ? String(raw.routeLabel) : routeNumber,
+    routeLabel: raw?.routeLabel != null ? cleanRouteLabel(raw.routeLabel) : routeNumber,
     stopId: raw?.stopId != null ? String(raw.stopId) : undefined,
     stopName: raw?.stopName,
     fromStopId: raw?.fromStopId != null ? String(raw.fromStopId) : undefined,
     toStopId: raw?.toStopId != null ? String(raw.toStopId) : undefined,
-    fromStopName: raw?.fromStopName ?? raw?.fromStop?.name ?? raw?.fromStop ?? raw?.stopName,
+    fromStopName: raw?.fromStopName ?? raw?.fromStop?.name ?? raw?.fromStop,
     toStopName: raw?.toStopName ?? raw?.toStop?.name ?? raw?.toStop,
-    stopCount:
-      raw?.stopCount != null
-        ? Number(raw.stopCount)
-        : stops.length > 0
-          ? Math.max(0, stops.length - 1)
-          : undefined,
+    stopCount: raw?.stopCount != null ? Number(raw.stopCount) : stops.length > 0 ? Math.max(0, stops.length - 1) : undefined,
     stops,
     rideStops: stops,
     routeStops: stops,
-    minutes:
-      raw?.minutes != null
-        ? Number(raw.minutes)
-        : raw?.durationMinutes != null
-          ? Number(raw.durationMinutes)
-          : undefined,
-    durationMinutes:
-      raw?.durationMinutes != null
-        ? Number(raw.durationMinutes)
-        : raw?.minutes != null
-          ? Number(raw.minutes)
-          : undefined,
-    distanceMeters:
-      raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
+    minutes: raw?.minutes != null ? Number(raw.minutes) : raw?.durationMinutes != null ? Number(raw.durationMinutes) : undefined,
+    durationMinutes: raw?.durationMinutes != null ? Number(raw.durationMinutes) : raw?.minutes != null ? Number(raw.minutes) : undefined,
+    distanceMeters: raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
     departureTime: raw?.departureTime ?? raw?.departureText,
     arrivalTime: raw?.arrivalTime ?? raw?.arrivalText,
-    polyline: Array.isArray(raw?.polyline)
-      ? (raw.polyline.map(toCoordinate).filter(Boolean) as Coordinate[])
-      : undefined,
+    polyline,
   };
+
+  return normalized as TransitStep;
+}
+
+function buildStepsFromBackendPlan(raw: any, summary: any): TransitStep[] {
+  const routeLabel = cleanRouteLabel(summary.routeLabel ?? raw?.routeLabel ?? "Autobusas");
+  const routeNumbers = routeNumbersFromLabel(routeLabel);
+  const boardStopName = String(summary.boardStopName ?? raw?.originStop?.name ?? "Įlipimo stotelė");
+  const alightStopName = String(summary.alightStopName ?? raw?.destinationStop?.name ?? "Išlipimo stotelė");
+  const totalWalkMinutes = Number(summary.totalWalkMinutes ?? raw?.totalWalkMinutes ?? raw?.walkingMinutes ?? 0);
+  const totalBusMinutes = Number(summary.totalBusMinutes ?? raw?.totalBusMinutes ?? 0);
+  const stopCount = Number(summary.stopCount ?? raw?.stopCount ?? 0);
+  const transfersCount = Number(summary.transfersCount ?? raw?.transfersCount ?? Math.max(0, routeNumbers.length - 1));
+  const numbers = routeNumbers.length ? routeNumbers : [cleanRouteLabel(raw?.routeId ?? routeLabel ?? "Autobusas")];
+  const steps: TransitStep[] = [];
+
+  if (totalWalkMinutes > 0) {
+    steps.push(normalizeStep({
+      id: "walk-to-stop",
+      type: "walk",
+      mode: "walk",
+      icon: "walk",
+      title: "Eik iki stotelės",
+      subtitle: `Iki „${boardStopName}“ • ${totalWalkMinutes} min pėsčiomis`,
+      stopName: boardStopName,
+      durationMinutes: totalWalkMinutes,
+      minutes: totalWalkMinutes,
+    }, steps.length));
+  }
+
+  numbers.forEach((number, routeIndex) => {
+    const isLast = routeIndex === numbers.length - 1;
+
+    steps.push(normalizeStep({
+      id: `board-${routeIndex}`,
+      type: "board",
+      mode: "bus",
+      icon: "bus",
+      title: `Lipk į autobusą ${number}`,
+      subtitle: routeIndex === 0 ? `Stotelė „${boardStopName}“` : "Persėdimo stotelė",
+      routeId: number,
+      routeNumber: number,
+      stopName: routeIndex === 0 ? boardStopName : undefined,
+    }, steps.length));
+
+    steps.push(normalizeStep({
+      id: `ride-${routeIndex}`,
+      type: "ride",
+      mode: "bus",
+      icon: "bus",
+      title: "Važiuok autobusu",
+      subtitle: isLast ? `Iki „${alightStopName}“ • ${totalBusMinutes || "?"} min • ${stopCount || "?"} st.` : "Iki persėdimo stotelės",
+      routeId: number,
+      routeNumber: number,
+      stopCount: isLast ? stopCount : undefined,
+      durationMinutes: isLast ? totalBusMinutes : undefined,
+      minutes: isLast ? totalBusMinutes : undefined,
+      toStopName: isLast ? alightStopName : undefined,
+    }, steps.length));
+
+    if (!isLast || transfersCount > routeIndex) {
+      steps.push(normalizeStep({
+        id: `transfer-${routeIndex}`,
+        type: "transfer",
+        mode: "walk",
+        icon: "swap-horizontal",
+        title: "Persėsk",
+        subtitle: `Toliau važiuok autobusu ${numbers[routeIndex + 1] ?? ""}`.trim(),
+      }, steps.length));
+    }
+  });
+
+  steps.push(normalizeStep({
+    id: "alight-final",
+    type: "alight",
+    icon: "flag-checkered",
+    title: "Išlipk",
+    subtitle: `„${alightStopName}“`,
+    stopName: alightStopName,
+  }, steps.length));
+
+  return steps;
 }
 
 function stopPoint(title: string, fallback: Coordinate, raw?: any) {
@@ -362,10 +443,16 @@ function normalizeBackendPlan(
 ): TransitRouteOption {
   const summary = raw?.summary ?? {};
 
+  const rawPolyline = Array.isArray(raw?.polyline)
+    ? (raw.polyline.map(toCoordinate).filter(Boolean) as Coordinate[])
+    : [];
+
   const previewPoints =
     Array.isArray(raw?.previewPoints) && raw.previewPoints.length
       ? (raw.previewPoints.map(toCoordinate).filter(Boolean) as Coordinate[])
-      : [fallbackFrom, fallbackTo];
+      : rawPolyline.length >= 2
+        ? rawPolyline
+        : [fallbackFrom, fallbackTo];
 
   const journeyStepsRaw = Array.isArray(raw?.journeySteps)
     ? raw.journeySteps
@@ -373,59 +460,52 @@ function normalizeBackendPlan(
       ? raw.steps
       : [];
 
-  const steps = journeyStepsRaw.map(normalizeStep);
+  const parsedSteps = journeyStepsRaw.map(normalizeStep);
+  const routeLabel = cleanRouteLabel(summary.routeLabel ?? raw?.routeLabel ?? raw?.title ?? "Autobusas");
+  const steps = parsedSteps.length ? parsedSteps : buildStepsFromBackendPlan(raw, summary);
 
-  const routeLabel = String(summary.routeLabel ?? raw?.routeLabel ?? "Autobusas");
-
-  const boardStopName = String(
-    summary.boardStopName ?? raw?.originStop?.name ?? "Artimiausia stotelė"
-  );
-
-  const alightStopName = String(
-    summary.alightStopName ?? raw?.destinationStop?.name ?? "Tikslas"
-  );
+  const boardStopName = String(summary.boardStopName ?? raw?.boardStopName ?? raw?.originStop?.name ?? "Artimiausia stotelė");
+  const alightStopName = String(summary.alightStopName ?? raw?.alightStopName ?? raw?.destinationStop?.name ?? "Tikslas");
 
   const from = toCoordinate(raw?.originStop) ?? previewPoints[0] ?? fallbackFrom;
-  const to =
-    toCoordinate(raw?.destinationStop) ??
-    previewPoints[previewPoints.length - 1] ??
-    fallbackTo;
+  const to = toCoordinate(raw?.destinationStop) ?? previewPoints[previewPoints.length - 1] ?? fallbackTo;
+  const totalDurationMinutes = Number(summary.totalDurationMinutes ?? raw?.totalDurationMinutes ?? raw?.totalMinutes ?? 0);
+  const totalWalkMinutes = Number(summary.totalWalkMinutes ?? raw?.totalWalkMinutes ?? raw?.walkingMinutes ?? 0);
+  const transfersCount = Number(summary.transfersCount ?? raw?.transfersCount ?? raw?.transfers ?? Math.max(0, routeNumbersFromLabel(routeLabel).length - 1));
+  const stopCount = Number(summary.stopCount ?? raw?.stopCount ?? steps.reduce((sum: number, step: TransitStep) => sum + Number(step.stopCount ?? 0), 0));
 
   return {
     id: String(raw?.id ?? `route-${index}`),
     title: routeLabel,
-    subtitle: summary.journeyMessage ?? undefined,
+    subtitle: summary.journeyMessage ?? raw?.subtitle ?? undefined,
     mode: raw?.mode,
     routeId: raw?.routeId != null ? String(raw.routeId) : normalizeRouteNumber(routeLabel),
     shapeId: raw?.shapeId ?? summary.shapeId ?? null,
     routeLabel,
-    routeNumbers: routeLabel
-      .split("→")
-      .map((x) => x.trim())
-      .filter(Boolean),
-    totalMinutes: Number(summary.totalDurationMinutes ?? 0),
-    totalDurationMinutes: Number(summary.totalDurationMinutes ?? 0),
-    walkingMinutes: Number(summary.totalWalkMinutes ?? 0),
-    totalWalkMinutes: Number(summary.totalWalkMinutes ?? 0),
-    totalBusMinutes:
-      summary.totalBusMinutes != null ? Number(summary.totalBusMinutes) : undefined,
-    etaMinutes: summary.etaMinutes != null ? Number(summary.etaMinutes) : null,
-    transfers: Number(summary.transfersCount ?? 0),
-    transfersCount: Number(summary.transfersCount ?? 0),
-    stopCount: Number(summary.stopCount ?? 0),
+    routeNumbers: routeNumbersFromLabel(routeLabel),
+    totalMinutes: totalDurationMinutes,
+    totalDurationMinutes,
+    walkingMinutes: totalWalkMinutes,
+    totalWalkMinutes,
+    totalBusMinutes: summary.totalBusMinutes != null ? Number(summary.totalBusMinutes) : raw?.totalBusMinutes != null ? Number(raw.totalBusMinutes) : undefined,
+    etaMinutes: summary.etaMinutes != null ? Number(summary.etaMinutes) : raw?.etaMinutes != null ? Number(raw.etaMinutes) : null,
+    liveEta: raw?.liveEta ?? null,
+    boardingState: raw?.boardingState ?? null,
+    transfers: transfersCount,
+    transfersCount,
+    stopCount,
     boardStopName,
     alightStopName,
     originStop: stopPoint(boardStopName, from, raw?.originStop),
     destinationStop: stopPoint(alightStopName, to, raw?.destinationStop),
     previewPoints,
-    polyline: previewPoints,
+    polyline: rawPolyline.length >= 2 ? rawPolyline : previewPoints,
     steps,
     journeySteps: steps,
-    departureText:
-      summary.etaMinutes != null ? `Atvyksta po ${summary.etaMinutes} min` : undefined,
-    arrivalText: undefined,
-    journeyMessage: summary.journeyMessage,
-    headsign: summary.headsign ?? summary.directionCode ?? null,
+    departureText: summary.etaMinutes != null ? `Atvyksta po ${summary.etaMinutes} min` : raw?.departureText,
+    arrivalText: raw?.arrivalText,
+    journeyMessage: summary.journeyMessage ?? raw?.journeyMessage,
+    headsign: summary.headsign ?? summary.directionCode ?? raw?.headsign ?? null,
     liveVehicle: raw?.liveVehicle ? normalizeLiveBus(raw.liveVehicle) : null,
     summary,
   } as TransitRouteOption;

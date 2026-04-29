@@ -2,13 +2,9 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { Keyboard, StyleSheet, View } from "react-native";
 import MapView from "react-native-maps";
 
-
 import { useLiveBuses } from "../transit/hooks/useLiveBuses";
 import { useTransitPlanner } from "../transit/hooks/useTransitPlanner";
 import { useUserLocation } from "../transit/hooks/useUserLocation";
-
-import { analytics } from "../../services/analytics";
-import { monitoring } from "../../services/monitoring";
 
 import JourneySheet from "./JourneySheet";
 import DestinationMarkerLayer from "./layers/DestinationMarkerLayer";
@@ -130,6 +126,7 @@ function averagePoint(points: MapPoint[]): MapPoint | null {
 export default function MapScreen() {
   const mapRef = useRef<MapView | null>(null);
   const lastFollowAt = useRef(0);
+  const lastCameraTarget = useRef<MapPoint | null>(null);
 
   const { userLocation } = useUserLocation();
   const { buses } = useLiveBuses();
@@ -137,41 +134,6 @@ export default function MapScreen() {
 
   const selectedRoute = planner.selectedRoute;
   const selectedDestination = planner.selectedDestination;
-
-  // Initialize analytics and monitoring
-  useEffect(() => {
-    analytics.initialize();
-    monitoring.initialize();
-
-    // Track screen view
-    analytics.trackScreenView('map');
-
-    // Track live bus view
-    if (buses.length > 0) {
-      analytics.trackLiveBusView(buses.length);
-    }
-  }, []);
-
-  // Track route planning events
-  useEffect(() => {
-    if (selectedRoute && selectedDestination) {
-      analytics.trackRoutePlanning(
-        'current_location',
-        'destination',
-        true
-      );
-    }
-  }, [selectedRoute, selectedDestination]);
-
-  // Monitor performance
-  useEffect(() => {
-    const startTime = Date.now();
-
-    return () => {
-      const loadTime = Date.now() - startTime;
-      analytics.trackPerformanceMetric('map_screen_load', loadTime, 'ms');
-    };
-  }, []);
 
   const searchVisible =
     planner.flowState === "searching" &&
@@ -182,7 +144,9 @@ export default function MapScreen() {
 
   const selectedRouteNumber = useMemo(() => {
     return normalizeRouteNumber(
-      selectedRoute?.routeNumbers?.[0] ?? selectedRoute?.routeId ?? selectedRoute?.routeLabel
+      selectedRoute?.routeNumbers?.[0] ??
+        selectedRoute?.routeId ??
+        selectedRoute?.routeLabel
     );
   }, [selectedRoute]);
 
@@ -190,10 +154,11 @@ export default function MapScreen() {
     if (!selectedRoute) return null;
 
     const liveVehicle = selectedRoute.liveVehicle;
-    const liveVehicleId = normalizeId(liveVehicle?.vehicleId || liveVehicle?.id || liveVehicle?.vehicleLabel);
+    const liveVehicleId = normalizeId(
+      liveVehicle?.vehicleId || liveVehicle?.id || liveVehicle?.vehicleLabel
+    );
     const liveVehiclePoint = normalizeVehiclePoint(liveVehicle);
 
-    // 1) Strong lock: exact vehicle id / id / label from live ETA.
     if (liveVehicleId) {
       const exact = buses.find((bus) => {
         const ids = [bus.vehicleId, bus.id, bus.vehicleLabel].map(normalizeId);
@@ -203,7 +168,6 @@ export default function MapScreen() {
       if (exact) return exact;
     }
 
-    // 2) Coordinate lock: live ETA vehicle point is close to a live marker.
     if (liveVehiclePoint) {
       const closestByPoint = buses
         .map((bus) => {
@@ -211,18 +175,22 @@ export default function MapScreen() {
           if (!point) return null;
           return { bus, distance: distanceMeters(point, liveVehiclePoint) };
         })
-        .filter(Boolean) as Array<{ bus: (typeof buses)[number]; distance: number }>;
+        .filter(Boolean) as Array<{
+        bus: (typeof buses)[number];
+        distance: number;
+      }>;
 
       closestByPoint.sort((a, b) => a.distance - b.distance);
+
       if (closestByPoint[0] && closestByPoint[0].distance <= 120) {
         return closestByPoint[0].bus;
       }
     }
 
-    // 3) Fallback lock: same route number, closest to boarding stop.
     if (!selectedRouteNumber) return null;
 
     const originPoint = selectedRoute.originStop?.coordinate;
+
     const candidates = buses
       .filter((bus) => {
         const number = normalizeRouteNumber(bus.routeId || bus.route || bus.number);
@@ -230,10 +198,14 @@ export default function MapScreen() {
       })
       .map((bus) => {
         const point = normalizeVehiclePoint(bus);
-        const distance = point && originPoint ? distanceMeters(point, originPoint) : Number.POSITIVE_INFINITY;
+        const distance =
+          point && originPoint
+            ? distanceMeters(point, originPoint)
+            : Number.POSITIVE_INFINITY;
         const delay = Number(bus.delaySeconds || 0);
         const speed = Number(bus.speedKph || 0);
         const score = distance + Math.max(0, delay) * 0.2 - Math.min(speed, 60) * 3;
+
         return { bus, score };
       })
       .sort((a, b) => a.score - b.score);
@@ -327,6 +299,15 @@ export default function MapScreen() {
     if (!isActiveTrip(planner.flowState)) return;
     if (!activeCameraTarget) return;
 
+    if (
+      lastCameraTarget.current &&
+      distanceMeters(lastCameraTarget.current, activeCameraTarget) < 8
+    ) {
+      return;
+    }
+
+    lastCameraTarget.current = activeCameraTarget;
+
     const now = Date.now();
     if (now - lastFollowAt.current < 2200) return;
     lastFollowAt.current = now;
@@ -357,7 +338,7 @@ export default function MapScreen() {
 
         <WalkingPolylineLayer route={selectedRoute} userLocation={userLocation} />
 
-        <StopsLayer route={selectedRoute} />
+        <StopsLayer route={selectedRoute} flowState={planner.flowState} />
 
         <LiveBusesLayer
           buses={buses}
