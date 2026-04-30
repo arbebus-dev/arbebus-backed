@@ -5,7 +5,7 @@ const { fetchLiveVehicles } = require('./services/transit/klaipedaGateway');
 const { getPool } = require('./db/pool');
 const { handleTransitPlan } = require('./services/transit/planner/plannerController');
 const { buildNewsFeed } = require('./services/newsService');
-const placeSearchService = require('./places/placeSearchService');
+const placeSearchService = require('./service/places/placeSearchService');
 const {
   startLeaveAlertEngine,
   registerExpoPushToken,
@@ -17,12 +17,35 @@ const {
 const app = express();
 
 if (env.ENABLE_CORS) {
+  const corsOrigin =
+    env.CORS_ORIGIN === '*'
+      ? true
+      : (env.CORS_ORIGINS && env.CORS_ORIGINS.length > 0
+          ? env.CORS_ORIGINS
+          : env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean));
+
   app.use(
     cors({
-      origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN,
+      origin: corsOrigin,
+      credentials: true,
     })
   );
 }
+
+console.log('ENV CHECK:', {
+  nodeEnv: env.NODE_ENV,
+  host: env.HOST,
+  port: env.PORT,
+  db: Boolean(env.DATABASE_URL),
+  redis: Boolean(env.REDIS_URL),
+  gtfs: Boolean(env.GTFS_SOURCE_URL),
+  gtfsFeedCode: env.GTFS_FEED_CODE,
+  gtfsFeedRegion: env.GTFS_FEED_REGION,
+  openCage: Boolean(env.OPENCAGE_API_KEY),
+  openRouteService: Boolean(env.OPENROUTESERVICE_API_KEY),
+  maxTransfers: env.MAX_TRANSFERS,
+  maxWalkingMeters: env.MAX_WALKING_METERS,
+});
 
 app.use(express.json({ limit: '1mb' }));
 
