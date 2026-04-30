@@ -1,26 +1,50 @@
 const { getPool } = require('../../db/pool');
 const pois = require('../../data/poi/klaipedaPois.json');
+const aliases = require('../../data/poi/placeAliases.json');
 
 const KLAIPEDA_CENTER = { latitude: 55.7033, longitude: 21.1443 };
 const DEFAULT_COUNTRY_CODE = 'lt';
+const LT_FROM = 'ĄČĘĖĮŠŲŪŽąčęėįšųūž';
+const LT_TO = 'ACEEEISUUZaceeeisuuz';
 
 function normalizeText(value) {
   return String(value || '')
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/ė/g, 'e')
-    .replace(/ų/g, 'u')
-    .replace(/ū/g, 'u')
-    .replace(/š/g, 's')
-    .replace(/ž/g, 'z')
-    .replace(/č/g, 'c')
-    .replace(/ą/g, 'a')
-    .replace(/ę/g, 'e')
-    .replace(/į/g, 'i')
+    .replace(/[ąĄ]/g, 'a')
+    .replace(/[čČ]/g, 'c')
+    .replace(/[ęĘėĖ]/g, 'e')
+    .replace(/[įĮ]/g, 'i')
+    .replace(/[šŠ]/g, 's')
+    .replace(/[ųŲūŪ]/g, 'u')
+    .replace(/[žŽ]/g, 'z')
     .replace(/[^a-z0-9\s.-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function compactText(value) {
+  return normalizeText(value).replace(/[\s.-]+/g, '');
+}
+
+function removeLithuanianEndings(token) {
+  const value = normalizeText(token);
+  if (value.length <= 4) return value;
+
+  const endings = [
+    'uose', 'iuose', 'omis', 'iams', 'iais', 'uose',
+    'oje', 'eje', 'ais', 'iam', 'ios', 'ius', 'iai', 'ims',
+    'as', 'is', 'ys', 'us', 'es', 'os', 'ai', 'ui', 'iu', 'io', 'ia', 'a', 'e', 'u', 'i', 'o'
+  ];
+
+  for (const ending of endings) {
+    if (value.endsWith(ending) && value.length - ending.length >= 4) {
+      return value.slice(0, -ending.length);
+    }
+  }
+
+  return value;
 }
 
 function queryTokens(value) {
@@ -28,6 +52,31 @@ function queryTokens(value) {
     .split(' ')
     .map((token) => token.trim())
     .filter((token) => token.length >= 2);
+}
+
+function expandedQueryTerms(value) {
+  const normalized = normalizeText(value);
+  const tokens = queryTokens(normalized);
+  const stems = tokens.map(removeLithuanianEndings).filter((item) => item.length >= 2);
+  const terms = new Set([normalized, compactText(normalized), ...tokens, ...stems]);
+
+  for (const item of aliases) {
+    const all = [item.canonical, ...(item.aliases || []), ...(item.keywords || [])];
+    const normalizedAliases = all.map(normalizeText).filter(Boolean);
+    const compactAliases = normalizedAliases.map(compactText).filter(Boolean);
+    const match = normalizedAliases.some((alias) => alias.includes(normalized) || normalized.includes(alias)) ||
+      compactAliases.some((alias) => alias.includes(compactText(normalized)) || compactText(normalized).includes(alias));
+
+    if (match) {
+      all.forEach((alias) => {
+        queryTokens(alias).forEach((token) => terms.add(token));
+        terms.add(normalizeText(alias));
+        terms.add(compactText(alias));
+      });
+    }
+  }
+
+  return Array.from(terms).filter((term) => term.length >= 2).slice(0, 24);
 }
 
 function distanceMeters(a, b) {
@@ -64,31 +113,36 @@ function normalizePoi(poi) {
   };
 }
 
-function poiScore(poi, q) {
-  const item = normalizePoi(poi);
-  const query = normalizeText(q);
-  if (!query) return 0;
+function scoreTextFields(fields, query, terms) {
+  const normalizedQuery = normalizeText(query);
+  const compactQuery = compactText(query);
+  const normalizedFields = fields.map(normalizeText).filter(Boolean);
+  const compactFields = normalizedFields.map(compactText).filter(Boolean);
+  const haystack = normalizedFields.join(' ');
+  const compactHaystack = compactFields.join(' ');
 
-  const title = normalizeText(item.title);
-  const name = normalizeText(item.name);
-  const subtitle = normalizeText(item.subtitle);
-  const keywords = item.keywords.map(normalizeText);
-  const haystack = normalizeText([title, name, subtitle, ...keywords].join(' '));
-  const tokens = queryTokens(query);
+  let score = 0;
 
-  if (title === query || name === query) return 420;
-  if (keywords.some((keyword) => keyword === query)) return 390;
-  if (title.startsWith(query) || name.startsWith(query)) return 340;
-  if (title.includes(query) || name.includes(query)) return 290;
-  if (keywords.some((keyword) => keyword.includes(query))) return 260;
-  if (haystack.includes(query)) return 220;
-
-  const matchedTokens = tokens.filter((token) => haystack.includes(token)).length;
-  if (matchedTokens > 0 && tokens.length > 0) {
-    return Math.round((matchedTokens / tokens.length) * 160);
+  for (const field of normalizedFields) {
+    if (field === normalizedQuery) score = Math.max(score, 600);
+    else if (field.startsWith(normalizedQuery)) score = Math.max(score, 480);
+    else if (field.includes(normalizedQuery)) score = Math.max(score, 360);
   }
 
-  return 0;
+  if (compactQuery && compactFields.some((field) => field === compactQuery)) score = Math.max(score, 560);
+  else if (compactQuery && compactFields.some((field) => field.startsWith(compactQuery))) score = Math.max(score, 430);
+  else if (compactQuery && compactHaystack.includes(compactQuery)) score = Math.max(score, 320);
+
+  const matchedTerms = terms.filter((term) => haystack.includes(term) || compactHaystack.includes(compactText(term))).length;
+  if (matchedTerms > 0) score += Math.min(220, matchedTerms * 45);
+
+  return score;
+}
+
+function poiScore(poi, q, terms) {
+  const item = normalizePoi(poi);
+  const aliasBoost = aliases.some((entry) => normalizeText(entry.canonical) === normalizeText(item.title)) ? 80 : 0;
+  return scoreTextFields([item.title, item.name, item.subtitle, ...(item.keywords || [])], q, terms) + aliasBoost;
 }
 
 function normalizeResult(item, userPoint, source) {
@@ -122,27 +176,21 @@ function openCageBounds(userPoint) {
   const lat = Number(center.latitude);
   const lon = Number(center.longitude);
 
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-    return '20.2,54.8,22.8,56.4';
-  }
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return '20.2,54.8,22.8,56.4';
 
   const deltaLat = 0.9;
   const deltaLon = 1.25;
-
   return `${lon - deltaLon},${lat - deltaLat},${lon + deltaLon},${lat + deltaLat}`;
 }
 
 function classifyOpenCageType(components = {}) {
   if (components.road || components.street || components.house_number) return 'address';
-  if (components.city || components.town || components.village || components.hamlet) return 'place';
-  if (components.shopping || components.shop || components.commercial) return 'place';
   if (components.aeroway || components.airport) return 'airport';
   return 'place';
 }
 
 function openCageTitle(result, query) {
   const components = result.components || {};
-
   return String(
     components.name ||
       components.shopping ||
@@ -163,16 +211,7 @@ function openCageTitle(result, query) {
 
 function openCageSubtitle(result) {
   const components = result.components || {};
-
-  const settlement =
-    components.city ||
-    components.town ||
-    components.village ||
-    components.hamlet ||
-    components.municipality ||
-    components.county ||
-    null;
-
+  const settlement = components.city || components.town || components.village || components.hamlet || components.municipality || components.county || null;
   const road = components.road || components.street || null;
   const house = components.house_number || null;
 
@@ -180,32 +219,7 @@ function openCageSubtitle(result) {
   if (road && settlement) return `${road}, ${settlement}`;
   if (settlement && components.state) return `${settlement}, ${components.state}`;
   if (settlement) return `${settlement}, Lietuva`;
-
   return String(result.formatted || 'Lietuva');
-}
-
-function openCageScore(result, index, query, userPoint) {
-  const confidence = Number(result.confidence || 0);
-  const title = normalizeText(openCageTitle(result, query));
-  const formatted = normalizeText(result.formatted || '');
-  const normalizedQuery = normalizeText(query);
-
-  let score = 700 + confidence * 35 - index * 6;
-
-  if (title === normalizedQuery) score += 260;
-  else if (title.startsWith(normalizedQuery)) score += 180;
-  else if (formatted.includes(normalizedQuery)) score += 120;
-
-  const geometry = {
-    latitude: Number(result?.geometry?.lat),
-    longitude: Number(result?.geometry?.lng),
-  };
-
-  const distance = distanceMeters(userPoint, geometry);
-  if (distance < 30000) score += 70;
-  else if (distance < 80000) score += 35;
-
-  return score;
 }
 
 async function searchOpenCage(q, userPoint, limit) {
@@ -215,7 +229,7 @@ async function searchOpenCage(q, userPoint, limit) {
   const url = new URL('https://api.opencagedata.com/geocode/v1/json');
   url.searchParams.set('q', q);
   url.searchParams.set('key', apiKey);
-  url.searchParams.set('limit', String(Math.min(Math.max(limit, 5), 10)));
+  url.searchParams.set('limit', String(Math.min(Math.max(limit, 4), 8)));
   url.searchParams.set('countrycode', DEFAULT_COUNTRY_CODE);
   url.searchParams.set('language', 'lt');
   url.searchParams.set('no_annotations', '1');
@@ -224,43 +238,36 @@ async function searchOpenCage(q, userPoint, limit) {
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6500);
-
+    const timeout = setTimeout(() => controller.abort(), 5000);
     const response = await fetch(url.toString(), {
       signal: controller.signal,
-      headers: {
-        'User-Agent': 'Arbebus/1.0 contact@arbebus.com',
-      },
+      headers: { 'User-Agent': 'Arbebus/1.0 contact@arbebus.com' },
     }).finally(() => clearTimeout(timeout));
 
-    if (!response.ok) {
-      console.error('OpenCage failed:', response.status);
-      return [];
-    }
-
+    if (!response.ok) return [];
     const data = await response.json();
 
     return (data.results || [])
       .map((result, index) => {
         const latitude = Number(result?.geometry?.lat);
         const longitude = Number(result?.geometry?.lng);
-
         if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
 
         const title = openCageTitle(result, q);
         const subtitle = openCageSubtitle(result);
-        const type = classifyOpenCageType(result.components || {});
+        const confidence = Number(result.confidence || 0);
+        const textScore = scoreTextFields([title, subtitle, result.formatted || ''], q, expandedQueryTerms(q));
 
         return {
           id: `opencage-${index}-${latitude.toFixed(5)}-${longitude.toFixed(5)}`,
           title,
           name: title,
           subtitle,
-          type,
+          type: classifyOpenCageType(result.components || {}),
           latitude,
           longitude,
           distanceMeters: distanceMeters(userPoint, { latitude, longitude }),
-          score: openCageScore(result, index, q, userPoint),
+          score: 500 + confidence * 20 + textScore - index * 8,
           source: 'opencage',
         };
       })
@@ -271,68 +278,89 @@ async function searchOpenCage(q, userPoint, limit) {
   }
 }
 
-async function searchStops(q, userPoint, limit) {
+async function searchStops(q, userPoint, limit, terms) {
   const pool = getPool();
-  const params = [q, userPoint.longitude, userPoint.latitude, limit];
+  const searchTerms = terms.length ? terms : [normalizeText(q)];
 
   const sql = `
-    SELECT
-      stop_id AS id,
-      stop_name AS name,
-      stop_lat AS latitude,
-      stop_lon AS longitude,
-      ST_DistanceSphere(
+    WITH query_terms AS (
+      SELECT unnest($1::text[]) AS term
+    ), stop_candidates AS (
+      SELECT
+        stop_id AS id,
+        stop_code,
+        stop_name AS name,
+        stop_lat AS latitude,
+        stop_lon AS longitude,
         geom,
-        ST_SetSRID(ST_MakePoint($2, $3), 4326)
-      ) AS distance_meters,
-      CASE
-        WHEN lower(unaccent(stop_name)) = lower(unaccent($1)) THEN 520
-        WHEN lower(unaccent(stop_name)) LIKE lower(unaccent($1 || '%')) THEN 420
-        WHEN lower(unaccent(stop_name)) LIKE lower(unaccent('%' || $1 || '%')) THEN 300
-        ELSE 100
-      END AS text_score
-    FROM transit.stops
+        lower(translate(stop_name, $5, $6)) AS normalized_name,
+        lower(translate(COALESCE(stop_code, ''), $5, $6)) AS normalized_code
+      FROM transit.stops
+    )
+    SELECT
+      id,
+      stop_code,
+      name,
+      latitude,
+      longitude,
+      ST_DistanceSphere(geom, ST_SetSRID(ST_MakePoint($2, $3), 4326)) AS distance_meters,
+      MAX(
+        CASE
+          WHEN normalized_name = lower(term) THEN 680
+          WHEN normalized_code = lower(term) THEN 660
+          WHEN normalized_name LIKE lower(term || '%') THEN 560
+          WHEN normalized_name LIKE lower('%' || term || '%') THEN 430
+          WHEN normalized_code LIKE lower(term || '%') THEN 390
+          ELSE 0
+        END
+      ) AS text_score
+    FROM stop_candidates, query_terms
     WHERE
-      stop_name ILIKE '%' || $1 || '%'
-      OR stop_code ILIKE '%' || $1 || '%'
-      OR stop_id ILIKE '%' || $1 || '%'
-    ORDER BY text_score DESC, distance_meters ASC, stop_name ASC
-    LIMIT $4
+      normalized_name LIKE lower('%' || term || '%')
+      OR normalized_code LIKE lower('%' || term || '%')
+      OR stop_name ILIKE '%' || $4 || '%'
+      OR stop_code ILIKE '%' || $4 || '%'
+      OR id ILIKE '%' || $4 || '%'
+    GROUP BY id, stop_code, name, latitude, longitude, geom
+    HAVING MAX(
+      CASE
+        WHEN normalized_name = lower(term) THEN 680
+        WHEN normalized_code = lower(term) THEN 660
+        WHEN normalized_name LIKE lower(term || '%') THEN 560
+        WHEN normalized_name LIKE lower('%' || term || '%') THEN 430
+        WHEN normalized_code LIKE lower(term || '%') THEN 390
+        ELSE 0
+      END
+    ) > 0
+    ORDER BY text_score DESC, distance_meters ASC, name ASC
+    LIMIT $7
   `;
 
+  const params = [searchTerms, userPoint.longitude, userPoint.latitude, q, LT_FROM, LT_TO, limit];
   const result = await pool.query(sql, params);
 
   return result.rows.map((row) => ({
     id: String(row.id),
     title: String(row.name),
     name: String(row.name),
-    subtitle: 'Stotelė',
+    subtitle: row.stop_code ? `Stotelė • ${row.stop_code}` : 'Stotelė',
     type: 'stop',
     latitude: Number(row.latitude),
     longitude: Number(row.longitude),
     distanceMeters: Number(row.distance_meters || 0),
-    score: Number(row.text_score || 0),
+    score: Number(row.text_score || 0) + 90,
     source: 'stop',
   }));
 }
 
-function searchLocalPois(q, userPoint, limit) {
+function searchLocalPois(q, userPoint, limit, terms) {
   const list = Array.isArray(pois) ? pois : [];
-
   return list
     .map((poi) => {
       const normalized = normalizePoi(poi);
-      const score = poiScore(normalized, q);
+      const score = poiScore(normalized, q, terms);
       if (!score) return null;
-
-      return normalizeResult(
-        {
-          ...normalized,
-          score,
-        },
-        userPoint,
-        normalized.type || 'place'
-      );
+      return normalizeResult({ ...normalized, score: score + 60 }, userPoint, normalized.type || 'place');
     })
     .filter(Boolean)
     .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
@@ -344,13 +372,12 @@ function dedupeResults(results) {
 
   for (const item of results) {
     if (!item) continue;
-
-    const key = `${normalizeText(item.title)}:${Number(item.latitude).toFixed(5)}:${Number(item.longitude).toFixed(5)}`;
+    const titleKey = normalizeText(item.title);
+    const coordKey = `${Number(item.latitude).toFixed(5)}:${Number(item.longitude).toFixed(5)}`;
+    const key = item.type === 'stop' ? `stop:${item.id}` : `${titleKey}:${coordKey}`;
     const current = map.get(key);
 
-    if (!current || Number(item.score || 0) > Number(current.score || 0)) {
-      map.set(key, item);
-    }
+    if (!current || Number(item.score || 0) > Number(current.score || 0)) map.set(key, item);
   }
 
   return Array.from(map.values());
@@ -358,61 +385,71 @@ function dedupeResults(results) {
 
 function sortResults(results) {
   return [...results].sort((a, b) => {
-    const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
-    if (Math.abs(scoreDiff) > 15) return scoreDiff;
+    const typeBoost = (item) => (item.type === 'stop' ? 25 : 0);
+    const scoreA = Number(a.score || 0) + typeBoost(a);
+    const scoreB = Number(b.score || 0) + typeBoost(b);
+    const scoreDiff = scoreB - scoreA;
+    if (Math.abs(scoreDiff) > 20) return scoreDiff;
 
     const distanceDiff = Number(a.distanceMeters || 0) - Number(b.distanceMeters || 0);
-    if (Math.abs(distanceDiff) > 50) return distanceDiff;
+    if (Math.abs(distanceDiff) > 80) return distanceDiff;
 
     return String(a.title || '').localeCompare(String(b.title || ''), 'lt');
   });
 }
 
-async function searchPlaces({ q, lat, lon, limit = 12 }) {
-  const query = String(q || '').trim();
-  if (query.length < 2) return [];
+function toPayload(results, query, limit) {
+  const items = sortResults(dedupeResults(results)).slice(0, limit).map((item) => ({
+    id: item.id,
+    title: item.title,
+    name: item.name,
+    subtitle: item.subtitle,
+    type: item.type,
+    latitude: item.latitude,
+    longitude: item.longitude,
+    distanceMeters: item.distanceMeters,
+    score: item.score,
+    source: item.source,
+  }));
 
-  const userPoint = Number.isFinite(Number(lat)) && Number.isFinite(Number(lon))
-    ? { latitude: Number(lat), longitude: Number(lon) }
-    : KLAIPEDA_CENTER;
-
-  const [geocodeMatches, stopMatches] = await Promise.all([
-    searchOpenCage(query, userPoint, Math.max(8, limit)).catch((error) => {
-      console.error('OpenCage fallback failed:', error.message);
-      return [];
-    }),
-    searchStops(query, userPoint, Math.max(8, limit)).catch((error) => {
-      console.error('Stop search failed:', error.message);
-      return [];
-    }),
-  ]);
-
-  const poiMatches = searchLocalPois(query, userPoint, Math.max(4, Math.floor(limit / 3)));
-
-  // Production order:
-  // 1) OpenCage real geocoder for addresses, villages, cities, POIs.
-  // 2) GTFS stops.
-  // 3) Local POI JSON only as weak fallback, never as hardcoded override.
-  const results = dedupeResults([
-    ...geocodeMatches,
-    ...stopMatches,
-    ...poiMatches,
-  ]);
-
-  return sortResults(results)
-    .slice(0, limit)
-    .map((item) => ({
-      id: item.id,
-      title: item.title,
-      name: item.name,
-      subtitle: item.subtitle,
-      type: item.type,
-      latitude: item.latitude,
-      longitude: item.longitude,
-      distanceMeters: item.distanceMeters,
-      score: item.score,
-      source: item.source,
-    }));
+  return { ok: true, query, count: items.length, items, results: items, suggestions: items };
 }
 
-module.exports = { searchPlaces };
+async function searchPlaces({ q, query, text, lat, lon, latitude, longitude, limit = 12, mode = 'search' }) {
+  const rawQuery = String(q || query || text || '').trim();
+  if (rawQuery.length < 2) return { ok: true, query: rawQuery, count: 0, items: [], results: [], suggestions: [] };
+
+  const userPoint = Number.isFinite(Number(lat ?? latitude)) && Number.isFinite(Number(lon ?? longitude))
+    ? { latitude: Number(lat ?? latitude), longitude: Number(lon ?? longitude) }
+    : KLAIPEDA_CENTER;
+
+  const safeLimit = Math.min(Math.max(Number(limit) || 12, 1), mode === 'autocomplete' ? 12 : 30);
+  const terms = expandedQueryTerms(rawQuery);
+
+  const [stopMatches, poiMatches, geocodeMatches] = await Promise.all([
+    searchStops(rawQuery, userPoint, Math.max(10, safeLimit), terms).catch((error) => {
+      console.error('Stop autocomplete failed:', error.message);
+      return [];
+    }),
+    Promise.resolve(searchLocalPois(rawQuery, userPoint, Math.max(6, safeLimit), terms)),
+    mode === 'autocomplete'
+      ? Promise.resolve([])
+      : searchOpenCage(rawQuery, userPoint, Math.max(6, safeLimit)).catch((error) => {
+          console.error('OpenCage fallback failed:', error.message);
+          return [];
+        }),
+  ]);
+
+  return toPayload([...stopMatches, ...poiMatches, ...geocodeMatches], rawQuery, safeLimit);
+}
+
+async function autocompletePlaces(params) {
+  return searchPlaces({ ...params, mode: 'autocomplete', limit: params.limit || 10 });
+}
+
+module.exports = {
+  searchPlaces,
+  autocompletePlaces,
+  normalizeText,
+  expandedQueryTerms,
+};

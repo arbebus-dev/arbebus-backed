@@ -1,0 +1,42 @@
+[
+  {
+    "canonical": "Akropolis Klaipėda",
+    "aliases": ["akropolis", "akropoli", "akropoly", "akro", "klaipedos akropolis", "akropolis klaipeda", "taikos akropolis"],
+    "keywords": ["prekybos centras", "pc", "mall", "shopping"]
+  },
+  {
+    "canonical": "Klaipėdos autobusų stotis",
+    "aliases": ["autobusu stotis", "autobusu stoti", "bus station", "klaipedos autobusu stotis", "stotis", "autobusine"],
+    "keywords": ["autobusai", "tarpmiestiniai", "transportas"]
+  },
+  {
+    "canonical": "Klaipėdos geležinkelio stotis",
+    "aliases": ["gelezinkelio stotis", "traukiniu stotis", "train station", "klaipedos traukiniu stotis", "geležinkelio stotis"],
+    "keywords": ["traukinys", "traukiniu", "rail"]
+  },
+  {
+    "canonical": "Senoji perkėla",
+    "aliases": ["senoji perkela", "senaja perkela", "kelto perkela", "keltas", "smiltynes perkela", "old ferry"],
+    "keywords": ["keltas", "smiltyne", "perkela"]
+  },
+  {
+    "canonical": "Naujoji perkėla",
+    "aliases": ["naujoji perkela", "nauja perkela", "naujaja perkela", "new ferry", "smiltynes naujoji perkela"],
+    "keywords": ["keltas", "smiltyne", "perkela"]
+  },
+  {
+    "canonical": "Klaipėdos universitetinė ligoninė",
+    "aliases": ["ligonine", "klaipedos ligonine", "universitetine ligonine", "kul", "jurininku ligonine"],
+    "keywords": ["hospital", "sveikata", "klinika"]
+  },
+  {
+    "canonical": "Atgimimo aikštė",
+    "aliases": ["atgimimo aikste", "atgimimo aiksteje", "centras", "klaipedos centras"],
+    "keywords": ["centras", "aikste"]
+  },
+  {
+    "canonical": "Teatro aikštė",
+    "aliases": ["teatro aikste", "senamiestis", "klaipedos senamiestis", "old town"],
+    "keywords": ["senamiestis", "aikste"]
+  }
+]
