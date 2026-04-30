@@ -5,7 +5,7 @@ const { fetchLiveVehicles } = require('./services/transit/klaipedaGateway');
 const { getPool } = require('./db/pool');
 const { handleTransitPlan } = require('./services/transit/planner/plannerController');
 const { buildNewsFeed } = require('./services/newsService');
-const placeSearchService = require('./service/places/placeSearchService');
+const placeSearchService = require('./services/places/placeSearchService');
 const {
   startLeaveAlertEngine,
   registerExpoPushToken,
