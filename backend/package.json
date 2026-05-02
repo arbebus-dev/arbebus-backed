@@ -1,0 +1,18 @@
+{
+  "name": "@arbebus/backend",
+  "version": "1.0.0",
+  "main": "src/core/server.js",
+  "scripts": {
+    "dev": "node src/core/server.js",
+    "start": "node src/core/server.js",
+    "test": "node -e \"require('./src/modules/search/search.service'); require('./src/modules/transit/transit.service'); console.log('backend smoke ok')\""
+  },
+  "dependencies": {
+    "cors": "latest",
+    "dotenv": "latest",
+    "express": "latest",
+    "pg": "latest",
+    "pino": "latest",
+    "redis": "latest"
+  }
+}

@@ -1,0 +1,11 @@
+const DEFAULT_KLAIPEDA_CENTER = { latitude: 55.7033, longitude: 21.1443 };
+const DEFAULT_SEARCH_LIMIT = 12;
+const MAX_SEARCH_LIMIT = 30;
+const API_VERSION = '1.0.0';
+
+module.exports = {
+  DEFAULT_KLAIPEDA_CENTER,
+  DEFAULT_SEARCH_LIMIT,
+  MAX_SEARCH_LIMIT,
+  API_VERSION,
+};
