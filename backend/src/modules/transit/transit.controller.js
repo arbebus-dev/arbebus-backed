@@ -100,6 +100,27 @@ async function vehicle(req, res, next) {
   }
 }
 
+/**
+ * GET /api/transit/station-access?stopId=...
+ */
+async function stationAccess(req, res, next) {
+  try {
+    const stopId = req.query.stopId || req.query.stop_id || req.params.stopId;
+
+    if (!stopId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'MISSING_STOP_ID',
+        message: 'Missing stopId query parameter',
+      });
+    }
+
+    res.json(await service.stationAccess({ stopId }));
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   index,
   plan,
@@ -110,4 +131,5 @@ module.exports = {
   tripUpdates,
   departures,
   vehicle,
+  stationAccess,
 };

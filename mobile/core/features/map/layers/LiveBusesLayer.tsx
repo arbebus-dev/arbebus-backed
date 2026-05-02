@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import React from "react";
+import React, { useEffect, useRef } from "react";
+import { Animated } from "react-native";
 import { StyleSheet, Text, View } from "react-native";
 import { Marker } from "react-native-maps";
 import type { LiveBus } from "../../transit/models/transitTypes";
@@ -21,6 +22,33 @@ function routeNumberFromLabel(label?: string | null) {
     .split(" ")[0]
     .replace(/^0+/, "")
     .toUpperCase();
+}
+
+
+function PulseGlow({ selected }: { selected: boolean }) {
+  const scale = useRef(new Animated.Value(0.78)).current;
+  const opacity = useRef(new Animated.Value(0.28)).current;
+
+  useEffect(() => {
+    if (!selected) return undefined;
+    const loop = Animated.loop(
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(scale, { toValue: 1.35, duration: 950, useNativeDriver: true }),
+          Animated.timing(scale, { toValue: 0.78, duration: 950, useNativeDriver: true }),
+        ]),
+        Animated.sequence([
+          Animated.timing(opacity, { toValue: 0.06, duration: 950, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 0.30, duration: 950, useNativeDriver: true }),
+        ]),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity, scale, selected]);
+
+  if (!selected) return null;
+  return <Animated.View style={[styles.pulseGlow, { opacity, transform: [{ scale }] }]} />;
 }
 
 function isValidCoordinate(bus: LiveBus) {
@@ -67,6 +95,8 @@ export default function LiveBusesLayer({
             zIndex={isSelectedVehicle ? 3000 : isSelectedRoute ? 1200 : 10}
           >
             <View style={styles.markerWrap}>
+              <PulseGlow selected={isImportant} />
+
               {isImportant ? (
                 <View style={[styles.glow, isSelectedVehicle && styles.glowVehicle]} />
               ) : null}
@@ -124,6 +154,13 @@ const styles = StyleSheet.create({
     height: 70,
     alignItems: "center",
     justifyContent: "center",
+  },
+  pulseGlow: {
+    position: "absolute",
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: "rgba(53,242,180,0.28)",
   },
   glow: {
     position: "absolute",

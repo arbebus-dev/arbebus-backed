@@ -1,0 +1,44 @@
+[
+  {
+    "stopId": "3808",
+    "stationName": "Autobusų stotis",
+    "accessPoints": [
+      {
+        "id": "3808-main",
+        "type": "entrance",
+        "title": "Pagrindinis įėjimas",
+        "description": "Įėjimas į Autobusų stoties peronų zoną.",
+        "latitude": 55.71998,
+        "longitude": 21.13572,
+        "code": "A",
+        "priority": 1
+      },
+      {
+        "id": "3808-platforms",
+        "type": "platform",
+        "title": "Peronai",
+        "description": "Išlaipinimo ir įlaipinimo aikštelės.",
+        "latitude": 55.71976,
+        "longitude": 21.1359,
+        "code": "P",
+        "priority": 2
+      }
+    ]
+  },
+  {
+    "stopId": "4399",
+    "stationName": "Autobusų stotis",
+    "accessPoints": [
+      {
+        "id": "4399-main",
+        "type": "entrance",
+        "title": "Autobusų stotis",
+        "description": "Artimiausias patekimas į stotelę.",
+        "latitude": 55.71984,
+        "longitude": 21.13578,
+        "code": "A",
+        "priority": 1
+      }
+    ]
+  }
+]

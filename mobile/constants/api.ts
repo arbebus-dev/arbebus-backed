@@ -17,6 +17,7 @@ export const API_ENDPOINTS = {
   transitShape: (shapeId: string) => `${API_BASE}/api/transit/shape/${encodeURIComponent(shapeId)}`,
   departures: (stopId: string | number) => `${API_BASE}/api/transit/departures?stopId=${encodeURIComponent(String(stopId))}`,
   vehicle: (id: string | number) => `${API_BASE}/api/transit/vehicle/${encodeURIComponent(String(id))}`,
+  stationAccess: (stopId: string | number) => `${API_BASE}/api/transit/station-access?stopId=${encodeURIComponent(String(stopId))}`,
   placesSearch: `${API_BASE}/api/search`,
   stopsSearch: `${API_BASE}/api/search/stops`,
   routingWalk: `${API_BASE}/api/routing/walk`,

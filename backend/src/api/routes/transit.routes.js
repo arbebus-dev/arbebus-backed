@@ -25,6 +25,10 @@ router.get('/shape/:shapeId', controller.shape);
 router.get('/departures', controller.departures);
 router.get('/stops/:stopId/departures', controller.departures);
 
+// Station access / entrances-exits fallback for selected stop
+router.get('/station-access', controller.stationAccess);
+router.get('/stops/:stopId/station-access', controller.stationAccess);
+
 // Vehicle details with nearest stop and departures context
 router.get('/vehicle/:id', controller.vehicle);
 

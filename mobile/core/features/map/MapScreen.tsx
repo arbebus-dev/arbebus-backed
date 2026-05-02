@@ -1,16 +1,18 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, StyleSheet, View } from "react-native";
 import MapView from "react-native-maps";
 
 import { useLiveBuses } from "../transit/hooks/useLiveBuses";
 import { useTransitPlanner } from "../transit/hooks/useTransitPlanner";
 import { useUserLocation } from "../transit/hooks/useUserLocation";
+import { fetchStationAccess, type StationAccessPoint } from "../transit/services/transitApi";
 
 import JourneySheet from "./JourneySheet";
 import DestinationMarkerLayer from "./layers/DestinationMarkerLayer";
 import LiveBusesLayer from "./layers/LiveBusesLayer";
 import RoutePolylineLayer from "./layers/RoutePolylineLayer";
 import StopsLayer from "./layers/StopsLayer";
+import StationAccessLayer from "./layers/StationAccessLayer";
 import UserLocationLayer from "./layers/UserLocationLayer";
 import WalkingPolylineLayer from "./layers/WalkingPolylineLayer";
 import MapCanvas from "./MapCanvas";
@@ -135,11 +137,40 @@ export default function MapScreen() {
 
   const selectedRoute = planner.selectedRoute;
   const selectedDestination = planner.selectedDestination;
+  const [stationAccessPoints, setStationAccessPoints] = useState<StationAccessPoint[]>([]);
 
   const searchVisible =
     planner.flowState === "searching" &&
     !selectedRoute &&
     !isRouteFlow(planner.flowState);
+
+
+  useEffect(() => {
+    let cancelled = false;
+    const stopId =
+      selectedRoute?.originStop?.id ||
+      selectedRoute?.originStop?.stopId ||
+      selectedRoute?.destinationStop?.id ||
+      selectedRoute?.destinationStop?.stopId ||
+      null;
+
+    if (!stopId) {
+      setStationAccessPoints([]);
+      return;
+    }
+
+    fetchStationAccess(stopId)
+      .then((items) => {
+        if (!cancelled) setStationAccessPoints(items);
+      })
+      .catch(() => {
+        if (!cancelled) setStationAccessPoints([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRoute?.originStop?.id, selectedRoute?.originStop?.stopId, selectedRoute?.destinationStop?.id, selectedRoute?.destinationStop?.stopId]);
 
   const selectedRouteLabel = selectedRoute?.routeLabel || null;
 
@@ -340,6 +371,8 @@ export default function MapScreen() {
         <WalkingPolylineLayer route={selectedRoute} userLocation={userLocation} />
 
         <StopsLayer route={selectedRoute} flowState={planner.flowState} />
+
+        <StationAccessLayer accessPoints={stationAccessPoints} selectedStopId={selectedRoute?.originStop?.id || null} />
 
         <LiveBusesLayer
           buses={buses}

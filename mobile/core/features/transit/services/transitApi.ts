@@ -733,6 +733,20 @@ export async function fetchWalkingRoute(
 }
 
 
+
+export type StationAccessPoint = {
+  id: string;
+  type: string;
+  title: string;
+  description?: string | null;
+  code?: string | null;
+  priority?: number | null;
+  latitude: number;
+  longitude: number;
+  coordinate: Coordinate;
+  source?: string | null;
+};
+
 export type DepartureBoardItem = {
   tripId: string;
   routeId?: string | null;
@@ -772,6 +786,44 @@ export async function fetchDepartures(stopId?: string | number | null): Promise<
     countdownMinutes: item?.countdownMinutes != null ? Number(item.countdownMinutes) : null,
     stopSequence: item?.stopSequence != null ? Number(item.stopSequence) : null,
   }));
+}
+
+
+export async function fetchStationAccess(stopId?: string | number | null): Promise<StationAccessPoint[]> {
+  if (!stopId) return [];
+  const response = await fetchWithRetry(API_ENDPOINTS.stationAccess(stopId));
+
+  if (!response.ok) {
+    throw new Error(`Station access failed: ${response.status}`);
+  }
+
+  const data = await safeJson<any>(response);
+  const rawAccess = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.accessPoints)
+      ? data.accessPoints
+      : Array.isArray(data?.stationAccess)
+        ? data.stationAccess
+        : [];
+
+  return rawAccess
+    .map((item: any, index: number) => {
+      const coordinate = toCoordinate(item);
+      if (!coordinate) return null;
+      return {
+        id: String(item?.id ?? `access-${stopId}-${index}`),
+        type: String(item?.type ?? 'entrance'),
+        title: String(item?.title ?? item?.name ?? `Įėjimas ${index + 1}`),
+        description: item?.description ?? null,
+        code: item?.code ?? null,
+        priority: item?.priority != null ? Number(item.priority) : index + 1,
+        latitude: coordinate.latitude,
+        longitude: coordinate.longitude,
+        coordinate,
+        source: item?.source ?? null,
+      };
+    })
+    .filter(Boolean) as StationAccessPoint[];
 }
 
 export async function fetchVehicle(id?: string | number | null): Promise<any | null> {

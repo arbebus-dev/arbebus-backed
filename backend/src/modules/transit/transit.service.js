@@ -13,6 +13,7 @@ const KLAIPEDA_BOUNDS = {
 };
 
 const GTFS_DIR = path.resolve(__dirname, '../../data/gtfs');
+const STATION_ACCESS_PATH = path.resolve(__dirname, '../../data/stations/entrances.json');
 const LIVE_CACHE_MS = Number(process.env.LIVE_BUSES_CACHE_MS || 7000);
 const DEFAULT_GPS_URL = 'https://www.stops.lt/klaipeda/gps_full.txt';
 const WALK_SPEED_M_PER_MIN = 78;
@@ -1011,6 +1012,89 @@ function shape(shapeId) {
   return { ok: true, source: 'fallback', points: [{ latitude: 55.7033, longitude: 21.1443 }, { latitude: 55.696, longitude: 21.146 }, { latitude: 55.68962, longitude: 21.14691 }] };
 }
 
+function loadStationAccessData() {
+  try {
+    if (!fs.existsSync(STATION_ACCESS_PATH)) return [];
+    const raw = fs.readFileSync(STATION_ACCESS_PATH, 'utf8').replace(/^\uFEFF/, '');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function makeFallbackStationAccess(stop) {
+  const publicStop = stopToPublic(stop);
+  if (!publicStop) return [];
+
+  return [
+    {
+      id: `${publicStop.stopId}-main-access`,
+      type: 'entrance',
+      title: publicStop.name,
+      description: 'Pagrindinis patekimas į stotelę pagal GTFS stotelės koordinates.',
+      code: 'A',
+      priority: 1,
+      latitude: publicStop.latitude,
+      longitude: publicStop.longitude,
+      coordinate: publicStop.coordinate,
+      source: 'gtfs-fallback',
+    },
+  ];
+}
+
+async function stationAccess({ stopId } = {}) {
+  const gtfs = loadGtfs();
+  const id = String(stopId || '').trim();
+
+  if (!id) {
+    return {
+      ok: false,
+      error: 'MISSING_STOP_ID',
+      stationAccess: [],
+      accessPoints: [],
+    };
+  }
+
+  const stop = gtfs.stopsById.get(id);
+  const accessData = loadStationAccessData();
+  const configured = accessData.find((item) => String(item.stopId) === id);
+
+  const configuredPoints = Array.isArray(configured?.accessPoints)
+    ? configured.accessPoints
+        .map((point, index) => {
+          const coordinate = toCoordinate(point);
+          if (!coordinate) return null;
+          return {
+            id: String(point.id || `${id}-access-${index}`),
+            type: String(point.type || 'entrance'),
+            title: String(point.title || point.name || `Įėjimas ${index + 1}`),
+            description: point.description || null,
+            code: point.code || null,
+            priority: Number(point.priority || index + 1),
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            coordinate,
+            source: 'stations/entrances.json',
+          };
+        })
+        .filter(Boolean)
+    : [];
+
+  const fallbackPoints = configuredPoints.length ? [] : makeFallbackStationAccess(stop);
+  const accessPoints = [...configuredPoints, ...fallbackPoints].sort((a, b) => Number(a.priority || 999) - Number(b.priority || 999));
+
+  return {
+    ok: true,
+    source: configuredPoints.length ? 'stations+gtfs' : 'gtfs-fallback',
+    stopId: id,
+    stop: stopToPublic(stop),
+    count: accessPoints.length,
+    accessPoints,
+    stationAccess: accessPoints,
+  };
+}
+
 module.exports = {
   plan,
   liveBuses,
@@ -1018,6 +1102,7 @@ module.exports = {
   shape,
   departures,
   vehicle,
+  stationAccess,
   parseGpsFeed,
   loadGtfs,
   nearestStops,
