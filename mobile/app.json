@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "Arbebus",
+    "slug": "arbebus",
+    "scheme": "arbebus",
+    "ios": {
+      "bundleIdentifier": "com.arbebus.app",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "location",
+          "fetch",
+          "remote-notification"
+        ],
+        "NSLocationWhenInUseUsageDescription": "Arbebus naudoja tavo lokaciją, kad rastų artimiausias stoteles ir vestų maršrutu.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Arbebus naudoja lokaciją kelionės metu, kad perspėtų artėjant prie išlipimo stotelės."
+      }
+    },
+    "android": {
+      "package": "com.arbebus.app",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-location",
+      "expo-notifications"
+    ]
+  }
+}

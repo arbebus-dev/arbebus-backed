@@ -1,0 +1,33 @@
+{
+  "name": "@arbebus/mobile",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "test": "echo \"TODO mobile tests\""
+  },
+  "dependencies": {
+    "@expo/vector-icons": "latest",
+    "expo": "latest",
+    "expo-router": "latest",
+    "react": "latest",
+    "react-native": "latest",
+    "react-native-maps": "latest",
+    "expo-constants": "latest",
+    "expo-location": "latest",
+    "expo-haptics": "latest",
+    "expo-blur": "latest",
+    "expo-device": "latest",
+    "@react-native-async-storage/async-storage": "latest",
+    "@react-native-community/netinfo": "latest",
+    "@sentry/react-native": "latest",
+    "expo-notifications": "latest",
+    "expo-task-manager": "latest"
+  },
+  "devDependencies": {
+    "typescript": "latest",
+    "@testing-library/react-native": "latest"
+  }
+}
