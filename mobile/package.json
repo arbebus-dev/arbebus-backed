@@ -10,24 +10,25 @@
   },
   "dependencies": {
     "@expo/vector-icons": "latest",
-    "expo": "latest",
-    "expo-router": "latest",
-    "react": "latest",
-    "react-native": "latest",
-    "react-native-maps": "latest",
-    "expo-constants": "latest",
-    "expo-location": "latest",
-    "expo-haptics": "latest",
-    "expo-blur": "latest",
-    "expo-device": "latest",
     "@react-native-async-storage/async-storage": "latest",
     "@react-native-community/netinfo": "latest",
     "@sentry/react-native": "latest",
-    "expo-notifications": "latest",
-    "expo-task-manager": "latest"
+    "expo": "latest",
+    "expo-apple-authentication": "~55.0.13",
+    "expo-blur": "latest",
+    "expo-constants": "latest",
+    "expo-device": "latest",
+    "expo-haptics": "latest",
+    "expo-location": "^55.1.8",
+    "expo-notifications": "^55.0.22",
+    "expo-router": "latest",
+    "expo-task-manager": "^55.0.15",
+    "react": "latest",
+    "react-native": "latest",
+    "react-native-maps": "latest"
   },
   "devDependencies": {
-    "typescript": "latest",
-    "@testing-library/react-native": "latest"
+    "@testing-library/react-native": "latest",
+    "typescript": "latest"
   }
 }
