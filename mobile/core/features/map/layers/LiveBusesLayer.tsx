@@ -1,7 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import React, { useEffect, useRef } from "react";
-import { Animated } from "react-native";
-import { StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Animated, StyleSheet, Text, View } from "react-native";
 import { Marker } from "react-native-maps";
 import type { LiveBus } from "../../transit/models/transitTypes";
 
@@ -24,45 +23,39 @@ function routeNumberFromLabel(label?: string | null) {
     .toUpperCase();
 }
 
-
-function PulseGlow({ selected }: { selected: boolean }) {
-  const scale = useRef(new Animated.Value(0.78)).current;
-  const opacity = useRef(new Animated.Value(0.28)).current;
-
-  useEffect(() => {
-    if (!selected) return undefined;
-    const loop = Animated.loop(
-      Animated.parallel([
-        Animated.sequence([
-          Animated.timing(scale, { toValue: 1.35, duration: 950, useNativeDriver: true }),
-          Animated.timing(scale, { toValue: 0.78, duration: 950, useNativeDriver: true }),
-        ]),
-        Animated.sequence([
-          Animated.timing(opacity, { toValue: 0.06, duration: 950, useNativeDriver: true }),
-          Animated.timing(opacity, { toValue: 0.30, duration: 950, useNativeDriver: true }),
-        ]),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [opacity, scale, selected]);
-
-  if (!selected) return null;
-  return <Animated.View style={[styles.pulseGlow, { opacity, transform: [{ scale }] }]} />;
-}
-
-function isValidCoordinate(bus: LiveBus) {
-  return (
-    bus.coordinate &&
-    Number.isFinite(Number(bus.coordinate.latitude)) &&
-    Number.isFinite(Number(bus.coordinate.longitude))
-  );
+function coordinateFromBus(bus: any) {
+  const latitude = Number(bus?.latitude ?? bus?.lat ?? bus?.coordinate?.latitude);
+  const longitude = Number(bus?.longitude ?? bus?.lon ?? bus?.lng ?? bus?.coordinate?.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return { latitude, longitude };
 }
 
 function busLabel(bus: LiveBus) {
-  const label = bus.number || bus.route || bus.routeId || bus.vehicleLabel || "";
+  const label = bus.number || bus.route || bus.routeId || bus.vehicleLabel || "BUS";
   const clean = String(label).replace("undefined", "").trim();
-  return clean || "—";
+  return clean || "BUS";
+}
+
+function BusGlyph({ active, vehicle, heading, label }: { active: boolean; vehicle: boolean; heading: number; label: string }) {
+  return (
+    <View style={[styles.glyph, active && styles.glyphActive, vehicle && styles.glyphVehicle]}>
+      <View style={[styles.arrow, { transform: [{ rotate: `${heading}deg` }] }]}>
+        <MaterialCommunityIcons
+          name="navigation-variant"
+          size={10}
+          color={active ? "#052117" : "#2DD4A7"}
+        />
+      </View>
+      <MaterialCommunityIcons
+        name="bus"
+        size={active ? 15 : 13}
+        color={active ? "#052117" : "#FFFFFF"}
+      />
+      <Text style={[styles.label, active && styles.labelActive]} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
 }
 
 export default function LiveBusesLayer({
@@ -72,75 +65,46 @@ export default function LiveBusesLayer({
 }: Props) {
   const selectedNumber = routeNumberFromLabel(selectedRouteLabel);
   const selectedVehicle = normalizeId(selectedVehicleId);
+  const fade = useRef(new Animated.Value(0)).current;
+  const [tracksChanges, setTracksChanges] = useState(true);
+
+  useEffect(() => {
+    setTracksChanges(true);
+    fade.setValue(0);
+    Animated.timing(fade, { toValue: 1, duration: 260, useNativeDriver: true }).start(() => {
+      setTimeout(() => setTracksChanges(false), 850);
+    });
+  }, [buses.length, fade]);
+
+  const visibleBuses = useMemo(() => {
+    return (buses || [])
+      .map((bus) => ({ bus, coordinate: coordinateFromBus(bus) }))
+      .filter((item) => item.coordinate);
+  }, [buses]);
 
   return (
     <>
-      {buses.filter(isValidCoordinate).map((bus) => {
+      {visibleBuses.map(({ bus, coordinate }) => {
         const routeNumber = busLabel(bus);
         const normalizedRoute = routeNumberFromLabel(bus.routeId || bus.route || bus.number);
         const ids = [bus.vehicleId, bus.id, bus.vehicleLabel].map(normalizeId);
-
         const isSelectedVehicle = Boolean(selectedVehicle && ids.includes(selectedVehicle));
         const isSelectedRoute = Boolean(selectedNumber && normalizedRoute === selectedNumber);
         const isImportant = isSelectedVehicle || isSelectedRoute;
-
         const heading = Number(bus.heading ?? bus.bearing ?? 0);
 
         return (
           <Marker
-            key={bus.id}
-            coordinate={bus.coordinate}
+            key={`${bus.id}-${bus.vehicleId}-${routeNumber}`}
+            coordinate={coordinate!}
             anchor={{ x: 0.5, y: 0.5 }}
-            tracksViewChanges={false}
-            zIndex={isSelectedVehicle ? 3000 : isSelectedRoute ? 1200 : 10}
+            tracksViewChanges={tracksChanges || isImportant}
+            zIndex={isSelectedVehicle ? 5000 : isSelectedRoute ? 2500 : 200}
           >
-            <View style={styles.markerWrap}>
-              <PulseGlow selected={isImportant} />
-
-              {isImportant ? (
-                <View style={[styles.glow, isSelectedVehicle && styles.glowVehicle]} />
-              ) : null}
-
-              {isSelectedVehicle ? <View style={styles.ring} /> : null}
-
-              <View
-                style={[
-                  styles.marker,
-                  isSelectedRoute && styles.markerActive,
-                  isSelectedVehicle && styles.markerVehicle,
-                ]}
-              >
-                <View
-                  style={[
-                    styles.headingArrow,
-                    { transform: [{ rotate: `${heading}deg` }] },
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name="navigation-variant"
-                    size={isSelectedVehicle ? 15 : 12}
-                    color={isImportant ? "#03110B" : "#35F2B4"}
-                  />
-                </View>
-
-                <Text
-                  style={[
-                    styles.text,
-                    isSelectedRoute && styles.textActive,
-                    isSelectedVehicle && styles.textVehicle,
-                  ]}
-                  numberOfLines={1}
-                >
-                  {routeNumber}
-                </Text>
-              </View>
-
-              {isSelectedVehicle ? (
-                <View style={styles.vehicleLabel}>
-                  <Text style={styles.vehicleLabelText}>TAVO</Text>
-                </View>
-              ) : null}
-            </View>
+            <Animated.View style={[styles.markerWrap, { opacity: fade }]}>
+              {isImportant ? <View style={styles.glow} /> : null}
+              <BusGlyph active={isImportant} vehicle={isSelectedVehicle} heading={heading} label={routeNumber} />
+            </Animated.View>
           </Marker>
         );
       })}
@@ -150,98 +114,57 @@ export default function LiveBusesLayer({
 
 const styles = StyleSheet.create({
   markerWrap: {
-    width: 70,
-    height: 70,
+    width: 48,
+    height: 48,
     alignItems: "center",
     justifyContent: "center",
-  },
-  pulseGlow: {
-    position: "absolute",
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: "rgba(53,242,180,0.28)",
   },
   glow: {
     position: "absolute",
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "rgba(53,242,180,0.20)",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(45,212,167,0.24)",
     borderWidth: 1,
-    borderColor: "rgba(53,242,180,0.35)",
+    borderColor: "rgba(255,255,255,0.45)",
   },
-  glowVehicle: {
-    width: 66,
-    height: 66,
-    borderRadius: 33,
-    backgroundColor: "rgba(53,242,180,0.30)",
-    borderColor: "rgba(255,255,255,0.65)",
-  },
-  ring: {
-    position: "absolute",
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.80)",
-  },
-  marker: {
-    minWidth: 36,
-    height: 36,
-    paddingHorizontal: 7,
-    borderRadius: 18,
+  glyph: {
+    minWidth: 32,
+    height: 32,
+    paddingHorizontal: 5,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(8,13,27,0.95)",
-    borderWidth: 2,
-    borderColor: "#35F2B4",
+    backgroundColor: "rgba(8,13,27,0.94)",
+    borderWidth: 1.5,
+    borderColor: "rgba(45,212,167,0.82)",
   },
-  markerActive: {
+  glyphActive: {
+    minWidth: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#2DD4A7",
+    borderColor: "#FFFFFF",
+  },
+  glyphVehicle: {
     minWidth: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: "#35F2B4",
-    borderColor: "#FFFFFF",
   },
-  markerVehicle: {
-    minWidth: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: "#35F2B4",
-    borderColor: "#FFFFFF",
-    borderWidth: 3,
-  },
-  headingArrow: {
+  arrow: {
     position: "absolute",
-    top: -8,
+    top: -6,
     alignSelf: "center",
   },
-  text: {
+  label: {
     color: "#FFFFFF",
+    fontSize: 9,
     fontWeight: "900",
-    fontSize: 12,
+    marginTop: -1,
+    maxWidth: 28,
   },
-  textActive: {
-    color: "#06111F",
-    fontSize: 13,
-  },
-  textVehicle: {
-    color: "#06111F",
-    fontSize: 14,
-  },
-  vehicleLabel: {
-    position: "absolute",
-    bottom: -2,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: "#FFFFFF",
-  },
-  vehicleLabelText: {
-    color: "#06111F",
-    fontSize: 8,
-    fontWeight: "900",
-    letterSpacing: 0.4,
+  labelActive: {
+    color: "#052117",
+    fontSize: 10,
   },
 });

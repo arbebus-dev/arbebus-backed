@@ -3,12 +3,12 @@ import { getLiveBuses, type LiveBus as ApiLiveBus } from "../services/transitApi
 import type { LiveBus } from "../models/transitTypes";
 
 function normalizeLiveBus(bus: ApiLiveBus, index: number): LiveBus | null {
-  const latitude = Number(bus.latitude);
-  const longitude = Number(bus.longitude);
+  const latitude = Number((bus as any).latitude ?? (bus as any).lat ?? (bus as any).coordinate?.latitude);
+  const longitude = Number((bus as any).longitude ?? (bus as any).lon ?? (bus as any).lng ?? (bus as any).coordinate?.longitude);
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
 
-  const number = String(bus.route ?? bus.routeId ?? bus.vehicleLabel ?? bus.vehicleId ?? "BUS");
+  const number = String((bus as any).number ?? bus.route ?? bus.routeId ?? (bus as any).routeNumber ?? bus.vehicleLabel ?? bus.vehicleId ?? "BUS");
 
   return {
     id: String(bus.id ?? bus.vehicleId ?? index),
