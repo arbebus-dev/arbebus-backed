@@ -1,3 +1,3 @@
 // Expo Router uses app/_layout.tsx as the real app entry.
-// This file is kept only for compatibility with tooling that reads App.tsx.
+// The custom Arbebus launch screen is controlled there so it is not bypassed.
 export { default } from "./app/_layout";
