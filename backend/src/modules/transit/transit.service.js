@@ -398,13 +398,59 @@ function tripStopPublic(stopTime) {
   return stop;
 }
 
+function nearestShapeIndex(points, coordinate) {
+  if (!Array.isArray(points) || !points.length || !coordinate) return -1;
+
+  let bestIndex = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (let i = 0; i < points.length; i += 1) {
+    const point = toCoordinate(points[i]);
+    if (!point) continue;
+
+    const distance = distanceMeters(point, coordinate);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = i;
+    }
+  }
+
+  return bestIndex;
+}
+
 function shapeForTrip(trip, fallbackStops = []) {
   const gtfs = loadGtfs();
+  const stopPolyline = fallbackStops
+    .map((stop) => stop?.coordinate || toCoordinate(stop))
+    .filter(Boolean);
+
   const shapeId = String(trip?.shape_id || '');
-  if (shapeId && gtfs.shapesByShapeId.has(shapeId)) {
-    return simplifyPoints(gtfs.shapesByShapeId.get(shapeId), 220);
+  const fullShape = shapeId && gtfs.shapesByShapeId.has(shapeId)
+    ? gtfs.shapesByShapeId.get(shapeId)
+    : [];
+
+  if (fullShape.length >= 2 && stopPolyline.length >= 2) {
+    const startIndex = nearestShapeIndex(fullShape, stopPolyline[0]);
+    const endIndex = nearestShapeIndex(fullShape, stopPolyline[stopPolyline.length - 1]);
+
+    if (startIndex >= 0 && endIndex >= 0 && Math.abs(endIndex - startIndex) >= 1) {
+      const from = Math.min(startIndex, endIndex);
+      const to = Math.max(startIndex, endIndex);
+      const sliced = fullShape.slice(from, to + 1);
+
+      if (sliced.length >= 2) {
+        // GTFS shapes are full line geometry. Slice by nearest boarding/alighting stops
+        // so the map does not draw the whole city loop or a random straight fallback.
+        return simplifyPoints(sliced, 240);
+      }
+    }
   }
-  return fallbackStops.map((stop) => stop.coordinate).filter(Boolean);
+
+  if (fullShape.length >= 2 && stopPolyline.length < 2) {
+    return simplifyPoints(fullShape, 240);
+  }
+
+  return stopPolyline;
 }
 
 function findTripSegment(routeId, fromStopId, toStopId, afterSeconds = nowSeconds() - 120) {

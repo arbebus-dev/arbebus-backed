@@ -1,45 +1,43 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useMemo, useRef } from "react";
 import {
   ActivityIndicator,
   Animated,
   Dimensions,
+  Keyboard,
   PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 
-import { useJourneyStateMachine } from "../transit/hooks/useJourneyStateMachine";
+import { COLORS, LINE_HEIGHT, T } from "@/core/theme/typography";
 import {
+  buildJourneyViewModel,
   cleanRouteNumber,
+  cleanStopName,
   getSteps,
   routeNumbersFromRoute,
-  type JourneyStage,
 } from "../transit/models/journeyStateMachine";
-import type { TransitFlowState, TransitRouteOption, TransitStep } from "../transit/models/transitTypes";
-
-const SCREEN_HEIGHT = Dimensions.get("window").height;
-const SAFE_MAX_HEIGHT = Math.min(790, SCREEN_HEIGHT * 0.9);
-const COLLAPSED_HEIGHT = 214;
-const PREVIEW_HEIGHT = Math.min(430, SCREEN_HEIGHT * 0.52);
-const DETAIL_HEIGHT = Math.min(640, SCREEN_HEIGHT * 0.74);
-const NAV_HEIGHT = Math.min(560, SCREEN_HEIGHT * 0.66);
-
-const GREEN = "#35F2B4";
-const DARK = "rgba(5, 9, 20, 0.94)";
-const CARD = "rgba(28, 35, 52, 0.92)";
-const CARD_SOFT = "rgba(255,255,255,0.07)";
-const LINE = "rgba(255,255,255,0.11)";
-const TEXT = "#F8FBFF";
-const MUTED = "#AAB4CF";
+import type {
+  PlaceSearchResult,
+  TransitFlowState,
+  TransitRouteOption,
+  TransitStep,
+} from "../transit/models/transitTypes";
 
 type Props = {
   flowState: TransitFlowState;
   liveBusCount: number;
+  query: string;
+  searchResults: PlaceSearchResult[];
+  isSearching?: boolean;
+  isPlanning?: boolean;
   routeOptions: TransitRouteOption[];
   selectedRoute: TransitRouteOption | null;
   error?: string | null;
@@ -47,534 +45,563 @@ type Props = {
   offlineMessage?: string | null;
   isRerouting?: boolean;
   reroutingMessage?: string | null;
+  onChangeQuery: (text: string) => void;
+  onSubmitSearch: () => void;
+  onSelectDestination: (place: PlaceSearchResult) => void;
   onChooseRoute: (route: TransitRouteOption) => void;
   onStartJourney: () => void;
   onNextStep: () => void;
+  onBackToRoutes: () => void;
+  onBackToSearch: () => void;
   onReset: () => void;
 };
 
-function number(value: unknown, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
+type Stage = "search" | "loading" | "routes" | "details" | "navigation";
+
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+const SHEET_TOP = 68;
+const SNAP_FULL = SHEET_TOP;
+const SNAP_MID = Math.round(SCREEN_HEIGHT * 0.43);
+const SNAP_BOTTOM = Math.max(SCREEN_HEIGHT - 210, SCREEN_HEIGHT * 0.73);
+const SNAP_COMPACT = Math.max(SCREEN_HEIGHT - 220, SCREEN_HEIGHT * 0.72);
+const SHEET_HEIGHT = SCREEN_HEIGHT - SHEET_TOP + 28;
+
+function n(value: unknown, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
 }
 
-function summary(route: TransitRouteOption | null) {
-  if (!route) {
-    return { duration: 0, walk: 0, bus: 0, transfers: 0, stops: 0, eta: null as number | null, numbers: [] as string[] };
-  }
-
-  const numbers = routeNumbersFromRoute(route);
-  const duration = number(route.totalDurationMinutes ?? route.totalMinutes, 0);
-  const walk = number(route.totalWalkMinutes ?? route.walkingMinutes, 0);
-  const bus = number(route.totalBusMinutes, Math.max(0, duration - walk));
-  const transfers = Math.max(number(route.transfersCount ?? route.transfers, 0), Math.max(0, numbers.length - 1));
-  const stops = number(route.stopCount, 0);
-  const eta = route.liveEta?.etaMinutes ?? route.etaMinutes ?? null;
-  return { duration, walk, bus, transfers, stops, eta, numbers };
+function routeLabel(route: TransitRouteOption | null) {
+  return routeNumbersFromRoute(route)[0] || cleanRouteNumber(route?.routeLabel || route?.routeId || route?.title) || "BUS";
 }
 
-function routeTitle(route: TransitRouteOption) {
-  const numbers = routeNumbersFromRoute(route);
-  if (numbers.length > 1) return numbers.join(" → ");
-  return numbers[0] || route.routeLabel || route.title || "BUS";
+function routeSummary(route: TransitRouteOption) {
+  const duration = n(route.totalDurationMinutes ?? route.totalMinutes, 0);
+  const walk = n(route.totalWalkMinutes ?? route.walkingMinutes, 0);
+  const transfers = n(route.transfersCount ?? route.transfers, 0);
+  const stops = n(route.stopCount, 0);
+  return { duration, walk, transfers, stops, label: routeLabel(route) };
 }
 
-function routeSubline(route: TransitRouteOption) {
-  const s = summary(route);
-  const parts = [
-    `${s.duration || route.totalMinutes || "?"} min`,
-    s.walk ? `Ėjimas ${s.walk} min` : null,
-    s.transfers ? `${s.transfers} persėd.` : "be persėdimų",
-  ].filter(Boolean);
-  return parts.join(" • ");
-}
-
-function stepIconName(step?: TransitStep | null) {
-  if (!step) return "dots-horizontal";
+function stepIcon(step: TransitStep | null | undefined) {
+  if (!step) return "circle-small";
   if (step.type === "walk") return "walk";
   if (step.type === "board") return "bus-clock";
   if (step.type === "ride" || step.type === "bus") return "bus";
   if (step.type === "transfer") return "swap-horizontal";
   if (step.type === "alight" || step.type === "arrive") return "flag-checkered";
-  return "dots-horizontal";
+  return "circle-small";
 }
 
-function stepBadge(step: TransitStep) {
-  if (step.type === "walk") return "EIK";
-  if (step.type === "board") return "ĮLIPK";
-  if (step.type === "ride" || step.type === "bus") return cleanRouteNumber(step.routeNumber || step.routeId || step.routeLabel) || "BUS";
-  if (step.type === "transfer") return "PERSĖSK";
-  if (step.type === "alight" || step.type === "arrive") return "IŠLIPK";
-  return "STEP";
+function stepLabel(step: TransitStep) {
+  const route = cleanRouteNumber(step.routeNumber || step.routeLabel || step.routeId);
+  if (route && step.type !== "walk") return route;
+  const minutes = n(step.durationMinutes ?? step.minutes, 0);
+  if (minutes) return `${minutes} min`;
+  return step.type === "walk" ? "eik" : "";
 }
 
-function ctaForStage(stage: JourneyStage, flowState: TransitFlowState, route: TransitRouteOption | null) {
-  if (stage === "routes_list") return "RODYTI";
-  if (stage === "route_details") return "GO";
-  if (flowState === "walking_to_stop") return "EINU";
-  if (flowState === "waiting_bus") return "ĮLIPAU";
-  if (flowState === "onboard") return "TOLIAU";
-  if (flowState === "transfer") return "PERSĖDAU";
-  if (flowState === "arriving") return "IŠLIPAU";
-  if (flowState === "completed") return "NAUJAS MARŠRUTAS";
-  return route ? "GO" : "IEŠKOTI";
+function placeSubtitle(place: PlaceSearchResult) {
+  const meters = n(place.distanceMeters, 0);
+  if (meters > 0 && meters < 1000) return `${Math.round(meters)} m`;
+  if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
+  return place.subtitle || "Klaipėda";
 }
 
-function heightForStage(stage: JourneyStage, routeCount: number) {
-  if (stage === "routes_list") return routeCount > 2 ? DETAIL_HEIGHT : PREVIEW_HEIGHT;
-  if (stage === "route_details") return DETAIL_HEIGHT;
-  if (stage === "active_step") return NAV_HEIGHT;
-  if (stage === "navigation") return NAV_HEIGHT;
-  return COLLAPSED_HEIGHT;
+function stageFor(flowState: TransitFlowState, selectedRoute: TransitRouteOption | null): Stage {
+  if (flowState === "routes_loading" || flowState === "destination_selected") return "loading";
+  if (flowState === "idle" || flowState === "searching") return "search";
+  if (flowState === "route_options") return "routes";
+  if (flowState === "route_selected") return "details";
+  if (["walking_to_stop", "waiting_bus", "onboard", "transfer", "arriving", "completed"].includes(flowState)) return "navigation";
+  return selectedRoute ? "details" : "search";
 }
 
-function MiniPill({ label, active }: { label: string; active?: boolean }) {
+function snapForStage(stage: Stage, query: string, resultCount: number) {
+  if (stage === "search") {
+    if (query.trim().length >= 2 || resultCount > 0) return SNAP_MID;
+    return SNAP_BOTTOM;
+  }
+  if (stage === "loading") return SNAP_MID;
+  if (stage === "routes") return SNAP_MID;
+  if (stage === "details") return SNAP_MID;
+  if (stage === "navigation") return SNAP_COMPACT;
+  return SNAP_BOTTOM;
+}
+
+function nearestSnap(y: number, stage: Stage) {
+  const points = stage === "navigation"
+    ? [SNAP_FULL, SNAP_MID, SNAP_COMPACT]
+    : [SNAP_FULL, SNAP_MID, SNAP_BOTTOM];
+
+  return points.reduce((best, point) => {
+    return Math.abs(point - y) < Math.abs(best - y) ? point : best;
+  }, points[0]);
+}
+
+function animateTo(value: Animated.Value, toValue: number) {
+  Animated.spring(value, {
+    toValue,
+    useNativeDriver: true,
+    damping: 28,
+    stiffness: 220,
+    mass: 0.85,
+  }).start();
+}
+
+function ModeSelector() {
   return (
-    <View style={[styles.miniPill, active && styles.miniPillActive]}>
-      <Text style={[styles.miniPillText, active && styles.miniPillTextActive]}>{label}</Text>
-    </View>
-  );
-}
-
-function RouteBadges({ numbers }: { numbers: string[] }) {
-  if (!numbers.length) return null;
-  return (
-    <View style={styles.badgeRow}>
-      {numbers.map((item, index) => (
-        <React.Fragment key={`${item}-${index}`}>
-          <View style={styles.lineBadge}>
-            <Text style={styles.lineBadgeText}>{item}</Text>
-          </View>
-          {index < numbers.length - 1 ? <Ionicons name="chevron-forward" size={16} color={GREEN} /> : null}
-        </React.Fragment>
+    <View style={styles.modeSelector}>
+      {[
+        ["car", "car"],
+        ["walk", "walk"],
+        ["bus", "bus"],
+        ["bike", "bicycle"],
+      ].map(([key, icon]) => (
+        <View key={key} style={[styles.modeItem, key === "bus" && styles.modeItemActive]}>
+          <MaterialCommunityIcons name={icon as any} size={15} color={key === "bus" ? COLORS.greenDark : "#273144"} />
+        </View>
       ))}
     </View>
   );
 }
 
-function RouteAlternativeCard({
-  route,
-  selected,
-  onPress,
+function Header({
+  title,
+  subtitle,
+  icon,
+  badge,
+  onClose,
+  onBack,
 }: {
-  route: TransitRouteOption;
-  selected: boolean;
-  onPress: () => void;
+  title: string;
+  subtitle?: string;
+  icon?: any;
+  badge?: string;
+  onClose: () => void;
+  onBack?: () => void;
 }) {
-  const s = summary(route);
-  const title = routeTitle(route);
+  return (
+    <View style={styles.headerRow}>
+      {onBack ? (
+        <Pressable onPress={onBack} style={styles.roundControl} hitSlop={12}>
+          <Ionicons name="chevron-back" size={17} color={COLORS.textDark} />
+        </Pressable>
+      ) : null}
+      <View style={styles.headerIcon}>
+        <MaterialCommunityIcons name={icon || "directions-fork"} size={17} color={COLORS.greenDark} />
+      </View>
+      <View style={styles.headerTextBlock}>
+        <Text style={styles.kicker}>ARBE NAVIGATION</Text>
+        <Text style={styles.sheetTitle} numberOfLines={1}>{title}</Text>
+        {subtitle ? <Text style={styles.sheetSubtitle} numberOfLines={1}>{subtitle}</Text> : null}
+      </View>
+      {badge ? (
+        <View style={styles.headerBadge}><Text style={styles.headerBadgeText}>{badge}</Text></View>
+      ) : null}
+      <Pressable onPress={onClose} style={styles.roundControl} hitSlop={12}>
+        <Ionicons name="close" size={16} color={COLORS.textDark} />
+      </Pressable>
+    </View>
+  );
+}
 
+function SearchInput(props: Pick<Props, "query" | "isSearching" | "onChangeQuery" | "onSubmitSearch" | "onReset">) {
+  return (
+    <View style={styles.searchInputRow}>
+      <Ionicons name="search" size={16} color="#657088" />
+      <TextInput
+        value={props.query}
+        onChangeText={props.onChangeQuery}
+        onSubmitEditing={() => {
+          Keyboard.dismiss();
+          props.onSubmitSearch();
+        }}
+        placeholder="Kur važiuojam?"
+        placeholderTextColor="#75809A"
+        returnKeyType="search"
+        autoCorrect={false}
+        autoCapitalize="none"
+        style={styles.searchInput}
+      />
+      {props.isSearching ? <ActivityIndicator size="small" color={COLORS.green} /> : null}
+      {props.query.trim().length ? (
+        <Pressable onPress={props.onReset} hitSlop={12} style={styles.searchClearButton}>
+          <Ionicons name="close" size={13} color="#657088" />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function SearchHeader(props: Props) {
+  return (
+    <View style={styles.fixedHeader}>
+      <Header title="Directions" subtitle="Pasirink kelionės tikslą" icon="map-search" onClose={props.onReset} />
+      <ModeSelector />
+      <View style={styles.endpointBox}>
+        <View style={styles.endpointRow}>
+          <View style={styles.locationDotBlue} />
+          <Text style={styles.endpointText}>My Location</Text>
+        </View>
+        <View style={styles.endpointDivider} />
+        <SearchInput {...props} />
+      </View>
+    </View>
+  );
+}
+
+function SearchState(props: Props) {
+  const hasResults = props.searchResults.length > 0;
+  return (
+    <View style={styles.stateRoot}>
+      <SearchHeader {...props} />
+      <ScrollView
+        style={styles.scrollArea}
+        contentContainerStyle={styles.searchScrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {props.error ? <Text style={styles.inlineError}>{props.error}</Text> : null}
+        {hasResults ? props.searchResults.slice(0, 10).map((place) => (
+          <Pressable
+            key={place.id}
+            style={styles.searchResultRow}
+            onPress={() => {
+              void Haptics.selectionAsync();
+              props.onSelectDestination(place);
+            }}
+          >
+            <View style={styles.resultIcon}><Ionicons name="location" size={12} color={COLORS.green} /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.resultTitle} numberOfLines={1}>{cleanStopName(place.title)}</Text>
+              <Text style={styles.resultSubtitle} numberOfLines={1}>{placeSubtitle(place)}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={14} color={COLORS.dim} />
+          </Pressable>
+        )) : (
+          <View style={styles.emptyBlock}>
+            <Text style={styles.emptyTitle}>Įvesk tikslą</Text>
+            <Text style={styles.emptyText}>Pvz. Akropolis, Palanga, Autobusų stotis.</Text>
+          </View>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+function LoadingState({ onReset }: Pick<Props, "onReset">) {
+  return (
+    <View style={styles.stateRoot}>
+      <View style={styles.fixedHeader}>
+        <Header title="Ieškome maršrutų" subtitle="Tikriname stoteles ir tvarkaraščius" icon="bus-clock" onClose={onReset} />
+      </View>
+      <View style={styles.loadingBox}>
+        <ActivityIndicator color={COLORS.green} />
+        <Text style={styles.loadingText}>Skaičiuojame kelionės variantus…</Text>
+      </View>
+    </View>
+  );
+}
+
+function RoutePills({ route }: { route: TransitRouteOption }) {
+  const labels = routeNumbersFromRoute(route).slice(0, 3);
+  const s = routeSummary(route);
+  return (
+    <View style={styles.pillRow}>
+      {labels.map((item) => <View key={item} style={styles.busBadge}><Text style={styles.busBadgeText}>{item}</Text></View>)}
+      {s.walk ? <View style={styles.neutralBadge}><Text style={styles.neutralBadgeText}>eiti {s.walk} min</Text></View> : null}
+      <View style={styles.neutralBadge}><Text style={styles.neutralBadgeText}>{s.transfers ? `${s.transfers} pers.` : "tiesiogiai"}</Text></View>
+    </View>
+  );
+}
+
+function RouteCard({ route, selected, onPress }: { route: TransitRouteOption; selected?: boolean; onPress: () => void }) {
+  const s = routeSummary(route);
   return (
     <Pressable onPress={onPress} style={[styles.routeCard, selected && styles.routeCardSelected]}>
       <View style={styles.routeCardTop}>
-        <View style={styles.routeCardLeft}>
-          <Text style={styles.routeCardTitle}>{title}</Text>
-          <Text style={styles.routeCardSubtitle}>{routeSubline(route)}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.routeDuration}>{s.duration || "–"} min</Text>
+          <Text style={styles.routeSubtitle} numberOfLines={1}>Bus {route.departureText || "pagal tvarkaraštį"}</Text>
         </View>
-        <View style={styles.routeDurationBlock}>
-          <Text style={styles.routeDuration}>{s.duration || "—"}</Text>
-          <Text style={styles.routeDurationUnit}>min</Text>
+        <View style={styles.routeTimeBox}>
+          <Text style={styles.routeTimeText}>{s.label}</Text>
+          <Ionicons name="chevron-forward" size={14} color={COLORS.dim} />
         </View>
       </View>
-
-      <RouteBadges numbers={s.numbers} />
-
-      <View style={styles.routeMetaRow}>
-        <MiniPill label={`${s.stops || "—"} st.`} />
-        <MiniPill label={s.transfers ? `${s.transfers} persėd.` : "tiesiogiai"} active={!s.transfers} />
-        {s.eta != null ? <MiniPill label={`ETA ${s.eta} min`} active /> : null}
-      </View>
+      <RoutePills route={route} />
     </Pressable>
   );
 }
 
-function HeaderBlock({ title, subtitle, progressLabel, icon }: { title: string; subtitle: string; progressLabel?: string; icon: string }) {
+function RoutesListState(props: Props) {
+  const destination = props.routeOptions[0]?.destinationStop?.name || props.routeOptions[0]?.alightStopName || "tikslas";
   return (
-    <View style={styles.headerBlock}>
-      <View style={styles.iconOrb}>
-        <MaterialCommunityIcons name={icon as any} size={30} color="#08291F" />
-      </View>
-      <View style={styles.headerTextBlock}>
-        <Text style={styles.kicker}>ARBE NAVIGATION</Text>
-        <Text style={styles.headerTitle} numberOfLines={2}>{title}</Text>
-        <Text style={styles.headerSubtitle} numberOfLines={2}>{subtitle}</Text>
-      </View>
-      {progressLabel ? (
-        <View style={styles.progressBadge}>
-          <Text style={styles.progressBadgeText}>{progressLabel}</Text>
+    <View style={styles.stateRoot}>
+      <View style={styles.fixedHeader}>
+        <Header title="Directions" subtitle={`My Location → ${cleanStopName(destination)}`} icon="bus" onClose={props.onReset} onBack={props.onBackToSearch} />
+        <ModeSelector />
+        <View style={styles.toolbarRow}>
+          <Pressable style={styles.blueChip}><Text style={styles.blueChipText}>Leave now</Text></Pressable>
+          <Pressable style={styles.grayChip}><Text style={styles.grayChipText}>Prefer</Text></Pressable>
         </View>
-      ) : null}
-    </View>
-  );
-}
-
-function RouteDetails({ route }: { route: TransitRouteOption }) {
-  const s = summary(route);
-  const steps = getSteps(route);
-  return (
-    <View style={styles.detailsBlock}>
-      <View style={styles.primaryRouteBox}>
-        <View>
-          <Text style={styles.primaryRouteTitle}>{routeTitle(route)}</Text>
-          <Text style={styles.primaryRouteSubtitle}>{route.boardStopName} → {route.alightStopName}</Text>
-        </View>
-        <Text style={styles.primaryRouteTime}>{s.duration || route.totalMinutes} min</Text>
       </View>
-
-      <View style={styles.statsRow}>
-        <View style={styles.statItem}><Text style={styles.statValue}>{s.walk}</Text><Text style={styles.statLabel}>ėjimas</Text></View>
-        <View style={styles.statItem}><Text style={styles.statValue}>{s.bus}</Text><Text style={styles.statLabel}>autobusu</Text></View>
-        <View style={styles.statItem}><Text style={styles.statValue}>{s.transfers}</Text><Text style={styles.statLabel}>persėd.</Text></View>
-      </View>
-
-      <View style={styles.stepsListCompact}>
-        {steps.slice(0, 6).map((step, index) => (
-          <View key={step.id || `${step.type}-${index}`} style={styles.compactStepRow}>
-            <View style={styles.compactStepIcon}>
-              <MaterialCommunityIcons name={stepIconName(step) as any} size={17} color={GREEN} />
-            </View>
-            <View style={styles.compactStepMain}>
-              <Text style={styles.compactStepTitle} numberOfLines={1}>{step.title}</Text>
-              <Text style={styles.compactStepSubtitle} numberOfLines={1}>
-                {[step.stopName, step.fromStopName, step.toStopName, step.durationMinutes ? `${step.durationMinutes} min` : null]
-                  .filter(Boolean)
-                  .join(" • ")}
-              </Text>
-            </View>
-            <Text style={styles.compactStepBadge}>{stepBadge(step)}</Text>
-          </View>
+      <ScrollView style={styles.scrollArea} contentContainerStyle={styles.routesContent} showsVerticalScrollIndicator={false}>
+        {props.error ? <Text style={styles.inlineError}>{props.error}</Text> : null}
+        {props.routeOptions.map((route) => (
+          <RouteCard key={route.id} route={route} selected={route.id === props.selectedRoute?.id} onPress={() => props.onChooseRoute(route)} />
         ))}
-      </View>
+      </ScrollView>
     </View>
   );
 }
 
-function ActiveNavigation({
-  route,
-  flowState,
-  currentStepIndex,
-}: {
-  route: TransitRouteOption;
-  flowState: TransitFlowState;
-  currentStepIndex: number;
-}) {
-  const vm = useJourneyStateMachine(flowState, route, currentStepIndex);
-  const steps = getSteps(route);
-  const s = summary(route);
-  const active = vm.activeStep;
-
+function StepRow({ step, active }: { step: TransitStep; active?: boolean }) {
   return (
-    <View style={styles.navigationBlock}>
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${Math.round(vm.progressPercent * 100)}%` }]} />
+    <View style={styles.stepRow}>
+      <View style={styles.stepRail}>
+        <View style={[styles.stepLineDot, active && styles.stepLineDotActive]} />
       </View>
+      <View style={styles.stepIconMini}><MaterialCommunityIcons name={stepIcon(step) as any} size={12} color={active ? COLORS.greenDark : COLORS.green} /></View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.stepTitle} numberOfLines={1}>{step.title}</Text>
+        <Text style={styles.stepSubtitle} numberOfLines={1}>
+          {[cleanStopName(step.stopName || step.fromStopName), step.toStopName ? `→ ${cleanStopName(step.toStopName)}` : null].filter(Boolean).join(" ")}
+        </Text>
+      </View>
+      <Text style={styles.stepBadge}>{stepLabel(step)}</Text>
+    </View>
+  );
+}
 
-      <View style={styles.activeCard}>
-        <View style={styles.activeTopRow}>
-          <Text style={styles.activeRouteLabel}>{routeTitle(route)}</Text>
-          <Text style={styles.activeTime}>{s.duration || route.totalMinutes} min</Text>
-        </View>
-
-        <View style={styles.liveEtaBox}>
-          <MaterialCommunityIcons name="access-point" size={24} color={GREEN} />
+function RouteDetailsState(props: Props) {
+  const route = props.selectedRoute || props.routeOptions[0] || null;
+  if (!route) return <SearchState {...props} />;
+  const s = routeSummary(route);
+  const steps = getSteps(route);
+  return (
+    <View style={styles.stateRoot}>
+      <View style={styles.fixedHeader}>
+        <Header title="Route details" subtitle={`${cleanStopName(route.boardStopName)} → ${cleanStopName(route.alightStopName)}`} icon="bus" onClose={props.onReset} onBack={props.onBackToRoutes} />
+        <View style={styles.detailSummaryCard}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.liveEtaTitle}>
-              {vm.etaMinutes != null ? `Autobusas po ${vm.etaMinutes} min` : "Sek kelionės eigą"}
-            </Text>
-            <Text style={styles.liveEtaSubtitle}>GPS + tvarkaraštis</Text>
+            <Text style={styles.detailDuration}>{s.duration || "–"} min</Text>
+            <Text style={styles.detailSubtitle} numberOfLines={1}>Bus {route.departureText || "pagal tvarkaraštį"}</Text>
           </View>
+          <RoutePills route={route} />
         </View>
-
-        {active ? (
-          <View style={styles.currentStepBox}>
-            <View style={styles.currentStepIcon}>
-              <MaterialCommunityIcons name={stepIconName(active) as any} size={22} color="#06241D" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.currentStepTitle}>{active.title}</Text>
-              <Text style={styles.currentStepSubtitle} numberOfLines={2}>
-                {[active.stopName, active.fromStopName && active.toStopName ? `${active.fromStopName} → ${active.toStopName}` : null, active.stopCount ? `${active.stopCount} stotelės` : null]
-                  .filter(Boolean)
-                  .join(" • ") || vm.subtitle}
-              </Text>
-            </View>
-            <Text style={styles.currentStepTime}>{active.durationMinutes || active.minutes || ""}{active.durationMinutes || active.minutes ? " min" : ""}</Text>
-          </View>
-        ) : null}
-
-        <View style={styles.stopTimeline}>
-          {steps.slice(Math.max(0, vm.activeStepIndex - 1), vm.activeStepIndex + 4).map((step, index) => {
-            const absoluteIndex = Math.max(0, vm.activeStepIndex - 1) + index;
-            const isActive = absoluteIndex === vm.activeStepIndex;
-            return (
-              <View key={step.id || `${step.type}-${absoluteIndex}`} style={styles.timelineRow}>
-                <View style={[styles.timelineDot, isActive && styles.timelineDotActive]} />
-                <Text style={[styles.timelineText, isActive && styles.timelineTextActive]} numberOfLines={1}>
-                  {step.title}
-                </Text>
-                <Text style={styles.timelineBadge}>{stepBadge(step)}</Text>
-              </View>
-            );
-          })}
-        </View>
+      </View>
+      <ScrollView style={styles.scrollArea} contentContainerStyle={styles.stepsContent} showsVerticalScrollIndicator={false}>
+        {steps.map((step, index) => <StepRow key={step.id || index} step={step} active={index === 0} />)}
+      </ScrollView>
+      <View style={styles.stickyCtaWrap}>
+        <Pressable style={styles.primaryButton} onPress={props.onStartJourney}>
+          <Ionicons name="navigate" size={14} color={COLORS.greenDark} />
+          <Text style={styles.primaryButtonText}>Start navigation</Text>
+        </Pressable>
       </View>
     </View>
   );
 }
 
-export default function JourneySheet({
-  flowState,
-  liveBusCount,
-  routeOptions,
-  selectedRoute,
-  error,
-  isOffline,
-  offlineMessage,
-  isRerouting,
-  reroutingMessage,
-  onChooseRoute,
-  onStartJourney,
-  onNextStep,
-  onReset,
-}: Props) {
-  const currentStepIndex = 0;
-  const vm = useJourneyStateMachine(flowState, selectedRoute, currentStepIndex);
-  const height = heightForStage(vm.stage, routeOptions.length);
-  const translateY = useRef(new Animated.Value(SAFE_MAX_HEIGHT - height)).current;
-  const lastHeight = useRef(height);
+function NavigationState(props: Props) {
+  const route = props.selectedRoute;
+  if (!route) return <SearchState {...props} />;
+  const vm = buildJourneyViewModel(props.flowState, route, 0);
+  const steps = getSteps(route);
+  const active = vm.activeStep || steps[0];
+  return (
+    <View style={styles.stateRoot}>
+      <View style={styles.fixedHeader}>
+        <Header title={vm.title} subtitle={vm.subtitle} icon={stepIcon(active)} badge={vm.progressLabel} onClose={props.onReset} onBack={props.onBackToRoutes} />
+        <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.round(vm.progressPercent * 100)}%` }]} /></View>
+      </View>
+      <ScrollView style={styles.scrollArea} contentContainerStyle={styles.navStepsContent} showsVerticalScrollIndicator={false}>
+        {steps.slice(Math.max(0, vm.activeStepIndex - 1), vm.activeStepIndex + 5).map((step, idx) => {
+          const absolute = Math.max(0, vm.activeStepIndex - 1) + idx;
+          return <StepRow key={step.id || absolute} step={step} active={absolute === vm.activeStepIndex} />;
+        })}
+      </ScrollView>
+      <View style={styles.stickyCtaWrap}>
+        <Pressable style={styles.primaryButton} onPress={props.flowState === "completed" ? props.onReset : props.onNextStep}>
+          <Text style={styles.primaryButtonText}>{vm.primaryCta}</Text>
+          <Ionicons name="arrow-forward" size={15} color={COLORS.greenDark} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
 
-  const stage = vm.stage;
-  const hasRoutes = routeOptions.length > 0;
-  const displayRoute = selectedRoute || routeOptions[0] || null;
+export default function JourneySheet(props: Props) {
+  const stage = stageFor(props.flowState, props.selectedRoute);
+  const translateY = useRef(new Animated.Value(snapForStage(stage, props.query, props.searchResults.length))).current;
+  const translateYValue = useRef(snapForStage(stage, props.query, props.searchResults.length));
+  const startY = useRef(translateYValue.current);
+  const keyboardOpen = useRef(false);
 
   useEffect(() => {
-    lastHeight.current = height;
-    Animated.spring(translateY, {
-      toValue: SAFE_MAX_HEIGHT - height,
-      useNativeDriver: true,
-      tension: 48,
-      friction: 9,
-    }).start();
-  }, [height, translateY]);
+    const showSub = Keyboard.addListener("keyboardDidShow", () => {
+      keyboardOpen.current = true;
+      const next = SNAP_MID;
+      translateYValue.current = next;
+      animateTo(translateY, next);
+    });
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      keyboardOpen.current = false;
+      const next = snapForStage(stage, props.query, props.searchResults.length);
+      translateYValue.current = next;
+      animateTo(translateY, next);
+    });
 
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_evt, gesture) => Math.abs(gesture.dy) > 8,
-        onPanResponderMove: (_evt, gesture) => {
-          const nextHeight = Math.max(COLLAPSED_HEIGHT, Math.min(SAFE_MAX_HEIGHT, lastHeight.current - gesture.dy));
-          translateY.setValue(SAFE_MAX_HEIGHT - nextHeight);
-        },
-        onPanResponderRelease: (_evt, gesture) => {
-          const rawHeight = lastHeight.current - gesture.dy;
-          const targetHeight = rawHeight > (DETAIL_HEIGHT + NAV_HEIGHT) / 2 ? SAFE_MAX_HEIGHT : rawHeight > (PREVIEW_HEIGHT + DETAIL_HEIGHT) / 2 ? DETAIL_HEIGHT : rawHeight > (COLLAPSED_HEIGHT + PREVIEW_HEIGHT) / 2 ? PREVIEW_HEIGHT : COLLAPSED_HEIGHT;
-          lastHeight.current = targetHeight;
-          Animated.spring(translateY, {
-            toValue: SAFE_MAX_HEIGHT - targetHeight,
-            useNativeDriver: true,
-            tension: 48,
-            friction: 9,
-          }).start();
-        },
-      }),
-    [translateY]
-  );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [stage, props.query, props.searchResults.length, translateY]);
 
-  const handlePrimary = async () => {
-    await Haptics.selectionAsync().catch(() => undefined);
-    if (stage === "routes_list" && routeOptions[0]) return onChooseRoute(routeOptions[0]);
-    if (stage === "route_details") return onStartJourney();
-    if (flowState === "completed") return onReset();
-    return onNextStep();
-  };
+  useEffect(() => {
+    if (keyboardOpen.current) return;
+    const next = snapForStage(stage, props.query, props.searchResults.length);
+    translateYValue.current = next;
+    animateTo(translateY, next);
+  }, [stage, props.query, props.searchResults.length, translateY]);
+
+  const panResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_evt, gesture) => Math.abs(gesture.dy) > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    onPanResponderGrant: () => {
+      startY.current = translateYValue.current;
+      translateY.stopAnimation((value) => {
+        translateYValue.current = value;
+        startY.current = value;
+      });
+    },
+    onPanResponderMove: (_evt, gesture) => {
+      const next = Math.max(SNAP_FULL, Math.min(SNAP_BOTTOM, startY.current + gesture.dy));
+      translateYValue.current = next;
+      translateY.setValue(next);
+    },
+    onPanResponderRelease: (_evt, gesture) => {
+      const projected = translateYValue.current + gesture.vy * 120;
+      const snap = nearestSnap(projected, stage);
+      translateYValue.current = snap;
+      animateTo(translateY, snap);
+      void Haptics.selectionAsync();
+    },
+    onPanResponderTerminate: () => {
+      const snap = nearestSnap(translateYValue.current, stage);
+      translateYValue.current = snap;
+      animateTo(translateY, snap);
+    },
+  }), [stage, translateY]);
 
   return (
-    <Animated.View style={[styles.sheet, { transform: [{ translateY }] }]}>
-      <View {...panResponder.panHandlers} style={styles.grabberWrap}>
-        <View style={styles.grabber} />
-      </View>
-
-      <View style={styles.sheetHeaderActions}>
-        <View style={styles.statusCapsule}>
-          <View style={styles.statusDot} />
-          <Text style={styles.statusCapsuleText}>{liveBusCount} live autobusai</Text>
+    <Animated.View
+      style={[styles.sheetShell, { height: SHEET_HEIGHT, transform: [{ translateY }] }]}
+      pointerEvents="box-none"
+    >
+      <BlurView intensity={86} tint="light" style={styles.blurSurface}>
+        <View {...panResponder.panHandlers} style={styles.dragArea}>
+          <View style={styles.grabber} />
         </View>
-        <Pressable onPress={onReset} style={styles.closeButton}>
-          <Ionicons name="close" size={28} color="#C9D2EA" />
-        </Pressable>
-      </View>
-
-      <HeaderBlock
-        icon={stage === "routes_list" ? "routes" : stage === "route_details" ? "map-check" : stepIconName(vm.activeStep)}
-        title={vm.title}
-        subtitle={isRerouting ? reroutingMessage || "Perskaičiuojame maršrutą..." : vm.subtitle}
-        progressLabel={stage === "navigation" ? vm.progressLabel : undefined}
-      />
-
-      {isOffline ? (
-        <View style={styles.warnBox}>
-          <Ionicons name="cloud-offline" size={18} color="#FFD166" />
-          <Text style={styles.warnText}>{offlineMessage || "Offline režimas – rodome paskutinį planą."}</Text>
-        </View>
-      ) : null}
-
-      {error ? (
-        <View style={styles.errorBox}>
-          <Ionicons name="warning" size={18} color="#FF8A8A" />
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      ) : null}
-
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {flowState === "routes_loading" ? (
-          <View style={styles.loadingBlock}>
-            <ActivityIndicator size="small" color={GREEN} />
-            <Text style={styles.loadingText}>Tikriname realius grafikus ir stoteles...</Text>
-          </View>
-        ) : null}
-
-        {stage === "routes_list" ? (
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Maršruto variantai</Text>
-              <Text style={styles.sectionHint}>rinkis vieną</Text>
-            </View>
-            {hasRoutes ? (
-              routeOptions.slice(0, 5).map((route) => (
-                <RouteAlternativeCard
-                  key={route.id}
-                  route={route}
-                  selected={selectedRoute?.id === route.id}
-                  onPress={() => onChooseRoute(route)}
-                />
-              ))
-            ) : (
-              <Text style={styles.emptyText}>Įvesk tikslą ir pasirink vietą – parodysime maršrutus.</Text>
-            )}
-          </View>
-        ) : null}
-
-        {stage === "route_details" && displayRoute ? <RouteDetails route={displayRoute} /> : null}
-
-        {stage === "navigation" && displayRoute ? (
-          <ActiveNavigation route={displayRoute} flowState={flowState} currentStepIndex={currentStepIndex} />
-        ) : null}
-      </ScrollView>
-
-      <View style={styles.footer}>
-        <Pressable onPress={handlePrimary} style={styles.primaryButton}>
-          <Text style={styles.primaryButtonText}>{ctaForStage(stage, flowState, displayRoute)}</Text>
-          <Ionicons name="arrow-forward" size={24} color="#06241D" />
-        </Pressable>
-      </View>
+        {stage === "search" ? <SearchState {...props} /> : null}
+        {stage === "loading" ? <LoadingState onReset={props.onReset} /> : null}
+        {stage === "routes" ? <RoutesListState {...props} /> : null}
+        {stage === "details" ? <RouteDetailsState {...props} /> : null}
+        {stage === "navigation" ? <NavigationState {...props} /> : null}
+      </BlurView>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  sheet: {
+  sheetShell: {
     position: "absolute",
+    top: 0,
     left: 0,
     right: 0,
-    bottom: 0,
-    height: SAFE_MAX_HEIGHT,
-    paddingHorizontal: 24,
-    paddingTop: 10,
-    paddingBottom: 20,
-    backgroundColor: DARK,
-    borderTopLeftRadius: 34,
-    borderTopRightRadius: 34,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: "hidden",
+    zIndex: 30,
+    elevation: 30,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: -14 },
-    shadowOpacity: 0.42,
-    shadowRadius: 22,
-    elevation: 28,
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: -6 },
+    backgroundColor: "rgba(247,250,247,0.92)",
   },
-  grabberWrap: { alignItems: "center", paddingVertical: 8 },
-  grabber: { width: 74, height: 6, borderRadius: 6, backgroundColor: "rgba(255,255,255,0.25)" },
-  sheetHeaderActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
-  statusCapsule: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: "rgba(53,242,180,0.10)", borderWidth: 1, borderColor: "rgba(53,242,180,0.22)" },
-  statusDot: { width: 8, height: 8, borderRadius: 8, backgroundColor: GREEN },
-  statusCapsuleText: { color: "#CFFFEF", fontWeight: "800", fontSize: 12 },
-  closeButton: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.08)" },
-  headerBlock: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 14 },
-  iconOrb: { width: 70, height: 70, borderRadius: 25, alignItems: "center", justifyContent: "center", backgroundColor: GREEN, shadowColor: GREEN, shadowOpacity: 0.28, shadowRadius: 20, shadowOffset: { width: 0, height: 10 } },
+  blurSurface: { flex: 1, backgroundColor: "rgba(247,250,247,0.74)" },
+  dragArea: { height: 28, alignItems: "center", justifyContent: "center" },
+  grabber: { width: 56, height: 5, borderRadius: 99, backgroundColor: "rgba(25,35,50,0.20)" },
+  stateRoot: { flex: 1 },
+  fixedHeader: { paddingHorizontal: 18, paddingBottom: 10 },
+  scrollArea: { flex: 1 },
+  headerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
+  roundControl: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,27,37,0.08)" },
+  headerIcon: { width: 38, height: 38, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: COLORS.green },
   headerTextBlock: { flex: 1 },
-  kicker: { color: GREEN, fontSize: 12, letterSpacing: 4, fontWeight: "900", marginBottom: 4 },
-  headerTitle: { color: TEXT, fontSize: 31, lineHeight: 35, fontWeight: "900" },
-  headerSubtitle: { color: MUTED, fontSize: 17, lineHeight: 23, fontWeight: "700", marginTop: 4 },
-  progressBadge: { width: 58, height: 58, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.09)" },
-  progressBadgeText: { color: TEXT, fontSize: 17, fontWeight: "900" },
-  warnBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,209,102,0.11)", padding: 10, borderRadius: 16, marginBottom: 10 },
-  warnText: { color: "#FFE6A3", fontWeight: "700", flex: 1 },
-  errorBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,72,72,0.11)", padding: 10, borderRadius: 16, marginBottom: 10 },
-  errorText: { color: "#FFC6C6", fontWeight: "700", flex: 1 },
-  scrollContent: { paddingBottom: 110 },
-  section: { gap: 12 },
-  sectionHeaderRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
-  sectionTitle: { color: TEXT, fontSize: 22, fontWeight: "900" },
-  sectionHint: { color: MUTED, fontSize: 13, fontWeight: "800" },
-  routeCard: { padding: 16, borderRadius: 26, backgroundColor: CARD, borderWidth: 1, borderColor: LINE, marginBottom: 12 },
-  routeCardSelected: { borderColor: GREEN, backgroundColor: "rgba(53,242,180,0.13)" },
-  routeCardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  routeCardLeft: { flex: 1 },
-  routeCardTitle: { color: TEXT, fontSize: 25, fontWeight: "900" },
-  routeCardSubtitle: { color: MUTED, fontSize: 15, fontWeight: "700", marginTop: 4 },
-  routeDurationBlock: { alignItems: "flex-end" },
-  routeDuration: { color: GREEN, fontSize: 28, fontWeight: "900" },
-  routeDurationUnit: { color: GREEN, fontSize: 13, fontWeight: "900", marginTop: -4 },
-  badgeRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 14 },
-  lineBadge: { minWidth: 50, height: 38, paddingHorizontal: 12, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: GREEN },
-  lineBadgeText: { color: "#06241D", fontSize: 17, fontWeight: "900" },
-  routeMetaRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
-  miniPill: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: CARD_SOFT, borderWidth: 1, borderColor: LINE },
-  miniPillActive: { backgroundColor: "rgba(53,242,180,0.12)", borderColor: "rgba(53,242,180,0.42)" },
-  miniPillText: { color: MUTED, fontWeight: "800", fontSize: 13 },
-  miniPillTextActive: { color: "#CFFFF0" },
-  detailsBlock: { gap: 14 },
-  primaryRouteBox: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 18, borderRadius: 28, backgroundColor: CARD, borderWidth: 1, borderColor: "rgba(53,242,180,0.28)" },
-  primaryRouteTitle: { color: TEXT, fontSize: 30, fontWeight: "900" },
-  primaryRouteSubtitle: { color: MUTED, fontSize: 15, fontWeight: "700", marginTop: 5, maxWidth: 250 },
-  primaryRouteTime: { color: GREEN, fontSize: 30, fontWeight: "900" },
-  statsRow: { flexDirection: "row", gap: 10 },
-  statItem: { flex: 1, padding: 14, borderRadius: 22, backgroundColor: CARD_SOFT, borderWidth: 1, borderColor: LINE },
-  statValue: { color: TEXT, fontSize: 22, fontWeight: "900" },
-  statLabel: { color: MUTED, fontSize: 12, fontWeight: "800", marginTop: 3 },
-  stepsListCompact: { borderRadius: 25, overflow: "hidden", backgroundColor: CARD, borderWidth: 1, borderColor: LINE },
-  compactStepRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: LINE },
-  compactStepIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(53,242,180,0.12)", marginRight: 11 },
-  compactStepMain: { flex: 1 },
-  compactStepTitle: { color: TEXT, fontSize: 16, fontWeight: "900" },
-  compactStepSubtitle: { color: MUTED, fontSize: 13, fontWeight: "700", marginTop: 2 },
-  compactStepBadge: { color: GREEN, fontSize: 12, fontWeight: "900" },
-  navigationBlock: { gap: 14 },
-  progressTrack: { height: 5, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.12)", overflow: "hidden" },
-  progressFill: { height: "100%", borderRadius: 999, backgroundColor: GREEN },
-  activeCard: { padding: 16, borderRadius: 28, backgroundColor: CARD, borderWidth: 1, borderColor: LINE },
-  activeTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  activeRouteLabel: { color: TEXT, fontSize: 28, fontWeight: "900" },
-  activeTime: { color: GREEN, fontSize: 27, fontWeight: "900" },
-  liveEtaBox: { flexDirection: "row", alignItems: "center", gap: 12, padding: 15, borderRadius: 22, borderWidth: 1, borderColor: "rgba(53,242,180,0.35)", backgroundColor: "rgba(53,242,180,0.12)", marginTop: 14 },
-  liveEtaTitle: { color: "#DFFFF4", fontSize: 17, fontWeight: "900" },
-  liveEtaSubtitle: { color: MUTED, fontSize: 13, fontWeight: "800", marginTop: 2 },
-  currentStepBox: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 22, backgroundColor: CARD_SOFT, marginTop: 12 },
-  currentStepIcon: { width: 44, height: 44, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: GREEN },
-  currentStepTitle: { color: TEXT, fontSize: 17, fontWeight: "900" },
-  currentStepSubtitle: { color: MUTED, fontSize: 13, fontWeight: "700", marginTop: 3 },
-  currentStepTime: { color: TEXT, fontSize: 14, fontWeight: "900" },
-  stopTimeline: { marginTop: 12, gap: 9 },
-  timelineRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  timelineDot: { width: 11, height: 11, borderRadius: 11, backgroundColor: "rgba(255,255,255,0.26)" },
-  timelineDotActive: { backgroundColor: GREEN, shadowColor: GREEN, shadowOpacity: 0.4, shadowRadius: 10 },
-  timelineText: { flex: 1, color: MUTED, fontSize: 14, fontWeight: "800" },
-  timelineTextActive: { color: TEXT },
-  timelineBadge: { color: GREEN, fontSize: 11, fontWeight: "900" },
-  loadingBlock: { alignItems: "center", justifyContent: "center", gap: 12, paddingVertical: 28 },
-  loadingText: { color: MUTED, fontWeight: "800" },
-  emptyText: { color: MUTED, fontSize: 16, fontWeight: "700", lineHeight: 23, padding: 18, backgroundColor: CARD, borderRadius: 22 },
-  footer: { position: "absolute", left: 24, right: 24, bottom: 26 },
-  primaryButton: { height: 72, borderRadius: 28, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 12, backgroundColor: GREEN, shadowColor: GREEN, shadowOpacity: 0.32, shadowRadius: 22, shadowOffset: { width: 0, height: 10 } },
-  primaryButtonText: { color: "#06241D", fontSize: 24, fontWeight: "900", letterSpacing: 0.8 },
+  kicker: { color: "#17A67E", fontSize: T.tiny, lineHeight: LINE_HEIGHT.tiny, letterSpacing: 1.4, fontWeight: "900" },
+  sheetTitle: { color: COLORS.textDark, fontSize: T.title, lineHeight: LINE_HEIGHT.title, fontWeight: "900", marginTop: 1 },
+  sheetSubtitle: { color: "#596477", fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700", marginTop: 1 },
+  headerBadge: { minWidth: 34, height: 28, paddingHorizontal: 8, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(18,25,36,0.10)" },
+  headerBadgeText: { color: COLORS.textDark, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
+  modeSelector: { height: 42, borderRadius: 17, backgroundColor: "rgba(16,22,32,0.07)", padding: 4, flexDirection: "row", justifyContent: "space-between", marginBottom: 10 },
+  modeItem: { flex: 1, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  modeItemActive: { backgroundColor: "white", shadowColor: "#000", shadowOpacity: 0.10, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
+  endpointBox: { borderRadius: 18, backgroundColor: "rgba(255,255,255,0.70)", paddingHorizontal: 13, paddingVertical: 10 },
+  endpointRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 31 },
+  locationDotBlue: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.blue },
+  endpointText: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700" },
+  endpointDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "rgba(45,55,72,0.18)", marginLeft: 20, marginVertical: 4 },
+  searchInputRow: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 10 },
+  searchInput: { flex: 1, color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700", paddingVertical: 0 },
+  searchClearButton: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(18,25,36,0.08)" },
+  searchScrollContent: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 110 },
+  emptyBlock: { paddingTop: 24 },
+  emptyTitle: { color: COLORS.textDark, fontSize: T.section, lineHeight: LINE_HEIGHT.section, fontWeight: "900" },
+  emptyText: { color: "#667083", fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700", marginTop: 4 },
+  searchResultRow: { minHeight: 52, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "rgba(255,255,255,0.62)", marginBottom: 8 },
+  resultIcon: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(53,242,180,0.18)" },
+  resultTitle: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "800" },
+  resultSubtitle: { color: "#6A7488", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "600", marginTop: 1 },
+  inlineError: { color: "#B00020", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginBottom: 8 },
+  loadingBox: { marginHorizontal: 18, borderRadius: 18, minHeight: 96, alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: "rgba(255,255,255,0.64)" },
+  loadingText: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700" },
+  toolbarRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  blueChip: { backgroundColor: COLORS.blue, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7 },
+  blueChipText: { color: "white", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "800" },
+  grayChip: { backgroundColor: "rgba(17,24,39,0.08)", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7 },
+  grayChipText: { color: COLORS.textDark, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "800" },
+  routesContent: { paddingHorizontal: 18, paddingBottom: 115, paddingTop: 2 },
+  routeCard: { borderRadius: 18, backgroundColor: "rgba(255,255,255,0.70)", padding: 13, marginBottom: 10, borderWidth: 1, borderColor: "rgba(35,47,70,0.07)" },
+  routeCardSelected: { borderColor: COLORS.green, backgroundColor: "rgba(53,242,180,0.12)" },
+  routeCardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 },
+  routeDuration: { color: COLORS.textDark, fontSize: T.section, lineHeight: LINE_HEIGHT.section, fontWeight: "900" },
+  routeSubtitle: { color: "#5E687A", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 2 },
+  routeTimeBox: { flexDirection: "row", alignItems: "center", gap: 4 },
+  routeTimeText: { color: COLORS.textDark, fontSize: T.route, lineHeight: LINE_HEIGHT.route, fontWeight: "900" },
+  pillRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 },
+  busBadge: { minWidth: 30, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: COLORS.blue, paddingHorizontal: 7 },
+  busBadgeText: { color: "white", fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "900" },
+  neutralBadge: { minHeight: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,27,37,0.08)", paddingHorizontal: 8 },
+  neutralBadgeText: { color: COLORS.textDark, fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "800" },
+  detailSummaryCard: { borderRadius: 18, backgroundColor: "rgba(255,255,255,0.68)", padding: 13, marginBottom: 8 },
+  detailDuration: { color: COLORS.textDark, fontSize: T.section, lineHeight: LINE_HEIGHT.section, fontWeight: "900" },
+  detailSubtitle: { color: "#5E687A", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 2, marginBottom: 10 },
+  stepsContent: { paddingHorizontal: 18, paddingBottom: 132, paddingTop: 2 },
+  navStepsContent: { paddingHorizontal: 18, paddingBottom: 132, paddingTop: 4 },
+  stepRow: { minHeight: 49, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, paddingHorizontal: 9, paddingVertical: 7, backgroundColor: "rgba(255,255,255,0.48)", marginBottom: 7 },
+  stepRail: { width: 12, alignItems: "center" },
+  stepLineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "rgba(80,90,110,0.42)" },
+  stepLineDotActive: { backgroundColor: COLORS.green },
+  stepIconMini: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(53,242,180,0.18)" },
+  stepTitle: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "800" },
+  stepSubtitle: { color: "#626D82", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 1 },
+  stepBadge: { color: COLORS.greenDark, fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "900", minWidth: 36, textAlign: "right" },
+  progressTrack: { height: 4, borderRadius: 2, backgroundColor: "rgba(20,27,37,0.12)", overflow: "hidden", marginBottom: 6 },
+  progressFill: { height: 4, borderRadius: 2, backgroundColor: COLORS.green },
+  stickyCtaWrap: { position: "absolute", left: 18, right: 18, bottom: 22 },
+  primaryButton: { height: 48, borderRadius: 18, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, backgroundColor: COLORS.green },
+  primaryButtonText: { color: COLORS.greenDark, fontSize: T.cta, lineHeight: LINE_HEIGHT.cta, fontWeight: "900" },
 });

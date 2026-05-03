@@ -276,7 +276,7 @@ const styles = StyleSheet.create({
   },
   number: {
     color: "#CFFFEA",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "900",
   },
 });

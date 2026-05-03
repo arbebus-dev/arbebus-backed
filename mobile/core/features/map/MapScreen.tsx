@@ -16,9 +16,6 @@ import StationAccessLayer from "./layers/StationAccessLayer";
 import UserLocationLayer from "./layers/UserLocationLayer";
 import WalkingPolylineLayer from "./layers/WalkingPolylineLayer";
 import MapCanvas from "./MapCanvas";
-import NavigationHUD from "./NavigationHUD";
-import SearchResultsSheet from "./SearchResultsSheet";
-import TopSearchBar from "./TopSearchBar";
 
 type MapPoint = {
   latitude: number;
@@ -138,12 +135,6 @@ export default function MapScreen() {
   const selectedRoute = planner.selectedRoute;
   const selectedDestination = planner.selectedDestination;
   const [stationAccessPoints, setStationAccessPoints] = useState<StationAccessPoint[]>([]);
-
-  const searchVisible =
-    planner.flowState === "searching" &&
-    !selectedRoute &&
-    !isRouteFlow(planner.flowState);
-
 
   useEffect(() => {
     let cancelled = false;
@@ -308,53 +299,17 @@ export default function MapScreen() {
   }, [selectedDestination, selectedRoute, userLocation]);
 
   useEffect(() => {
-    if (!mapRef.current || focusCoords.length < 2) return;
-    if (isActiveTrip(planner.flowState)) return;
-
-    const timer = setTimeout(() => {
-      mapRef.current?.fitToCoordinates(focusCoords, {
-        edgePadding: {
-          top: 150,
-          right: 55,
-          bottom: selectedRoute ? 430 : 320,
-          left: 55,
-        },
-        animated: true,
-      });
-    }, 350);
-
-    return () => clearTimeout(timer);
+    // PRO FIX: do not auto zoom out after route selection.
+    // User keeps full manual control over map zoom/pan like Apple Maps.
+    // Route fitting can be re-enabled later only from an explicit user button.
+    return;
   }, [focusCoords, planner.flowState, selectedRoute]);
 
   useEffect(() => {
-    if (!mapRef.current) return;
-    if (!isActiveTrip(planner.flowState)) return;
-    if (!activeCameraTarget) return;
-
-    if (
-      lastCameraTarget.current &&
-      distanceMeters(lastCameraTarget.current, activeCameraTarget) < 8
-    ) {
-      return;
-    }
-
-    lastCameraTarget.current = activeCameraTarget;
-
-    const now = Date.now();
-    if (now - lastFollowAt.current < 2200) return;
-    lastFollowAt.current = now;
-
-    const camera = cameraForFlow(planner.flowState);
-
-    mapRef.current.animateCamera(
-      {
-        center: activeCameraTarget,
-        zoom: camera.zoom,
-        pitch: camera.pitch,
-        heading: selectedLiveBus?.heading ?? selectedLiveBus?.bearing ?? 0,
-      },
-      { duration: 850 }
-    );
+    // PRO FIX: automatic follow camera is disabled by default.
+    // This prevents unwanted zoom-out/zoom-in while the user explores the map.
+    // Keep manual gestures stable during TestFlight QA.
+    return;
   }, [activeCameraTarget, planner.flowState, selectedLiveBus]);
 
   return (
@@ -383,56 +338,38 @@ export default function MapScreen() {
         <DestinationMarkerLayer destination={selectedDestination} />
       </MapCanvas>
 
-      <TopSearchBar
-        value={planner.query}
-        isSearching={planner.isSearching}
-        onChangeText={(text) => {
-          planner.setQuery(text);
-
-          if (text.trim().length >= 2) {
-            void planner.runSearch(text);
-          }
-        }}
-        onSubmit={() => {
-          void planner.runSearch();
-        }}
-        onClear={planner.resetPlanner}
-      />
-
-      <SearchResultsSheet
-        visible={searchVisible}
-        results={planner.searchResults}
-        isLoading={planner.isSearching}
-        error={planner.flowState === "searching" ? planner.error : null}
-        onSelect={(item) => {
-          Keyboard.dismiss();
-          void planner.selectDestination(item);
-        }}
-      />
-
-      <NavigationHUD
-        flowState={planner.flowState}
-        route={selectedRoute}
-        activeStep={planner.activeInstruction}
-        currentStepIndex={planner.currentStepIndex}
-        userLocation={userLocation}
-        onNextStep={planner.nextStep}
-        onReset={planner.resetPlanner}
-      />
-
       <JourneySheet
         flowState={planner.flowState}
         liveBusCount={buses.length}
+        query={planner.query}
+        searchResults={planner.searchResults}
+        isSearching={planner.isSearching}
+        isPlanning={planner.isPlanning}
         routeOptions={planner.routeOptions}
         selectedRoute={selectedRoute}
-        error={planner.flowState !== "searching" ? planner.error : null}
+        error={planner.error}
         isOffline={planner.isOffline}
         offlineMessage={planner.offlineMessage}
         isRerouting={planner.isRerouting}
         reroutingMessage={planner.reroutingMessage}
+        onChangeQuery={(text) => {
+          planner.setQuery(text);
+          if (text.trim().length >= 2) {
+            void planner.runSearch(text);
+          }
+        }}
+        onSubmitSearch={() => {
+          void planner.runSearch();
+        }}
+        onSelectDestination={(item) => {
+          Keyboard.dismiss();
+          void planner.selectDestination(item);
+        }}
         onChooseRoute={planner.chooseRoute}
         onStartJourney={planner.startJourney}
         onNextStep={planner.nextStep}
+        onBackToRoutes={planner.backToRoutesList}
+        onBackToSearch={planner.backToSearch}
         onReset={planner.resetPlanner}
       />
     </View>

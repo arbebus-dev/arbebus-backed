@@ -1273,6 +1273,40 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
   }, [selectedRoute]);
 
 
+  const backToRoutesList = useCallback(() => {
+    setSelectedRoute(null);
+    setCurrentStepIndex(0);
+    setIsRerouting(false);
+    setReroutingMessage(null);
+    void clearBackgroundNavigationTrip();
+
+    if (routeOptions.length > 0) {
+      setFlowState("route_options");
+      return;
+    }
+
+    if (selectedDestination) {
+      setFlowState("destination_selected");
+      return;
+    }
+
+    setFlowState(query.trim().length >= 2 ? "searching" : "idle");
+  }, [query, routeOptions.length, selectedDestination]);
+
+  const backToSearch = useCallback(() => {
+    setSelectedRoute(null);
+    setRouteOptions([]);
+    setCurrentStepIndex(0);
+    setError(null);
+    setIsPlanning(false);
+    setIsRerouting(false);
+    setReroutingMessage(null);
+    setSelectedDestination(null);
+    void clearBackgroundNavigationTrip();
+    setFlowState(query.trim().length >= 2 ? "searching" : "idle");
+  }, [query]);
+
+
   const triggerNavigationAlert = useCallback(
     async ({
       key,
@@ -1671,6 +1705,8 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     chooseRoute,
     startJourney,
     nextStep,
+    backToRoutesList,
+    backToSearch,
     resetPlanner,
   };
 }
