@@ -29,6 +29,7 @@ export type PlaceSearchResult = {
   title: string;
   subtitle?: string;
   type?: "stop" | "poi" | "place" | "address" | "city" | "region" | string;
+  source?: "gtfs" | "seed" | "poi" | "ors" | string;
   distanceMeters?: number;
   latitude?: number;
   longitude?: number;

@@ -536,14 +536,14 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
   const q = query.trim();
   if (q.length < 2) return [];
 
-  const url = `${API_ENDPOINTS.placesSearch}?q=${encodeURIComponent(q)}&limit=30`;
+  const url = `${API_ENDPOINTS.placesSearch}?q=${encodeURIComponent(q)}&limit=24`;
 
   try {
     const response = await fetchWithRetry(url);
     if (!response.ok) return [];
 
     const data = await safeJson<any>(response);
-    const rawResults = data.results || data.places || data.stops || data.items || [];
+    const rawResults = data.results || data.places || data.items || [];
 
     if (!Array.isArray(rawResults) || !rawResults.length) return [];
 
@@ -552,60 +552,40 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
         const coordinate = toCoordinate(item);
         if (!coordinate) return null;
 
-        const type = String(item.type ?? item.resultType ?? "poi").toLowerCase();
+        const rawType = String(item.type ?? item.kind ?? "place").toLowerCase();
+        const type =
+          rawType === "stop" || item.stop_id || item.stopId
+            ? "stop"
+            : rawType === "address" || rawType === "street"
+              ? "address"
+              : rawType === "city" || rawType === "locality"
+                ? "city"
+                : rawType === "region" || rawType === "county"
+                  ? "region"
+                  : "poi";
 
         return {
-          id: String(item.id ?? item.stop_id ?? `${type}-${index}`),
+          id: String(item.id ?? item.stop_id ?? item.stopId ?? `${type}-${index}`),
           title: String(item.title ?? item.name ?? item.stopName ?? item.stop_name ?? "Vieta"),
           subtitle:
             item.subtitle ??
             item.address ??
             item.description ??
+            item.label ??
             item.stop_desc ??
-            (type === "stop" ? "Klaipėdos stotelė" : "Klaipėdos regionas"),
-          type:
-            type === "stop" || item.stop_id
-              ? "stop"
-              : type === "address"
-                ? "address"
-                : type === "city"
-                  ? "city"
-                  : type === "region"
-                    ? "region"
-                    : "poi",
+            (type === "address" ? "Adresas" : "Lietuva"),
+          type,
+          source: item.source,
           distanceMeters:
             item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
           latitude: coordinate.latitude,
           longitude: coordinate.longitude,
           coordinate,
-        };
+        } as PlaceResult;
       })
       .filter(Boolean) as PlaceResult[];
   } catch {
-    // Last safety fallback: try stops-only endpoint if unified search is sleeping.
-    try {
-      const response = await fetchWithRetry(`${API_ENDPOINTS.stopsSearch}?q=${encodeURIComponent(q)}&limit=20`);
-      if (!response.ok) return [];
-      const data = await safeJson<any>(response);
-      const rawResults = data.results || data.stops || [];
-      return rawResults
-        .map((item: any, index: number): PlaceResult | null => {
-          const coordinate = toCoordinate(item);
-          if (!coordinate) return null;
-          return {
-            id: String(item.id ?? item.stop_id ?? `stop-${index}`),
-            title: String(item.title ?? item.name ?? item.stopName ?? item.stop_name ?? "Stotelė"),
-            subtitle: item.subtitle ?? "Klaipėdos stotelė",
-            type: "stop",
-            latitude: coordinate.latitude,
-            longitude: coordinate.longitude,
-            coordinate,
-          };
-        })
-        .filter(Boolean) as PlaceResult[];
-    } catch {
-      return [];
-    }
+    return [];
   }
 }
 

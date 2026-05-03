@@ -1,117 +1,12 @@
 [
-  {
-    "canonical": "Akropolis Klaipėda",
-    "aliases": [
-      "akropolis",
-      "akro",
-      "pc akropolis",
-      "prekybos centras",
-      "prekybos centrai",
-      "shopping mall",
-      "taikos 61"
-    ],
-    "keywords": [
-      "parduotuve",
-      "parduotuvės",
-      "apsipirkimas"
-    ]
-  },
-  {
-    "canonical": "Švyturio arena",
-    "aliases": [
-      "svyturio arena",
-      "švyturio arena",
-      "arena",
-      "renginiai",
-      "dubysos 10"
-    ],
-    "keywords": [
-      "koncertas",
-      "sportas"
-    ]
-  },
-  {
-    "canonical": "Klaipėdos baseinas",
-    "aliases": [
-      "baseinas",
-      "klaipedos baseinas",
-      "klaipėdos baseinas",
-      "dubysos 12"
-    ],
-    "keywords": [
-      "pool",
-      "sportas"
-    ]
-  },
-  {
-    "canonical": "Radailiai",
-    "aliases": [
-      "radailiai",
-      "radailiu",
-      "radailių",
-      "radailiai st",
-      "radailių st"
-    ],
-    "keywords": [
-      "klaipedos rajonas"
-    ]
-  },
-  {
-    "canonical": "Senoji perkėla",
-    "aliases": [
-      "senoji perkela",
-      "senoji perkėla",
-      "keltas",
-      "perkela",
-      "perkėla",
-      "smiltyne",
-      "smiltynė"
-    ],
-    "keywords": [
-      "danes",
-      "danės"
-    ]
-  },
-  {
-    "canonical": "Naujoji perkėla",
-    "aliases": [
-      "naujoji perkela",
-      "naujoji perkėla",
-      "keltas",
-      "perkela",
-      "perkėla",
-      "smiltyne",
-      "smiltynė",
-      "nemuno"
-    ],
-    "keywords": [
-      "keltai"
-    ]
-  },
-  {
-    "canonical": "Klaipėdos geležinkelio stotis",
-    "aliases": [
-      "gelezinkelio stotis",
-      "geležinkelio stotis",
-      "traukiniu stotis",
-      "traukinių stotis",
-      "ltg",
-      "traukinys"
-    ],
-    "keywords": [
-      "priestocio"
-    ]
-  },
-  {
-    "canonical": "Klaipėdos autobusų stotis",
-    "aliases": [
-      "autobusu stotis",
-      "autobusų stotis",
-      "klaipedos as",
-      "klaipėdos as"
-    ],
-    "keywords": [
-      "butku juzes"
-    ]
-  }
+  { "canonical": "Akropolis Klaipėda", "aliases": ["akropolis", "akropoli", "akropoly", "akro", "klaipedos akropolis", "akropolis klaipeda", "taikos akropolis", "taikos 61", "taikos pr 61"], "keywords": ["prekybos centras", "pc", "mall", "shopping"] },
+  { "canonical": "Švyturio arena", "aliases": ["svyturio arena", "arena", "gg arena", "klaipedos arena"], "keywords": ["koncertai", "renginiai", "sportas"] },
+  { "canonical": "Klaipėdos baseinas", "aliases": ["baseinas", "klaipedos baseinas", "plaukimo baseinas"], "keywords": ["sportas", "plaukimas"] },
+  { "canonical": "Klaipėdos autobusų stotis", "aliases": ["autobusu stotis", "autobusu stoti", "bus station", "klaipedos autobusu stotis", "klaipedos autobusų stotis", "stotis", "autobusine"], "keywords": ["autobusai", "tarpmiestiniai", "transportas"] },
+  { "canonical": "Klaipėdos geležinkelio stotis", "aliases": ["gelezinkelio stotis", "geležinkelio stotis", "traukiniu stotis", "traukinių stotis", "train station", "klaipedos traukiniu stotis", "ltg"], "keywords": ["traukinys", "traukiniu", "rail"] },
+  { "canonical": "Senoji perkėla", "aliases": ["senoji perkela", "senoji perkėla", "senaja perkela", "kelto perkela", "keltas", "smiltynes perkela", "old ferry"], "keywords": ["keltas", "smiltyne", "perkela"] },
+  { "canonical": "Naujoji perkėla", "aliases": ["naujoji perkela", "naujoji perkėla", "nauja perkela", "naujaja perkela", "new ferry", "smiltynes naujoji perkela"], "keywords": ["keltas", "smiltyne", "perkela"] },
+  { "canonical": "Radailiai", "aliases": ["radailiai", "radailiu", "radailių", "radailiu st", "radailių st", "dino parkas"], "keywords": ["klaipedos rajonas", "rajonas", "gyvenviete"] },
+  { "canonical": "Atgimimo aikštė", "aliases": ["atgimimo aikste", "atgimimo aiksteje", "centras", "klaipedos centras"], "keywords": ["centras", "aikste"] },
+  { "canonical": "Teatro aikštė", "aliases": ["teatro aikste", "senamiestis", "klaipedos senamiestis", "old town"], "keywords": ["senamiestis", "aikste"] }
 ]

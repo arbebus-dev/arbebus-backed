@@ -1,54 +1,13 @@
 [
   {
     "id": "poi-akropolis-klaipeda",
-    "title": "Akropolis",
+    "title": "Akropolis Klaipėda",
     "name": "Akropolis Klaipėda",
     "subtitle": "Taikos pr. 61, Klaipėda",
     "type": "poi",
     "latitude": 55.68962,
     "longitude": 21.14691,
-    "keywords": [
-      "akropolis",
-      "akropolis klaipeda",
-      "pc akropolis",
-      "prekybos centras",
-      "parduotuve",
-      "parduotuvės",
-      "shopping",
-      "mall",
-      "taikos 61",
-      "taikos pr 61"
-    ]
-  },
-  {
-    "id": "poi-molas-klaipeda",
-    "title": "Molas",
-    "name": "Molas prekybos centras",
-    "subtitle": "Taikos pr. 139, Klaipėda",
-    "type": "poi",
-    "latitude": 55.66645,
-    "longitude": 21.17586,
-    "keywords": [
-      "molas",
-      "pc molas",
-      "prekybos centras",
-      "taikos 139"
-    ]
-  },
-  {
-    "id": "poi-big-klaipeda",
-    "title": "BIG Klaipėda",
-    "name": "BIG prekybos centras",
-    "subtitle": "Taikos pr., Klaipėda",
-    "type": "poi",
-    "latitude": 55.65955,
-    "longitude": 21.17604,
-    "keywords": [
-      "big",
-      "big klaipeda",
-      "prekybos centras",
-      "pc big"
-    ]
+    "keywords": ["akropolis", "akro", "pc akropolis", "prekybos centras", "prekybos centras akropolis", "taikos 61", "taikos pr 61", "taikos prospektas 61", "klaipedos akropolis", "mall", "shopping"]
   },
   {
     "id": "poi-svyturio-arena",
@@ -58,82 +17,47 @@
     "type": "poi",
     "latitude": 55.6891,
     "longitude": 21.1439,
-    "keywords": [
-      "arena",
-      "svyturio arena",
-      "švyturio arena",
-      "dubysos 10",
-      "renginiai"
-    ]
+    "keywords": ["svyturio arena", "švyturio arena", "arena", "dubysos 10", "dubysos g 10", "klaipedos arena", "gg arena"]
   },
   {
-    "id": "poi-klaipeda-baseinas",
+    "id": "poi-klaipedos-baseinas",
     "title": "Klaipėdos baseinas",
     "name": "Klaipėdos baseinas",
     "subtitle": "Dubysos g. 12, Klaipėda",
     "type": "poi",
-    "latitude": 55.68828,
-    "longitude": 21.14178,
-    "keywords": [
-      "baseinas",
-      "klaipedos baseinas",
-      "klaipėdos baseinas",
-      "dubysos 12",
-      "pool"
-    ]
+    "latitude": 55.68678,
+    "longitude": 21.14475,
+    "keywords": ["klaipedos baseinas", "baseinas", "dubysos 12", "dubysos g 12", "plaukimo baseinas"]
   },
   {
-    "id": "poi-klaipeda-train-station",
-    "title": "Klaipėdos geležinkelio stotis",
-    "name": "Klaipėdos geležinkelio stotis",
-    "subtitle": "Priestočio g. 1, Klaipėda",
-    "type": "poi",
-    "latitude": 55.72117,
-    "longitude": 21.13589,
-    "keywords": [
-      "gelezinkelio stotis",
-      "geležinkelio stotis",
-      "traukiniu stotis",
-      "traukinių stotis",
-      "ltg",
-      "klaipeda traukinys",
-      "priestocio 1"
-    ]
-  },
-  {
-    "id": "poi-klaipeda-bus-station",
+    "id": "poi-klaipedos-autobusu-stotis",
     "title": "Klaipėdos autobusų stotis",
-    "name": "Klaipėdos AS",
+    "name": "Klaipėdos autobusų stotis",
     "subtitle": "Butkų Juzės g. 9, Klaipėda",
     "type": "poi",
     "latitude": 55.71725,
     "longitude": 21.1377,
-    "keywords": [
-      "klaipedos as",
-      "klaipeda autobusų stotis",
-      "autobusu stotis",
-      "autobusų stotis",
-      "butku juzes 9"
-    ]
+    "keywords": ["klaipedos as", "klaipeda as", "autobusu stotis", "autobusų stotis", "bus station", "stotis", "autobusine", "butku juzes"]
+  },
+  {
+    "id": "poi-klaipedos-gelezinkelio-stotis",
+    "title": "Klaipėdos geležinkelio stotis",
+    "name": "Klaipėdos geležinkelio stotis",
+    "subtitle": "Priestočio g., Klaipėda",
+    "type": "poi",
+    "latitude": 55.71831,
+    "longitude": 21.13733,
+    "keywords": ["gelezinkelio stotis", "geležinkelio stotis", "traukiniu stotis", "traukinių stotis", "train station", "ltg", "priestocio", "klaipedos traukiniu stotis"]
   },
   {
     "id": "poi-senoji-perkela",
     "title": "Senoji perkėla",
     "name": "Senoji perkėla",
-    "subtitle": "Danės g. 1, Klaipėda",
+    "subtitle": "Danės g. / Kruizinių laivų terminalas, Klaipėda",
     "type": "poi",
-    "latitude": 55.71087,
-    "longitude": 21.12482,
-    "keywords": [
-      "senoji perkela",
-      "senoji perkėla",
-      "keltas",
-      "smiltyne",
-      "smiltynė",
-      "perkela",
-      "perkėla",
-      "danes 1"
-    ]
+    "latitude": 55.70924,
+    "longitude": 21.12291,
+    "keywords": ["senoji perkela", "senoji perkėla", "keltas", "smiltyne", "smiltynė", "kelto perkela", "old ferry", "dane", "danges"]
   },
   {
     "id": "poi-naujoji-perkela",
@@ -141,35 +65,19 @@
     "name": "Naujoji perkėla",
     "subtitle": "Nemuno g., Klaipėda",
     "type": "poi",
-    "latitude": 55.68482,
-    "longitude": 21.12647,
-    "keywords": [
-      "naujoji perkela",
-      "naujoji perkėla",
-      "keltas",
-      "smiltyne",
-      "smiltynė",
-      "perkela",
-      "perkėla",
-      "nemuno"
-    ]
+    "latitude": 55.68495,
+    "longitude": 21.12835,
+    "keywords": ["naujoji perkela", "naujoji perkėla", "nauja perkela", "keltas", "smiltyne", "smiltynė", "new ferry", "nemuno", "kelto perkela"]
   },
   {
     "id": "poi-smiltyne",
     "title": "Smiltynė",
     "name": "Smiltynė",
-    "subtitle": "Kuršių nerija",
+    "subtitle": "Kuršių nerija, Klaipėda",
     "type": "region",
-    "latitude": 55.70337,
-    "longitude": 21.1133,
-    "keywords": [
-      "smiltyne",
-      "smiltynė",
-      "nerija",
-      "keltas",
-      "juru muziejus",
-      "jūrų muziejus"
-    ]
+    "latitude": 55.7042,
+    "longitude": 21.1128,
+    "keywords": ["smiltyne", "smiltynė", "keltas i smiltyne", "kuršių nerija", "kursiu nerija"]
   },
   {
     "id": "poi-radailiai",
@@ -177,122 +85,38 @@
     "name": "Radailiai",
     "subtitle": "Klaipėdos rajonas",
     "type": "city",
-    "latitude": 55.7907,
-    "longitude": 21.1642,
-    "keywords": [
-      "radailiai",
-      "radailiu",
-      "radailių",
-      "radailiai st",
-      "radailių st",
-      "klaipedos rajonas"
-    ]
+    "latitude": 55.7883,
+    "longitude": 21.1609,
+    "keywords": ["radailiai", "radailiu", "radailių", "radailliai", "klaipedos rajonas", "dino parkas", "radailiu dvaras"]
   },
   {
-    "id": "poi-kretinga",
-    "title": "Kretinga",
-    "name": "Kretinga",
-    "subtitle": "Kretingos rajonas",
-    "type": "city",
-    "latitude": 55.8888,
-    "longitude": 21.2445,
-    "keywords": [
-      "kretinga",
-      "kretingos",
-      "traukiniu kretinga",
-      "autobusu stotis kretinga"
-    ]
-  },
-  {
-    "id": "poi-palanga",
-    "title": "Palanga",
-    "name": "Palanga",
-    "subtitle": "Palangos miestas",
-    "type": "city",
+    "id": "poi-palanga-as",
+    "title": "Palangos autobusų stotis",
+    "name": "Palangos autobusų stotis",
+    "subtitle": "Klaipėdos pl. 42, Palanga",
+    "type": "poi",
     "latitude": 55.917,
     "longitude": 21.068,
-    "keywords": [
-      "palanga",
-      "palangos",
-      "palanga miestas"
-    ]
+    "keywords": ["palanga", "palangos as", "palangos autobusų stotis", "palangos autobusu stotis", "autobusu stotis palanga"]
+  },
+  {
+    "id": "poi-kretinga-as",
+    "title": "Kretingos autobusų stotis",
+    "name": "Kretingos autobusų stotis",
+    "subtitle": "Kretinga",
+    "type": "poi",
+    "latitude": 55.8894,
+    "longitude": 21.2447,
+    "keywords": ["kretinga", "kretingos as", "kretingos autobusų stotis", "kretingos autobusu stotis", "autobusu stotis kretinga"]
   },
   {
     "id": "poi-palanga-airport",
     "title": "Palangos oro uostas",
-    "name": "Palanga Airport (PLQ)",
+    "name": "Palangos oro uostas",
     "subtitle": "Liepojos pl. 1, Palanga",
     "type": "poi",
     "latitude": 55.9732,
     "longitude": 21.0939,
-    "keywords": [
-      "oro uostas",
-      "palanga airport",
-      "plq",
-      "palangos oro uostas",
-      "airport"
-    ]
-  },
-  {
-    "id": "poi-klaipeda-university",
-    "title": "Klaipėdos universitetas",
-    "name": "Klaipėdos universitetas",
-    "subtitle": "H. Manto g., Klaipėda",
-    "type": "poi",
-    "latitude": 55.731,
-    "longitude": 21.1287,
-    "keywords": [
-      "universitetas",
-      "klaipedos universitetas",
-      "ku",
-      "h manto"
-    ]
-  },
-  {
-    "id": "poi-kvk-technologiju",
-    "title": "KVK Technologijų fakultetas",
-    "name": "KVK Technologijų fakultetas",
-    "subtitle": "Bijūnų g., Klaipėda",
-    "type": "poi",
-    "latitude": 55.7004,
-    "longitude": 21.1461,
-    "keywords": [
-      "kvk",
-      "technologiju fakultetas",
-      "technologijų fakultetas",
-      "kolegija",
-      "bijunu"
-    ]
-  },
-  {
-    "id": "poi-jurine-ligonine",
-    "title": "Jūrininkų ligoninė",
-    "name": "Klaipėdos jūrininkų ligoninė",
-    "subtitle": "Liepojos g. 45, Klaipėda",
-    "type": "poi",
-    "latitude": 55.7388,
-    "longitude": 21.1304,
-    "keywords": [
-      "ligonine",
-      "ligoninė",
-      "jurininku",
-      "jūrininkų ligoninė",
-      "liepojos 45"
-    ]
-  },
-  {
-    "id": "poi-klaipeda-castle",
-    "title": "Klaipėdos piliavietė",
-    "name": "Klaipėdos piliavietė",
-    "subtitle": "Pilies g., Klaipėda",
-    "type": "poi",
-    "latitude": 55.7059,
-    "longitude": 21.1302,
-    "keywords": [
-      "piliaviete",
-      "piliavietė",
-      "pilis",
-      "senamiestis"
-    ]
+    "keywords": ["oro uostas", "palanga airport", "plq", "palangos oro uostas", "airport"]
   }
 ]

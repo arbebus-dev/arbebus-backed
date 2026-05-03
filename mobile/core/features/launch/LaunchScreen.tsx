@@ -1,10 +1,12 @@
+import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef } from "react";
 import {
   Animated,
   Easing,
-  Image,
+  ImageBackground,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -13,41 +15,57 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const BRAND = "#34F5B3";
-const BG = "#05070D";
+const BG = "#03070B";
+
+const SPLASH_IMAGE = require("../../../assets/splash.png");
 
 type LaunchScreenProps = {
   onStart: () => void;
 };
 
 export default function LaunchScreen({ onStart }: LaunchScreenProps) {
-  const fade = useRef(new Animated.Value(0)).current;
-  const logoScale = useRef(new Animated.Value(0.94)).current;
-  const buttonY = useRef(new Animated.Value(18)).current;
-  const glow = useRef(new Animated.Value(0)).current;
+  const screenFade = useRef(new Animated.Value(0)).current;
+  const imageScale = useRef(new Animated.Value(1.045)).current;
+  const imageY = useRef(new Animated.Value(10)).current;
+  const buttonOpacity = useRef(new Animated.Value(0)).current;
+  const buttonY = useRef(new Animated.Value(22)).current;
+  const pulse = useRef(new Animated.Value(0)).current;
   const leaving = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     const boot = async () => {
-      // Expo native splash stays visible until this custom launch screen is mounted.
       await SplashScreen.hideAsync().catch(() => undefined);
 
       Animated.parallel([
-        Animated.timing(fade, {
+        Animated.timing(screenFade, {
           toValue: 1,
-          duration: 520,
+          duration: 420,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.spring(logoScale, {
+        Animated.timing(imageScale, {
           toValue: 1,
-          friction: 8,
-          tension: 70,
+          duration: 1250,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(imageY, {
+          toValue: 0,
+          duration: 900,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(buttonOpacity, {
+          toValue: 1,
+          duration: 480,
+          delay: 260,
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
         Animated.timing(buttonY, {
           toValue: 0,
           duration: 560,
-          delay: 160,
+          delay: 260,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
@@ -55,15 +73,15 @@ export default function LaunchScreen({ onStart }: LaunchScreenProps) {
 
       Animated.loop(
         Animated.sequence([
-          Animated.timing(glow, {
+          Animated.timing(pulse, {
             toValue: 1,
-            duration: 1300,
+            duration: 1450,
             easing: Easing.inOut(Easing.quad),
             useNativeDriver: true,
           }),
-          Animated.timing(glow, {
+          Animated.timing(pulse, {
             toValue: 0,
-            duration: 1300,
+            duration: 1450,
             easing: Easing.inOut(Easing.quad),
             useNativeDriver: true,
           }),
@@ -72,7 +90,7 @@ export default function LaunchScreen({ onStart }: LaunchScreenProps) {
     };
 
     boot();
-  }, [buttonY, fade, glow, logoScale]);
+  }, [buttonOpacity, buttonY, imageScale, imageY, pulse, screenFade]);
 
   const handleStart = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
@@ -81,7 +99,7 @@ export default function LaunchScreen({ onStart }: LaunchScreenProps) {
 
     Animated.timing(leaving, {
       toValue: 0,
-      duration: 260,
+      duration: 240,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start(({ finished }) => {
@@ -89,55 +107,65 @@ export default function LaunchScreen({ onStart }: LaunchScreenProps) {
     });
   };
 
-  const glowOpacity = glow.interpolate({
+  const glowScale = pulse.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.28, 0.62],
+    outputRange: [1, 1.035],
+  });
+
+  const glowOpacity = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.34, 0.62],
   });
 
   return (
-    <Animated.View style={[styles.root, { opacity: leaving }]}>
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.brandTop}>
-          <Text style={styles.kicker}>ARBE NAVIGATION</Text>
-          <Text style={styles.title}>Arbebus</Text>
-          <Text style={styles.subtitle}>AI transit, live buses, smart routes</Text>
-        </View>
-
-        <Animated.View
-          pointerEvents="none"
-          style={[styles.glow, { opacity: glowOpacity }]}
-        />
-
-        <Animated.View
-          style={[
-            styles.logoWrap,
-            { opacity: fade, transform: [{ scale: logoScale }] },
-          ]}
+    <Animated.View style={[styles.root, { opacity: leaving }]}> 
+      <Animated.View
+        style={[
+          styles.imageWrap,
+          {
+            opacity: screenFade,
+            transform: [{ scale: imageScale }, { translateY: imageY }],
+          },
+        ]}
+      >
+        <ImageBackground
+          source={SPLASH_IMAGE}
+          style={styles.hero}
+          resizeMode="cover"
         >
-          <Image
-            source={require("../../../assets/splash.png")}
-            style={styles.splashImage}
-            resizeMode="contain"
-          />
-        </Animated.View>
+          <View pointerEvents="none" style={styles.topShade} />
+          <View pointerEvents="none" style={styles.bottomShade} />
+        </ImageBackground>
+      </Animated.View>
 
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.buttonGlow,
+          { opacity: glowOpacity, transform: [{ scale: glowScale }] },
+        ]}
+      />
+
+      <SafeAreaView pointerEvents="box-none" style={styles.safe}>
         <Animated.View
           style={[
             styles.bottom,
-            { opacity: fade, transform: [{ translateY: buttonY }] },
+            { opacity: buttonOpacity, transform: [{ translateY: buttonY }] },
           ]}
         >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Open Arbebus"
-            onPress={handleStart}
-            style={({ pressed }) => [
-              styles.button,
-              pressed && styles.buttonPressed,
-            ]}
-          >
-            <Text style={styles.buttonText}>Arbebus AI Go</Text>
-          </Pressable>
+          <BlurView intensity={Platform.OS === "ios" ? 32 : 18} tint="dark" style={styles.buttonShell}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open Arbebus"
+              onPress={handleStart}
+              style={({ pressed }) => [
+                styles.button,
+                pressed && styles.buttonPressed,
+              ]}
+            >
+              <Text style={styles.buttonText}>Arbebus AI Go</Text>
+            </Pressable>
+          </BlurView>
 
           <Text style={styles.note}>Klaipėda transit preview • TestFlight</Text>
         </Animated.View>
@@ -150,98 +178,86 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: BG,
-  },
-  safe: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
     overflow: "hidden",
   },
-  brandTop: {
-    position: "absolute",
-    top: 42,
-    left: 24,
-    right: 24,
-    alignItems: "center",
-    zIndex: 3,
+  imageWrap: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: BG,
   },
-  kicker: {
-    color: BRAND,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 5,
-    textTransform: "uppercase",
-  },
-  title: {
-    marginTop: 10,
-    color: "#F8FAFC",
-    fontSize: 34,
-    fontWeight: "800",
-    letterSpacing: -0.8,
-  },
-  subtitle: {
-    marginTop: 8,
-    color: "rgba(226,232,240,0.72)",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  glow: {
-    position: "absolute",
-    width: 360,
-    height: 360,
-    borderRadius: 180,
-    backgroundColor: "rgba(52,245,179,0.28)",
-    shadowColor: BRAND,
-    shadowOpacity: 0.85,
-    shadowRadius: 60,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  logoWrap: {
-    width: "86%",
-    maxWidth: 360,
-    height: 330,
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 2,
-  },
-  splashImage: {
+  hero: {
+    flex: 1,
     width: "100%",
     height: "100%",
   },
-  bottom: {
+  topShade: {
     position: "absolute",
-    left: 24,
-    right: 24,
-    bottom: 46,
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 120,
+    backgroundColor: "rgba(3,7,11,0.10)",
+  },
+  bottomShade: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 260,
+    backgroundColor: "rgba(3,7,11,0.46)",
+  },
+  safe: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "flex-end",
+  },
+  bottom: {
+    paddingHorizontal: 24,
+    paddingBottom: 34,
     alignItems: "center",
-    zIndex: 4,
+  },
+  buttonGlow: {
+    position: "absolute",
+    left: 34,
+    right: 34,
+    bottom: 64,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: BRAND,
+    shadowColor: BRAND,
+    shadowOpacity: 0.62,
+    shadowRadius: 32,
+    shadowOffset: { width: 0, height: 14 },
+  },
+  buttonShell: {
+    width: "100%",
+    borderRadius: 34,
+    overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.05)",
   },
   button: {
     width: "100%",
-    borderRadius: 28,
+    minHeight: 64,
+    borderRadius: 34,
     backgroundColor: BRAND,
-    paddingVertical: 17,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: BRAND,
-    shadowOpacity: 0.42,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 12 },
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
   },
   buttonPressed: {
     transform: [{ scale: 0.985 }],
-    opacity: 0.9,
+    opacity: 0.93,
   },
   buttonText: {
-    color: "#03120D",
-    fontSize: 18,
-    fontWeight: "800",
-    letterSpacing: 0.2,
+    color: "#02130D",
+    fontSize: 20,
+    fontWeight: "900",
+    letterSpacing: 0.15,
   },
   note: {
-    marginTop: 14,
-    color: "rgba(226,232,240,0.54)",
-    fontSize: 12,
-    fontWeight: "600",
+    marginTop: 15,
+    color: "rgba(226,232,240,0.62)",
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.1,
   },
 });

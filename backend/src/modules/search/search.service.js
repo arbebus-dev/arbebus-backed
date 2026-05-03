@@ -1,117 +1,14 @@
 const path = require('path');
 const fs = require('fs');
 const { normalizeText } = require('./searchnormalizer');
-const geocoder = require('./geocoder.service');
 
 const DEFAULT_SEARCH_LIMIT = 20;
 const MAX_SEARCH_LIMIT = 80;
 const DATA_ROOT = path.join(__dirname, '../../data');
 const GTFS_ROOT = path.join(DATA_ROOT, 'gtfs');
+const LT_BBOX = { minLon: 20.6, minLat: 53.8, maxLon: 26.9, maxLat: 56.6 };
 
 let cache = null;
-
-const IMPORTANT_POIS = [
-  {
-    id: 'poi-akropolis-klaipeda',
-    title: 'Akropolis',
-    name: 'Akropolis Klaipėda',
-    subtitle: 'Taikos pr. 61, Klaipėda',
-    type: 'poi',
-    latitude: 55.68962,
-    longitude: 21.14691,
-    keywords: ['akropolis', 'akro', 'akropoli', 'pc akropolis', 'prekybos centras', 'prekybcentris', 'shopping', 'mall', 'taikos 61', 'taikos pr 61'],
-  },
-  {
-    id: 'poi-svyturio-arena',
-    title: 'Švyturio arena',
-    name: 'Švyturio arena',
-    subtitle: 'Dubysos g. 10, Klaipėda',
-    type: 'poi',
-    latitude: 55.6891,
-    longitude: 21.1439,
-    keywords: ['svyturio arena', 'švyturio arena', 'arena', 'dubysos 10'],
-  },
-  {
-    id: 'poi-klaipedos-baseinas',
-    title: 'Klaipėdos baseinas',
-    name: 'Klaipėdos baseinas',
-    subtitle: 'Dubysos g., Klaipėda',
-    type: 'poi',
-    latitude: 55.68695,
-    longitude: 21.14776,
-    keywords: ['baseinas', 'klaipedos baseinas', 'klaipėdos baseinas', 'swimming pool'],
-  },
-  {
-    id: 'city-radailiai',
-    title: 'Radailiai',
-    name: 'Radailiai',
-    subtitle: 'Klaipėdos rajonas',
-    type: 'region',
-    latitude: 55.7868,
-    longitude: 21.1618,
-    keywords: ['radailiai', 'radailiu', 'radailių', 'radailiu st', 'radailių stotelė'],
-  },
-  {
-    id: 'poi-klaipeda-train-station',
-    title: 'Klaipėdos geležinkelio stotis',
-    name: 'Klaipėdos geležinkelio stotis',
-    subtitle: 'Priestočio g., Klaipėda',
-    type: 'poi',
-    latitude: 55.72029,
-    longitude: 21.13553,
-    keywords: ['gelezinkelio stotis', 'geležinkelio stotis', 'traukiniu stotis', 'traukinių stotis', 'train station', 'ltg'],
-  },
-  {
-    id: 'poi-senoji-perkela',
-    title: 'Senoji perkėla',
-    name: 'Senoji perkėla',
-    subtitle: 'Danės g. / Šiaurinis ragas, Klaipėda',
-    type: 'poi',
-    latitude: 55.70933,
-    longitude: 21.12762,
-    keywords: ['senoji perkela', 'senoji perkėla', 'keltas', 'kelto perkela', 'smiltyne', 'smiltynė', 'old ferry'],
-  },
-  {
-    id: 'poi-naujoji-perkela',
-    title: 'Naujoji perkėla',
-    name: 'Naujoji perkėla',
-    subtitle: 'Nemuno g., Klaipėda',
-    type: 'poi',
-    latitude: 55.68696,
-    longitude: 21.13028,
-    keywords: ['naujoji perkela', 'naujoji perkėla', 'keltas', 'kelto perkela', 'smiltyne', 'smiltynė', 'new ferry', 'nemuno perkela'],
-  },
-  {
-    id: 'city-klaipeda',
-    title: 'Klaipėda',
-    name: 'Klaipėda',
-    subtitle: 'Miestas',
-    type: 'city',
-    latitude: 55.7033,
-    longitude: 21.1443,
-    keywords: ['klaipeda', 'klaipėda', 'klaipedos miestas'],
-  },
-  {
-    id: 'city-palanga',
-    title: 'Palanga',
-    name: 'Palanga',
-    subtitle: 'Klaipėdos regionas',
-    type: 'city',
-    latitude: 55.9175,
-    longitude: 21.0688,
-    keywords: ['palanga', 'palangos'],
-  },
-  {
-    id: 'city-kretinga',
-    title: 'Kretinga',
-    name: 'Kretinga',
-    subtitle: 'Klaipėdos regionas',
-    type: 'city',
-    latitude: 55.8888,
-    longitude: 21.2445,
-    keywords: ['kretinga', 'kretingos'],
-  },
-];
 
 function readFileSafe(filePath) {
   try {
@@ -155,7 +52,6 @@ function parseCsvLine(line) {
       current += char;
     }
   }
-
   out.push(current);
   return out.map((v) => v.trim());
 }
@@ -179,6 +75,11 @@ function parseCsv(text) {
   });
 }
 
+function toNumber(value) {
+  const number = Number(String(value ?? '').replace(',', '.'));
+  return Number.isFinite(number) ? number : null;
+}
+
 function distanceMeters(a, b) {
   const R = 6371000;
   const dLat = ((b.latitude - a.latitude) * Math.PI) / 180;
@@ -189,9 +90,8 @@ function distanceMeters(a, b) {
   return Math.round(2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x)));
 }
 
-function toNumber(value) {
-  const number = Number(String(value ?? '').replace(',', '.'));
-  return Number.isFinite(number) ? number : null;
+function safeLimit(limit) {
+  return Math.min(Math.max(Number(limit || DEFAULT_SEARCH_LIMIT), 1), MAX_SEARCH_LIMIT);
 }
 
 function normalizeRouteName(route = {}) {
@@ -216,112 +116,80 @@ function buildStopRoutes(gtfs) {
   return routesByStopId;
 }
 
-function pointFromItem(item) {
-  const latitude = toNumber(item.latitude ?? item.lat ?? item.stop_lat);
-  const longitude = toNumber(item.longitude ?? item.lon ?? item.lng ?? item.stop_lon);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-  return { latitude, longitude };
+function itemKey(name) {
+  return normalizeText(name).replace(/\s+/g, '-');
 }
 
 function mapGtfsStop(stop, routesByStopId) {
-  const coordinate = pointFromItem(stop);
-  if (!coordinate) return null;
+  const latitude = toNumber(stop.stop_lat);
+  const longitude = toNumber(stop.stop_lon);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
 
-  const id = String(stop.stop_id || stop.stop_code || normalizeText(stop.stop_name)).trim();
+  const id = String(stop.stop_id || stop.stop_code || itemKey(stop.stop_name)).trim();
   const name = String(stop.stop_name || stop.name || id).trim();
   const routes = Array.from(routesByStopId.get(String(stop.stop_id)) || []).sort((a, b) => a.localeCompare(b, 'lt'));
 
   return {
-    id,
-    stopId: id,
+    id: `stop-${id}`,
+    stopId: String(stop.stop_id || id),
     stopCode: stop.stop_code || null,
     title: name,
     name,
-    subtitle: routes.length ? `Maršrutai: ${routes.slice(0, 7).join(', ')}` : 'Klaipėdos stotelė',
+    subtitle: routes.length ? `Stotelė • maršrutai: ${routes.slice(0, 8).join(', ')}` : 'Klaipėdos stotelė',
     type: 'stop',
     source: 'gtfs',
-    latitude: coordinate.latitude,
-    longitude: coordinate.longitude,
-    coordinate,
+    latitude,
+    longitude,
+    coordinate: { latitude, longitude },
     routes,
     routeIds: routes,
-    keywords: [stop.stop_code, stop.stop_desc, name, `${name} st`, `${name} stotele`, `${name} stotelė`].filter(Boolean),
+    keywords: [stop.stop_code, stop.stop_desc, name, name.replace(/\s+st\.?$/i, ''), ...(routes.map((r) => `autobusas ${r}`))].filter(Boolean),
   };
 }
 
 function mapSeedStop(stop) {
-  const coordinate = pointFromItem(stop);
+  const latitude = toNumber(stop.stop_lat ?? stop.latitude ?? stop.lat);
+  const longitude = toNumber(stop.stop_lon ?? stop.longitude ?? stop.lon ?? stop.lng);
   const name = String(stop.stop_name || stop.name || '').trim();
-  if (!name || !coordinate) return null;
+  if (!name || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   const routes = Array.isArray(stop.routes) ? stop.routes.map(String) : [];
-  const id = stop.stop_id || `seed-${normalizeText(name).replace(/\s+/g, '-')}`;
-
   return {
-    id,
-    stopId: id,
+    id: stop.stop_id ? `stop-${stop.stop_id}` : `seed-${itemKey(name)}`,
+    stopId: stop.stop_id || `seed-${itemKey(name)}`,
     title: name,
     name,
-    subtitle: routes.length ? `Maršrutai: ${routes.join(', ')}` : 'Klaipėdos stotelė',
+    subtitle: routes.length ? `Stotelė • maršrutai: ${routes.join(', ')}` : 'Klaipėdos stotelė',
     type: 'stop',
     source: 'seed',
-    latitude: coordinate.latitude,
-    longitude: coordinate.longitude,
-    coordinate,
+    latitude,
+    longitude,
+    coordinate: { latitude, longitude },
     routes,
     routeIds: routes,
-    keywords: [name, `${name} st`, `${name} stotelė`, ...(routes.map((r) => `autobusas ${r}`))],
+    keywords: [name, ...(routes.map((r) => `autobusas ${r}`))],
   };
 }
 
-function normalizePlaceType(value) {
-  const type = String(value || '').toLowerCase();
-  if (['stop', 'address', 'city', 'region'].includes(type)) return type;
-  return 'poi';
-}
-
 function mapPoi(item) {
-  const coordinate = pointFromItem(item);
-  if (!coordinate) return null;
+  const latitude = toNumber(item.latitude ?? item.lat);
+  const longitude = toNumber(item.longitude ?? item.lon ?? item.lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   const name = String(item.title || item.name || item.id || '').trim();
   if (!name) return null;
-
   return {
-    id: item.id || `poi-${normalizeText(name).replace(/\s+/g, '-')}`,
+    id: item.id || `poi-${itemKey(name)}`,
     title: item.title || item.name,
     name: item.name || item.title,
-    subtitle: item.subtitle || item.address || 'Klaipėda',
-    type: normalizePlaceType(item.type),
-    source: item.source || 'poi',
-    latitude: coordinate.latitude,
-    longitude: coordinate.longitude,
-    coordinate,
+    subtitle: item.subtitle || item.address || 'Lietuva',
+    type: item.type || 'poi',
+    source: 'poi',
+    latitude,
+    longitude,
+    coordinate: { latitude, longitude },
     routes: item.routes || [],
     routeIds: item.routes || [],
     keywords: item.keywords || [],
   };
-}
-
-function dedupeItems(items) {
-  const seen = new Map();
-
-  for (const item of items.filter(Boolean)) {
-    const key = normalizeText(item.id || `${item.title}-${item.latitude}-${item.longitude}`);
-    const titleKey = `${normalizeText(item.title || item.name)}:${Number(item.latitude).toFixed(5)}:${Number(item.longitude).toFixed(5)}`;
-    const existingKey = seen.has(key) ? key : seen.has(titleKey) ? titleKey : null;
-
-    if (existingKey) {
-      const existing = seen.get(existingKey);
-      seen.set(existingKey, {
-        ...existing,
-        keywords: Array.from(new Set([...(existing.keywords || []), ...(item.keywords || [])])),
-      });
-    } else {
-      seen.set(key, item);
-      seen.set(titleKey, item);
-    }
-  }
-
-  return Array.from(new Set(seen.values()));
 }
 
 function loadData() {
@@ -337,13 +205,11 @@ function loadData() {
   const routesByStopId = buildStopRoutes(gtfs);
   const gtfsStops = gtfs.stops.map((stop) => mapGtfsStop(stop, routesByStopId)).filter(Boolean);
   const seedStops = readJsonSafe('gtfs/klaipedaSeedStops.json', []).map(mapSeedStop).filter(Boolean);
-  const poisFromFile = readJsonSafe('poi/klaipedaPois.json', []).map(mapPoi).filter(Boolean);
-  const importantPois = IMPORTANT_POIS.map(mapPoi).filter(Boolean);
+  const pois = readJsonSafe('poi/klaipedaPois.json', []).map(mapPoi).filter(Boolean);
   const aliases = readJsonSafe('poi/placeAliases.json', []);
 
   const stops = gtfsStops.length > 0 ? gtfsStops : seedStops;
-  const pois = dedupeItems([...importantPois, ...poisFromFile]);
-  const places = dedupeItems([...pois, ...stops]);
+  const places = [...pois, ...stops];
 
   cache = {
     gtfs,
@@ -356,7 +222,7 @@ function loadData() {
       gtfsStopsCount: gtfsStops.length,
       seedStopsCount: seedStops.length,
       poiCount: pois.length,
-      geocoder: 'nominatim-fallback',
+      geocoder: process.env.ORS_API_KEY ? 'ors' : 'disabled_missing_ORS_API_KEY',
     },
   };
 
@@ -368,46 +234,19 @@ function resetCache() {
 }
 
 function aliasesForItem(item, aliases) {
-  const fields = [item.name, item.title, item.subtitle, ...(item.keywords || [])].map(normalizeText).filter(Boolean);
+  const name = normalizeText(item.name || item.title || '');
+  const title = normalizeText(item.title || item.name || '');
 
   return aliases
     .filter((entry) => {
       const canonical = normalizeText(entry.canonical || '');
       if (!canonical) return false;
-      return fields.some((field) => field === canonical || field.includes(canonical));
+      return canonical === name || canonical === title || name.includes(canonical) || canonical.includes(name) || title.includes(canonical);
     })
-    .flatMap((entry) => [entry.canonical, ...(entry.aliases || []), ...(entry.keywords || [])])
-    .filter(Boolean);
-}
-
-function expandedQueries(query, aliases) {
-  const q = normalizeText(query);
-  const set = new Set([q]);
-
-  for (const entry of aliases) {
-    const canonical = normalizeText(entry.canonical || '');
-    const values = [canonical, ...(entry.aliases || []), ...(entry.keywords || [])].map(normalizeText).filter(Boolean);
-    const matches = values.some((value) => value === q || value.startsWith(q) || (q.startsWith(value) && value.length >= 8));
-    if (!matches) continue;
-
-    for (const value of values) set.add(value);
-    if (canonical) set.add(canonical);
-  }
-
-  return Array.from(set).filter(Boolean);
-}
-
-function scoreAgainstTerm(term, query, parts) {
-  if (!term || !query) return 0;
-  if (term === query) return 130;
-  if (term.startsWith(query)) return 108;
-  if (term.includes(query)) return 86;
-  if (parts.length && parts.every((part) => term.includes(part))) return 64;
-  return 0;
+    .flatMap((entry) => [...(entry.aliases || []), ...(entry.keywords || [])]);
 }
 
 function scoreItem(item, query, aliases) {
-  const itemAliases = aliasesForItem(item, aliases);
   const terms = [
     item.id,
     item.stopId,
@@ -415,42 +254,29 @@ function scoreItem(item, query, aliases) {
     item.title,
     item.name,
     item.subtitle,
-    item.source,
-    item.type,
     ...(item.routes || []),
     ...(item.routeIds || []),
     ...(item.keywords || []),
-    ...itemAliases,
+    ...aliasesForItem(item, aliases),
   ].map(normalizeText).filter(Boolean);
 
-  const queries = expandedQueries(query, aliases);
   let score = 0;
+  const parts = query.split(' ').filter(Boolean);
 
-  for (const q of queries) {
-    const parts = q.split(' ').filter(Boolean);
-    for (const term of terms) {
-      score = Math.max(score, scoreAgainstTerm(term, q, parts));
-    }
+  for (const term of terms) {
+    if (term === query) score = Math.max(score, 120);
+    else if (term.startsWith(query)) score = Math.max(score, 100);
+    else if (term.includes(query)) score = Math.max(score, 82);
+    else if (parts.length && parts.every((part) => term.includes(part))) score = Math.max(score, 64);
+    else if (parts.length && parts.some((part) => part.length >= 4 && term.includes(part))) score = Math.max(score, 42);
   }
 
-  if (score > 0) {
-    if (item.type === 'poi') score += 6;
-    if (item.type === 'stop') score += 3;
-    if (item.source === 'geocoder') score = Math.max(1, score - 4);
-  }
+  if (item.type === 'poi' && score > 0) score += 12;
+  if (item.type === 'city' && score > 0) score += 10;
+  if (item.type === 'region' && score > 0) score += 8;
+  if (item.type === 'stop' && /\bst\b|stotele|stotel|autobus/.test(query)) score += 8;
 
   return score;
-}
-
-function safeLimit(limit) {
-  return Math.min(Math.max(Number(limit || DEFAULT_SEARCH_LIMIT), 1), MAX_SEARCH_LIMIT);
-}
-
-function typeMatches(item, type) {
-  if (!type || type === 'all') return true;
-  if (type === 'place') return item.type === 'poi' || item.type === 'city' || item.type === 'region' || item.type === 'address';
-  if (type === 'poi') return item.type === 'poi';
-  return item.type === type;
 }
 
 function searchItems(items, q, limit, type) {
@@ -460,25 +286,10 @@ function searchItems(items, q, limit, type) {
 
   return items
     .map((item) => ({ item, score: scoreItem(item, query, aliases) }))
-    .filter(({ item, score }) => score > 0 && typeMatches(item, type))
-    .sort((a, b) => b.score - a.score || String(a.item.title).localeCompare(String(b.item.title), 'lt'))
+    .filter(({ item, score }) => score > 0 && (!type || type === 'all' || item.type === type))
+    .sort((a, b) => b.score - a.score || String(a.item.name).localeCompare(String(b.item.name), 'lt'))
     .slice(0, safeLimit(limit))
     .map(({ item, score }) => ({ ...item, score }));
-}
-
-function mergeResults(local, remote, limit) {
-  const merged = [];
-  const keys = new Set();
-
-  for (const item of [...local, ...remote]) {
-    if (!item) continue;
-    const key = `${normalizeText(item.title || item.name)}:${Number(item.latitude).toFixed(5)}:${Number(item.longitude).toFixed(5)}`;
-    if (keys.has(key)) continue;
-    keys.add(key);
-    merged.push(item);
-  }
-
-  return merged.slice(0, safeLimit(limit));
 }
 
 function searchStops(q, limit = DEFAULT_SEARCH_LIMIT) {
@@ -495,6 +306,119 @@ function allStops() {
 
 function allPlaces() {
   return loadData().places;
+}
+
+function inLithuania(lon, lat) {
+  return lon >= LT_BBOX.minLon && lon <= LT_BBOX.maxLon && lat >= LT_BBOX.minLat && lat <= LT_BBOX.maxLat;
+}
+
+function classifyOrsFeature(feature) {
+  const layer = String(feature?.properties?.layer || '').toLowerCase();
+  if (layer.includes('address')) return 'address';
+  if (layer.includes('street')) return 'address';
+  if (layer.includes('venue')) return 'poi';
+  if (layer.includes('locality') || layer.includes('localadmin')) return 'city';
+  if (layer.includes('county') || layer.includes('region')) return 'region';
+  return 'address';
+}
+
+function mapOrsFeature(feature, index) {
+  const coords = feature?.geometry?.coordinates;
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+  const longitude = Number(coords[0]);
+  const latitude = Number(coords[1]);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (!inLithuania(longitude, latitude)) return null;
+
+  const p = feature.properties || {};
+  const title = String(p.name || p.label || p.street || p.locality || p.region || 'Vieta').trim();
+  const locality = p.locality || p.localadmin || p.county || p.region || 'Lietuva';
+  const label = String(p.label || [p.street, p.housenumber, locality].filter(Boolean).join(' ') || locality).trim();
+  const type = classifyOrsFeature(feature);
+
+  return {
+    id: `ors-${type}-${index}-${itemKey(label)}`,
+    title,
+    name: title,
+    subtitle: label,
+    type,
+    source: 'ors',
+    latitude,
+    longitude,
+    coordinate: { latitude, longitude },
+    confidence: p.confidence,
+    layer: p.layer,
+    keywords: [label, locality, p.street, p.housenumber].filter(Boolean),
+    score: Math.round((Number(p.confidence) || 0.5) * 50),
+  };
+}
+
+async function searchOrsGeocoder(q, limit = 8) {
+  const key = process.env.ORS_API_KEY;
+  const query = String(q || '').trim();
+  if (!key || query.length < 3 || typeof fetch !== 'function') return [];
+
+  const url = new URL('https://api.openrouteservice.org/geocode/search');
+  url.searchParams.set('api_key', key);
+  url.searchParams.set('text', query);
+  url.searchParams.set('size', String(Math.min(Math.max(Number(limit) || 8, 1), 12)));
+  url.searchParams.set('boundary.country', 'LT');
+  url.searchParams.set('layers', 'venue,address,street,locality,localadmin,county,region');
+  url.searchParams.set('boundary.rect.min_lon', String(LT_BBOX.minLon));
+  url.searchParams.set('boundary.rect.min_lat', String(LT_BBOX.minLat));
+  url.searchParams.set('boundary.rect.max_lon', String(LT_BBOX.maxLon));
+  url.searchParams.set('boundary.rect.max_lat', String(LT_BBOX.maxLat));
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4200);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return [];
+    const json = await response.json();
+    return (json.features || []).map(mapOrsFeature).filter(Boolean);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function dedupeResults(items) {
+  const seen = new Set();
+  const out = [];
+
+  for (const item of items) {
+    const latKey = Number(item.latitude).toFixed(4);
+    const lonKey = Number(item.longitude).toFixed(4);
+    const key = `${normalizeText(item.title || item.name)}:${latKey}:${lonKey}`;
+    const titleKey = `${normalizeText(item.title || item.name)}:${normalizeText(item.subtitle || '')}`;
+    if (seen.has(key) || seen.has(titleKey)) continue;
+    seen.add(key);
+    seen.add(titleKey);
+    out.push(item);
+  }
+
+  return out;
+}
+
+function rankMixedResults(results, query) {
+  const nq = normalizeText(query);
+  return results
+    .map((item) => {
+      let score = Number(item.score || 0);
+      const title = normalizeText(item.title || item.name || '');
+      const subtitle = normalizeText(item.subtitle || '');
+      if (title === nq) score += 60;
+      else if (title.startsWith(nq)) score += 40;
+      else if (title.includes(nq)) score += 22;
+      if (subtitle.includes(nq)) score += 8;
+      if (item.source === 'poi') score += 20;
+      if (item.source === 'gtfs') score += 10;
+      if (item.type === 'address') score += 6;
+      return { ...item, score };
+    })
+    .sort((a, b) => b.score - a.score || String(a.title).localeCompare(String(b.title), 'lt'));
 }
 
 function findNearestStop(input, options = {}) {
@@ -517,27 +441,26 @@ async function index(query = {}) {
   const type = query.type || 'all';
   const limit = safeLimit(query.limit);
   const data = loadData();
+
   const localResults = type === 'stop' ? searchStops(q, limit) : searchLocal(q, limit, type);
-
-  let geocoderResults = [];
-  if (type !== 'stop' && String(q || '').trim().length >= 3 && (localResults.length < limit || geocoder.isLikelyAddressQuery(q))) {
-    geocoderResults = await geocoder.geocode(q, { limit: Math.min(6, limit) });
-  }
-
-  const results = mergeResults(localResults, geocoderResults, limit);
+  const shouldUseGeocoder = type === 'all' || type === 'address' || type === 'city' || type === 'region' || type === 'poi';
+  const geocoderResults = shouldUseGeocoder ? await searchOrsGeocoder(q, Math.min(12, limit)) : [];
+  const combined = rankMixedResults(dedupeResults([...localResults, ...geocoderResults]), q).slice(0, limit);
 
   return {
     ok: true,
     query: q,
     source: data.meta.stopSource,
-    count: results.length,
-    results,
-    places: results,
-    stops: results.filter((item) => item.type === 'stop'),
+    count: combined.length,
+    results: combined,
+    places: combined,
+    stops: combined.filter((item) => item.type === 'stop'),
+    addresses: combined.filter((item) => item.type === 'address'),
     meta: {
       ...data.meta,
       localCount: localResults.length,
       geocoderCount: geocoderResults.length,
+      geocoderEnabled: Boolean(process.env.ORS_API_KEY),
     },
   };
 }
@@ -564,6 +487,7 @@ module.exports = {
   stops,
   searchStops,
   searchLocal,
+  searchOrsGeocoder,
   normalizeText,
   allStops,
   allPlaces,

@@ -38,37 +38,10 @@ function connectorLine(from?: Coordinate | null, to?: Coordinate | null): Coordi
   const points = cleanPolyline([from, to].filter(Boolean) as Coordinate[]);
   if (points.length !== 2) return [];
 
-  // Do not draw long fake straight lines. Real walking geometry must come from ORS/backend.
-  if (polylineLengthMeters(points) > 170) return [];
+  // Never draw huge straight fallback lines. Those are what make the map look non-production.
+  if (polylineLengthMeters(points) > 120) return [];
 
   return smoothPolyline(points);
-}
-
-function AppleWalkLine({ points, opacity = 1 }: { points: Coordinate[]; opacity?: number }) {
-  if (points.length < 2) return null;
-
-  return (
-    <>
-      <Polyline
-        coordinates={points}
-        strokeWidth={5.3}
-        strokeColor={`rgba(38,45,58,${0.72 * opacity})`}
-        lineDashPattern={[4, 7]}
-        lineCap="round"
-        lineJoin="round"
-        zIndex={50}
-      />
-      <Polyline
-        coordinates={points}
-        strokeWidth={3.1}
-        strokeColor={`rgba(255,255,255,${0.92 * opacity})`}
-        lineDashPattern={[3, 8]}
-        lineCap="round"
-        lineJoin="round"
-        zIndex={60}
-      />
-    </>
-  );
 }
 
 export default function WalkingPolylineLayer({ route, userLocation }: Props) {
@@ -86,8 +59,29 @@ export default function WalkingPolylineLayer({ route, userLocation }: Props) {
 
   return (
     <>
-      <AppleWalkLine points={accessWalk} opacity={1} />
-      <AppleWalkLine points={egressWalk} opacity={0.9} />
+      {accessWalk.length >= 2 ? (
+        <Polyline
+          coordinates={accessWalk}
+          strokeWidth={3}
+          strokeColor="rgba(255,255,255,0.78)"
+          lineDashPattern={[5, 8]}
+          lineCap="round"
+          lineJoin="round"
+          zIndex={95}
+        />
+      ) : null}
+
+      {egressWalk.length >= 2 ? (
+        <Polyline
+          coordinates={egressWalk}
+          strokeWidth={3}
+          strokeColor="rgba(255,255,255,0.70)"
+          lineDashPattern={[5, 8]}
+          lineCap="round"
+          lineJoin="round"
+          zIndex={95}
+        />
+      ) : null}
     </>
   );
 }

@@ -175,9 +175,9 @@ export default function StopsLayer({ route, flowState }: Props) {
           <Marker
             key={`${stop.id}-${index}`}
             coordinate={stop.coordinate}
-            anchor={{ x: 0.5, y: 0.95 }}
+            anchor={{ x: 0.5, y: 0.92 }}
             tracksViewChanges={false}
-            zIndex={isActive ? 900 : isBoard || isAlight ? 600 : 300}
+            zIndex={isActive ? 520 : isBoard || isAlight ? 500 : 280}
           >
             <View style={styles.pinWrap}>
               {isActive ? <View style={styles.activeGlow} /> : null}
@@ -224,59 +224,59 @@ const styles = StyleSheet.create({
   },
   activeGlow: {
     position: "absolute",
-    top: -7,
-    width: 92,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(255,255,255,0.18)",
+    top: -5,
+    width: 64,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(255,255,255,0.13)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.55)",
   },
   pin: {
-    minWidth: 28,
-    height: 28,
-    paddingHorizontal: 6,
-    borderRadius: 14,
+    minWidth: 24,
+    height: 24,
+    paddingHorizontal: 5,
+    borderRadius: 12,
     flexDirection: "row",
     gap: 4,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(10,16,30,0.95)",
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: "#35F2B4",
   },
   activePin: {
     transform: [{ scale: 1.08 }],
   },
   stopIn: {
-    minWidth: 72,
-    height: 34,
+    minWidth: 54,
+    height: 28,
     backgroundColor: "#35F2B4",
     borderColor: "white",
   },
   stopOut: {
-    minWidth: 76,
-    height: 34,
+    minWidth: 58,
+    height: 28,
     backgroundColor: "#FFB84D",
     borderColor: "white",
   },
   pinDot: {
     marginTop: -1,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: "#35F2B4",
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: "white",
   },
   text: {
     color: "#06111F",
-    fontSize: 10,
+    fontSize: 8,
     fontWeight: "900",
   },
   number: {
     color: "#CFFFEA",
-    fontSize: 10,
+    fontSize: 8,
     fontWeight: "900",
   },
 });

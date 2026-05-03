@@ -15,14 +15,14 @@
     ],
     "splash": {
       "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#05070d"
+      "resizeMode": "cover",
+      "backgroundColor": "#03070B"
     },
     "ios": {
       "bundleIdentifier": "com.arbebus.app",
       "supportsTablet": true,
       "usesAppleSignIn": true,
-      "buildNumber": "76",
+      "buildNumber": "77",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": ["location", "fetch", "remote-notification"],

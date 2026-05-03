@@ -25,15 +25,15 @@ type Segment = {
   index: number;
   mode: SegmentMode;
   points: Coordinate[];
+  rawLength: number;
+  provider?: string | null;
 };
-
-const LONG_FALLBACK_LIMIT_METERS = 260;
 
 function normalizeMode(value?: string | null): SegmentMode {
   const mode = String(value || "").toLowerCase();
 
-  if (mode.includes("walk") || mode === "transfer" || mode.includes("pės")) return "walk";
-  if (mode.includes("ferry") || mode.includes("kelt") || mode.includes("perk")) return "ferry";
+  if (mode.includes("walk") || mode === "transfer") return "walk";
+  if (mode.includes("ferry") || mode.includes("kelt")) return "ferry";
   if (mode.includes("train") || mode.includes("rail") || mode.includes("ltg") || mode.includes("traukin")) return "train";
   if (mode.includes("bolt") || mode.includes("taxi")) return "bolt";
   if (mode.includes("bus") || mode.includes("ride") || mode.includes("board") || mode.includes("alight")) return "bus";
@@ -42,15 +42,7 @@ function normalizeMode(value?: string | null): SegmentMode {
 }
 
 function stepMode(step: TransitStep): SegmentMode {
-  return normalizeMode(step.mode || step.type || step.icon || step.routeLabel);
-}
-
-function coordinateFromStop(raw: any): Coordinate | null {
-  const latitude = Number(raw?.coordinate?.latitude ?? raw?.latitude ?? raw?.stop_lat ?? raw?.lat);
-  const longitude = Number(raw?.coordinate?.longitude ?? raw?.longitude ?? raw?.stop_lon ?? raw?.lon ?? raw?.lng);
-
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-  return { latitude, longitude };
+  return normalizeMode(step.mode || step.type || step.icon);
 }
 
 function stepPoints(step: TransitStep): Coordinate[] {
@@ -58,27 +50,26 @@ function stepPoints(step: TransitStep): Coordinate[] {
     step.polyline,
     (step as any)?.shapePolyline,
     (step as any)?.routePolyline,
-    (step as any)?.geometry,
     (step as any)?.points,
   ];
 
   for (const candidate of candidates) {
     const cleaned = cleanPolyline(candidate);
     if (cleaned.length >= 3) return cleaned;
-
-    // Apple Maps style: never draw long artificial straight fallback lines.
-    if (cleaned.length === 2 && polylineLengthMeters(cleaned) <= LONG_FALLBACK_LIMIT_METERS) {
-      return cleaned;
-    }
+    if (cleaned.length === 2 && polylineLengthMeters(cleaned) <= 220) return cleaned;
   }
 
-  const from = coordinateFromStop((step as any)?.fromStop) || coordinateFromStop((step as any)?.originStop);
-  const to = coordinateFromStop((step as any)?.toStop) || coordinateFromStop((step as any)?.destinationStop);
+  const from = (step as any)?.fromStop?.coordinate ||
+    ((step as any)?.fromStop?.latitude && (step as any)?.fromStop?.longitude
+      ? { latitude: Number((step as any).fromStop.latitude), longitude: Number((step as any).fromStop.longitude) }
+      : null);
+  const to = (step as any)?.toStop?.coordinate ||
+    ((step as any)?.toStop?.latitude && (step as any)?.toStop?.longitude
+      ? { latitude: Number((step as any).toStop.latitude), longitude: Number((step as any).toStop.longitude) }
+      : null);
+
   const fallback = cleanPolyline([from, to].filter(Boolean) as Coordinate[]);
-
-  if (fallback.length === 2 && polylineLengthMeters(fallback) <= LONG_FALLBACK_LIMIT_METERS) {
-    return fallback;
-  }
+  if (fallback.length === 2 && polylineLengthMeters(fallback) <= 220) return fallback;
 
   return [];
 }
@@ -102,6 +93,8 @@ function routeMainLine(route: TransitRouteOption | null): Segment[] {
           index: 0,
           mode: normalizeMode(route.mode || route.routeLabel),
           points: cleaned,
+          rawLength: polylineLengthMeters(cleaned),
+          provider: null,
         },
       ];
     }
@@ -114,7 +107,7 @@ function routeStepSegments(route: TransitRouteOption | null): Segment[] {
   if (!route) return [];
 
   const steps = route.journeySteps || route.steps || [];
-  return steps
+  const segments = steps
     .map((step, index) => {
       const points = stepPoints(step);
       if (points.length < 2) return null;
@@ -124,14 +117,20 @@ function routeStepSegments(route: TransitRouteOption | null): Segment[] {
         index,
         mode: stepMode(step),
         points,
+        rawLength: polylineLengthMeters(points),
       } satisfies Segment;
     })
     .filter(Boolean) as Segment[];
+
+  return segments;
 }
 
 function getSegments(route: TransitRouteOption | null): Segment[] {
   const stepSegments = routeStepSegments(route);
+
+  // Prefer per-step geometry. Apple Maps works visually because each mode gets its own layer.
   if (stepSegments.length) return stepSegments;
+
   return routeMainLine(route);
 }
 
@@ -141,57 +140,54 @@ function isNavigationFlow(flowState?: TransitFlowState): boolean {
 
 function isActiveSegment(segment: Segment, flowState?: TransitFlowState, currentStepIndex?: number): boolean {
   if (!isNavigationFlow(flowState)) return true;
-  return segment.index === Math.max(0, Number(currentStepIndex || 0));
+
+  const activeIndex = Math.max(0, Number(currentStepIndex || 0));
+  return segment.index === activeIndex;
 }
 
 function styleForMode(mode: SegmentMode) {
   switch (mode) {
     case "walk":
       return {
-        casing: "rgba(12,18,28,0.42)",
-        shadow: "rgba(255,255,255,0.16)",
-        line: "#FFFFFF",
-        inactive: "rgba(255,255,255,0.60)",
-        dash: [5, 9] as number[],
-        baseWidth: 3.6,
+        glow: "rgba(255,255,255,0.12)",
+        casing: "rgba(20,28,42,0.38)",
+        line: "rgba(255,255,255,0.88)",
+        inactive: "rgba(255,255,255,0.45)",
+        dash: [5, 8] as number[],
       };
     case "ferry":
       return {
-        casing: "rgba(7,25,43,0.50)",
-        shadow: "rgba(77,166,255,0.12)",
-        line: "#58AFFF",
-        inactive: "rgba(88,175,255,0.56)",
+        glow: "rgba(77,166,255,0.12)",
+        casing: "rgba(5,26,45,0.60)",
+        line: "#4DA6FF",
+        inactive: "rgba(77,166,255,0.58)",
         dash: undefined,
-        baseWidth: 4.8,
       };
     case "train":
       return {
-        casing: "rgba(28,18,40,0.50)",
-        shadow: "rgba(175,82,222,0.11)",
-        line: "#B66DFF",
-        inactive: "rgba(182,109,255,0.55)",
+        glow: "rgba(175,82,222,0.12)",
+        casing: "rgba(33,12,47,0.56)",
+        line: "#AF52DE",
+        inactive: "rgba(175,82,222,0.58)",
         dash: undefined,
-        baseWidth: 4.8,
       };
     case "bolt":
       return {
-        casing: "rgba(8,28,17,0.46)",
-        shadow: "rgba(52,199,89,0.10)",
-        line: "#38D86E",
-        inactive: "rgba(56,216,110,0.54)",
+        glow: "rgba(52,199,89,0.12)",
+        casing: "rgba(5,35,18,0.52)",
+        line: "#34C759",
+        inactive: "rgba(52,199,89,0.56)",
         dash: undefined,
-        baseWidth: 4.6,
       };
     case "bus":
     case "ride":
     default:
       return {
-        casing: "rgba(3,38,33,0.54)",
-        shadow: "rgba(53,242,180,0.10)",
-        line: "#35F2B4",
-        inactive: "rgba(53,242,180,0.55)",
+        glow: "rgba(0,224,164,0.12)",
+        casing: "rgba(0,28,24,0.42)",
+        line: "#28E6AD",
+        inactive: "rgba(40,230,173,0.50)",
         dash: undefined,
-        baseWidth: 4.9,
       };
   }
 }
@@ -202,12 +198,19 @@ export default function RoutePolylineLayer({
   currentStepIndex,
 }: Props) {
   const segments = useMemo(() => {
-    return getSegments(route)
-      .map((segment) => ({
-        ...segment,
-        points: smoothPolyline(segment.points),
-      }))
-      .filter((segment) => segment.points.length >= 2);
+    return getSegments(route).map((segment) => ({
+      ...segment,
+      points: smoothPolyline(segment.points),
+    }))
+    // If backend only has fallback straight walking geometry, do not draw an ugly fake road line.
+    // Real walking should come from ORS and usually has > 3 points.
+    .filter((segment) => {
+      if (segment.points.length < 2) return false;
+      const provider = String(segment.provider || "").toLowerCase();
+      if (segment.mode === "walk" && provider === "fallback" && segment.rawLength > 120) return false;
+      if (segment.mode === "walk" && segment.points.length <= 3 && segment.rawLength > 220) return false;
+      return true;
+    });
   }, [route]);
 
   if (!segments.length) return null;
@@ -218,19 +221,19 @@ export default function RoutePolylineLayer({
         const active = isActiveSegment(segment, flowState, currentStepIndex);
         const style = styleForMode(segment.mode);
         const isWalk = segment.mode === "walk";
-        const mainWidth = active ? style.baseWidth : Math.max(3.2, style.baseWidth - 1.1);
-        const casingWidth = mainWidth + (isWalk ? 1.8 : 2.2);
-        const shadowWidth = mainWidth + (isWalk ? 3.3 : 3.6);
+        const mainWidth = active ? (isWalk ? 3.2 : 4.8) : (isWalk ? 2.8 : 3.8);
+        const casingWidth = mainWidth + (isWalk ? 2.2 : 2.8);
+        const glowWidth = mainWidth + (isWalk ? 4.2 : 5.2);
 
         return (
           <React.Fragment key={segment.id}>
             <Polyline
               coordinates={segment.points}
-              strokeWidth={shadowWidth}
-              strokeColor={style.shadow}
+              strokeWidth={glowWidth}
+              strokeColor={style.glow}
               lineCap="round"
               lineJoin="round"
-              zIndex={18}
+              zIndex={70}
             />
 
             <Polyline
@@ -239,7 +242,7 @@ export default function RoutePolylineLayer({
               strokeColor={style.casing}
               lineCap="round"
               lineJoin="round"
-              zIndex={19}
+              zIndex={80}
             />
 
             <Polyline
@@ -249,7 +252,7 @@ export default function RoutePolylineLayer({
               lineDashPattern={style.dash}
               lineCap="round"
               lineJoin="round"
-              zIndex={20}
+              zIndex={90}
             />
           </React.Fragment>
         );
