@@ -7,6 +7,7 @@ import {
   Animated,
   Dimensions,
   Keyboard,
+  Share,
   PanResponder,
   Pressable,
   ScrollView,
@@ -234,21 +235,152 @@ function SearchInput(props: Pick<Props, "query" | "isSearching" | "onChangeQuery
   );
 }
 
-function SearchHeader(props: Props) {
+function ProfileAvatar() {
+  return (
+    <Pressable
+      style={styles.profileAvatar}
+      onPress={() => {
+        void Haptics.selectionAsync();
+      }}
+      hitSlop={10}
+    >
+      <Ionicons name="person" size={17} color="#0B1220" />
+    </Pressable>
+  );
+}
+
+function AppleSearchHeader(props: Props) {
   return (
     <View style={styles.fixedHeader}>
-      <Header title="Directions" subtitle="Pasirink kelionės tikslą" icon="map-search" onClose={props.onReset} />
-      <ModeSelector />
-      <View style={styles.endpointBox}>
-        <View style={styles.endpointRow}>
-          <View style={styles.locationDotBlue} />
-          <Text style={styles.endpointText}>My Location</Text>
+      <View style={styles.appleTopRow}>
+        <View style={styles.appleSearchPill}>
+          <SearchInput {...props} />
         </View>
-        <View style={styles.endpointDivider} />
-        <SearchInput {...props} />
+        <ProfileAvatar />
+      </View>
+      <View style={styles.appleStatusRow}>
+        <View style={styles.appleStatusChip}>
+          <MaterialCommunityIcons name="bus-clock" size={13} color={COLORS.greenDark} />
+          <Text style={styles.appleStatusText}>{props.liveBusCount} live autobusai</Text>
+        </View>
+        {props.isOffline ? (
+          <View style={styles.appleStatusChipWarning}>
+            <Ionicons name="cloud-offline" size={13} color="#8A5A00" />
+            <Text style={styles.appleStatusTextWarning}>Offline</Text>
+          </View>
+        ) : null}
       </View>
     </View>
   );
+}
+
+function QuickMenuRow({
+  icon,
+  title,
+  subtitle,
+  onPress,
+}: {
+  icon: any;
+  title: string;
+  subtitle?: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={styles.quickMenuRow}
+      onPress={() => {
+        void Haptics.selectionAsync();
+        onPress();
+      }}
+    >
+      <View style={styles.quickMenuIcon}>
+        <MaterialCommunityIcons name={icon} size={17} color={COLORS.greenDark} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.quickMenuTitle} numberOfLines={1}>{title}</Text>
+        {subtitle ? <Text style={styles.quickMenuSubtitle} numberOfLines={1}>{subtitle}</Text> : null}
+      </View>
+      <Ionicons name="chevron-forward" size={15} color="rgba(20,27,37,0.35)" />
+    </Pressable>
+  );
+}
+
+function SuggestionChip({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: any;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={styles.suggestionChip}
+      onPress={() => {
+        void Haptics.selectionAsync();
+        onPress();
+      }}
+    >
+      <MaterialCommunityIcons name={icon} size={15} color={COLORS.greenDark} />
+      <Text style={styles.suggestionChipText}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function AppleMenuContent(props: Props) {
+  const runPresetSearch = (value: string) => {
+    props.onChangeQuery(value);
+    setTimeout(() => props.onSubmitSearch(), 0);
+  };
+
+  const shareLocation = () => {
+    void Share.share({
+      message: "Dalinuosi savo lokacija per Arbebus.",
+    });
+  };
+
+  return (
+    <View style={styles.appleMenuRoot}>
+      <Text style={styles.menuSectionTitle}>Arbebus Suggestions</Text>
+      <View style={styles.suggestionGrid}>
+        <SuggestionChip icon="briefcase" label="Į darbą" onPress={() => runPresetSearch("darbas")} />
+        <SuggestionChip icon="bus-stop" label="Artimiausia stotelė" onPress={() => runPresetSearch("stotelė")} />
+        <SuggestionChip icon="ferry" label="Keltas" onPress={() => runPresetSearch("Smiltynė")} />
+        <SuggestionChip icon="train" label="Traukinys" onPress={() => runPresetSearch("geležinkelio stotis")} />
+      </View>
+
+      <View style={styles.menuCard}>
+        <Text style={styles.menuSectionTitleInside}>Places</Text>
+        <QuickMenuRow icon="home" title="Namai" subtitle="Pridėk namų adresą greitam maršrutui" onPress={() => runPresetSearch("namai")} />
+        <QuickMenuRow icon="briefcase" title="Darbas" subtitle="Pridėk darbo adresą rytiniam maršrutui" onPress={() => runPresetSearch("darbas")} />
+        <QuickMenuRow icon="plus-circle" title="Pridėti vietą" subtitle="Home, Work arba mėgstama vieta" onPress={() => runPresetSearch("pridėti vietą")} />
+      </View>
+
+      <View style={styles.menuCard}>
+        <Text style={styles.menuSectionTitleInside}>Recents</Text>
+        <QuickMenuRow icon="history" title="Akropolis" subtitle="Prekybos centras · Klaipėda" onPress={() => runPresetSearch("Akropolis")} />
+        <QuickMenuRow icon="history" title="Radailiai" subtitle="Klaipėdos rajonas" onPress={() => runPresetSearch("Radailiai")} />
+      </View>
+
+      <View style={styles.menuCard}>
+        <Text style={styles.menuSectionTitleInside}>Favourites</Text>
+        <QuickMenuRow icon="star" title="Mėgstamos stotelės" subtitle="Stebimi maršrutai ir dažnos kryptys" onPress={() => runPresetSearch("mėgstamos stotelės")} />
+        <QuickMenuRow icon="heart" title="Mėgstamos vietos" subtitle="Greitas pasirinkimas be paieškos" onPress={() => runPresetSearch("mėgstamos vietos")} />
+      </View>
+
+      <View style={styles.menuCard}>
+        <Text style={styles.menuSectionTitleInside}>Actions</Text>
+        <QuickMenuRow icon="share-variant" title="Dalintis lokacija" subtitle="Išsiųsti dabartinę lokaciją" onPress={shareLocation} />
+        <QuickMenuRow icon="map-marker-plus" title="Pažymėti vietą" subtitle="Išsaugoti tašką žemėlapyje" onPress={() => runPresetSearch("pažymėti vietą")} />
+        <QuickMenuRow icon="alert-circle-outline" title="Pranešti problemą" subtitle="Stotelė, maršrutas arba duomenų klaida" onPress={() => runPresetSearch("pranešti problemą")} />
+      </View>
+    </View>
+  );
+}
+
+function SearchHeader(props: Props) {
+  return <AppleSearchHeader {...props} />;
 }
 
 function SearchState(props: Props) {
@@ -280,10 +412,7 @@ function SearchState(props: Props) {
             <Ionicons name="chevron-forward" size={14} color={COLORS.dim} />
           </Pressable>
         )) : (
-          <View style={styles.emptyBlock}>
-            <Text style={styles.emptyTitle}>Įvesk tikslą</Text>
-            <Text style={styles.emptyText}>Pvz. Akropolis, Palanga, Autobusų stotis.</Text>
-          </View>
+          <AppleMenuContent {...props} />
         )}
       </ScrollView>
     </View>
@@ -558,6 +687,25 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700", paddingVertical: 0 },
   searchClearButton: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(18,25,36,0.08)" },
   searchScrollContent: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 110 },
+  appleTopRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
+  appleSearchPill: { flex: 1, minHeight: 48, borderRadius: 24, paddingHorizontal: 14, justifyContent: "center", backgroundColor: "rgba(255,255,255,0.78)", borderWidth: 1, borderColor: "rgba(20,27,37,0.06)", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  profileAvatar: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.86)", borderWidth: 1, borderColor: "rgba(20,27,37,0.07)", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  appleStatusRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 2 },
+  appleStatusChip: { minHeight: 28, borderRadius: 14, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(53,242,180,0.14)" },
+  appleStatusChipWarning: { minHeight: 28, borderRadius: 14, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,193,7,0.18)" },
+  appleStatusText: { color: COLORS.greenDark, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
+  appleStatusTextWarning: { color: "#8A5A00", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
+  appleMenuRoot: { paddingBottom: 18 },
+  menuSectionTitle: { color: "#667083", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 8, marginLeft: 4 },
+  menuSectionTitleInside: { color: "#667083", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 6, paddingHorizontal: 4 },
+  suggestionGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
+  suggestionChip: { minHeight: 38, borderRadius: 19, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "rgba(255,255,255,0.72)", borderWidth: 1, borderColor: "rgba(20,27,37,0.06)" },
+  suggestionChipText: { color: COLORS.textDark, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
+  menuCard: { borderRadius: 22, padding: 10, backgroundColor: "rgba(255,255,255,0.66)", borderWidth: 1, borderColor: "rgba(20,27,37,0.06)", marginBottom: 12 },
+  quickMenuRow: { minHeight: 54, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 10 },
+  quickMenuIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(53,242,180,0.18)" },
+  quickMenuTitle: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "900" },
+  quickMenuSubtitle: { color: "#6A7488", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 1 },
   emptyBlock: { paddingTop: 24 },
   emptyTitle: { color: COLORS.textDark, fontSize: T.section, lineHeight: LINE_HEIGHT.section, fontWeight: "900" },
   emptyText: { color: "#667083", fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700", marginTop: 4 },

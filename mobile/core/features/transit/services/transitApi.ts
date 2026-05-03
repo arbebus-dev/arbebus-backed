@@ -536,43 +536,67 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
   const q = query.trim();
   if (q.length < 2) return [];
 
-  const urls = [
-    `${API_ENDPOINTS.placesSearch}?q=${encodeURIComponent(q)}`,
-    `${API_ENDPOINTS.stopsSearch}?q=${encodeURIComponent(q)}`,
-  ];
+  const url = `${API_ENDPOINTS.placesSearch}?q=${encodeURIComponent(q)}&limit=30`;
 
-  for (const url of urls) {
+  try {
+    const response = await fetchWithRetry(url);
+    if (!response.ok) return [];
+
+    const data = await safeJson<any>(response);
+    const rawResults = data.results || data.places || data.stops || data.items || [];
+
+    if (!Array.isArray(rawResults) || !rawResults.length) return [];
+
+    return rawResults
+      .map((item: any, index: number): PlaceResult | null => {
+        const coordinate = toCoordinate(item);
+        if (!coordinate) return null;
+
+        const type = String(item.type ?? item.resultType ?? "poi").toLowerCase();
+
+        return {
+          id: String(item.id ?? item.stop_id ?? `${type}-${index}`),
+          title: String(item.title ?? item.name ?? item.stopName ?? item.stop_name ?? "Vieta"),
+          subtitle:
+            item.subtitle ??
+            item.address ??
+            item.description ??
+            item.stop_desc ??
+            (type === "stop" ? "Klaipėdos stotelė" : "Klaipėdos regionas"),
+          type:
+            type === "stop" || item.stop_id
+              ? "stop"
+              : type === "address"
+                ? "address"
+                : type === "city"
+                  ? "city"
+                  : type === "region"
+                    ? "region"
+                    : "poi",
+          distanceMeters:
+            item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
+          latitude: coordinate.latitude,
+          longitude: coordinate.longitude,
+          coordinate,
+        };
+      })
+      .filter(Boolean) as PlaceResult[];
+  } catch {
+    // Last safety fallback: try stops-only endpoint if unified search is sleeping.
     try {
-      const response = await fetchWithRetry(url);
-      if (!response.ok) continue;
-
+      const response = await fetchWithRetry(`${API_ENDPOINTS.stopsSearch}?q=${encodeURIComponent(q)}&limit=20`);
+      if (!response.ok) return [];
       const data = await safeJson<any>(response);
-      const rawResults = data.results || data.places || data.stops || data.items || [];
-
-      if (!Array.isArray(rawResults) || !rawResults.length) continue;
-
+      const rawResults = data.results || data.stops || [];
       return rawResults
         .map((item: any, index: number): PlaceResult | null => {
           const coordinate = toCoordinate(item);
           if (!coordinate) return null;
-
           return {
-            id: String(item.id ?? item.stop_id ?? index),
-            title: String(item.title ?? item.name ?? item.stopName ?? item.stop_name ?? "Vieta"),
-            subtitle:
-              item.subtitle ??
-              item.address ??
-              item.description ??
-              item.stop_desc ??
-              "Klaipėda",
-            type:
-              item.type === "address"
-                ? "address"
-                : item.type === "stop" || item.stop_id
-                  ? "stop"
-                  : "place",
-            distanceMeters:
-              item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
+            id: String(item.id ?? item.stop_id ?? `stop-${index}`),
+            title: String(item.title ?? item.name ?? item.stopName ?? item.stop_name ?? "Stotelė"),
+            subtitle: item.subtitle ?? "Klaipėdos stotelė",
+            type: "stop",
             latitude: coordinate.latitude,
             longitude: coordinate.longitude,
             coordinate,
@@ -580,11 +604,9 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
         })
         .filter(Boolean) as PlaceResult[];
     } catch {
-      // Try next endpoint.
+      return [];
     }
   }
-
-  return [];
 }
 
 export async function planTransitRoute(params: {

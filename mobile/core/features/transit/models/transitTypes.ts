@@ -28,7 +28,7 @@ export type PlaceSearchResult = {
   id: string;
   title: string;
   subtitle?: string;
-  type?: "stop" | "place" | "address" | string;
+  type?: "stop" | "poi" | "place" | "address" | "city" | "region" | string;
   distanceMeters?: number;
   latitude?: number;
   longitude?: number;
@@ -52,6 +52,9 @@ export type TransitFlowState =
 export type TransitStepType =
   | "walk"
   | "bus"
+  | "ferry"
+  | "train"
+  | "bolt"
   | "transfer"
   | "arrive"
   | "board"
@@ -77,7 +80,7 @@ export type TransitStep = {
   type: TransitStepType;
   legIndex?: number;
   sequenceIndex?: number;
-  mode?: "walk" | "bus" | "train" | "mixed" | string;
+  mode?: "walk" | "bus" | "ferry" | "train" | "bolt" | "mixed" | string;
   icon?: string;
   title: string;
   subtitle?: string;
@@ -117,7 +120,7 @@ export type TransitLiveEta = {
 export type TransitRouteLeg = {
   id?: string;
   type?: TransitStepType | string;
-  mode?: "walk" | "bus" | "train" | "mixed" | string;
+  mode?: "walk" | "bus" | "ferry" | "train" | "bolt" | "mixed" | string;
   routeId?: string;
   routeNumber?: string;
   routeLabel?: string;
