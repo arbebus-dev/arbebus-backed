@@ -507,10 +507,14 @@ function PlacePreviewCard({ props }: { props: Props }) {
         <Pressable style={styles.placeActionButtonSecondary} onPress={useAsOrigin}>
           <Text style={styles.placeActionText}>{t.sheet.useAsFrom}</Text>
         </Pressable>
-        <Pressable style={styles.placeActionButtonPrimary} onPress={useAsDestination}>
-          <Text style={styles.placeActionTextPrimary}>{t.sheet.useAsTo}</Text>
+        <Pressable style={styles.placeActionButtonSecondary} onPress={useAsDestination}>
+          <Text style={styles.placeActionText}>{t.sheet.useAsTo}</Text>
         </Pressable>
       </View>
+      <Pressable style={styles.placeRouteButton} onPress={useAsDestination}>
+        <MaterialCommunityIcons name="navigation-variant" size={16} color={COLORS.greenDark} />
+        <Text style={styles.placeRouteButtonText}>{t.sheet.showRoute}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -882,22 +886,22 @@ const styles = StyleSheet.create({
   appleStatusText: { color: COLORS.greenDark, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
   appleStatusTextWarning: { color: "#8A5A00", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
   placePreviewCard: {
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.78)",
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.82)",
     borderWidth: 1,
     borderColor: "rgba(20,27,37,0.07)",
-    padding: 13,
+    padding: 14,
     marginBottom: 12,
     shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.10,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
   },
   placePreviewTop: { flexDirection: "row", alignItems: "center", gap: 11 },
   placePreviewIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(52,245,179,0.18)",
@@ -912,8 +916,8 @@ const styles = StyleSheet.create({
   },
   placePreviewTitle: {
     color: COLORS.textDark,
-    fontSize: T.body,
-    lineHeight: LINE_HEIGHT.body,
+    fontSize: T.section,
+    lineHeight: LINE_HEIGHT.section,
     fontWeight: "900",
     marginTop: 2,
   },
@@ -961,6 +965,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: COLORS.green,
+  },
+  placeRouteButton: {
+    minHeight: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 9,
+    backgroundColor: COLORS.green,
+    shadowColor: "#34F5B3",
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  placeRouteButtonText: {
+    color: COLORS.greenDark,
+    fontSize: T.body,
+    lineHeight: LINE_HEIGHT.body,
+    fontWeight: "900",
   },
   placeActionText: {
     color: COLORS.textDark,

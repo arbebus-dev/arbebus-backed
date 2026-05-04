@@ -41,7 +41,11 @@ function apiBase() {
 const API_TIMEOUT_MS = 9000;
 const API_RETRY_COUNT = 1;
 
-async function fetchWithTimeout(input: string, init?: RequestInit, timeoutMs = API_TIMEOUT_MS) {
+async function fetchWithTimeout(
+  input: string,
+  init?: RequestInit,
+  timeoutMs = API_TIMEOUT_MS,
+) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -55,13 +59,18 @@ async function fetchWithTimeout(input: string, init?: RequestInit, timeoutMs = A
   }
 }
 
-async function fetchWithRetry(input: string, init?: RequestInit, retries = API_RETRY_COUNT) {
+async function fetchWithRetry(
+  input: string,
+  init?: RequestInit,
+  retries = API_RETRY_COUNT,
+) {
   let lastError: unknown = null;
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
       const response = await fetchWithTimeout(input, init);
-      if (response.ok || attempt >= retries || response.status < 500) return response;
+      if (response.ok || attempt >= retries || response.status < 500)
+        return response;
       lastError = new Error(`HTTP ${response.status}`);
     } catch (error) {
       lastError = error;
@@ -71,7 +80,9 @@ async function fetchWithRetry(input: string, init?: RequestInit, retries = API_R
     await new Promise((resolve) => setTimeout(resolve, 450 * (attempt + 1)));
   }
 
-  throw lastError instanceof Error ? lastError : new Error("Network request failed");
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Network request failed");
 }
 
 async function safeJson<T>(response: Response): Promise<T> {
@@ -89,7 +100,7 @@ function toCoordinate(input: any): Coordinate | null {
     input?.latitude ??
       input?.lat ??
       input?.stop_lat ??
-      input?.coordinate?.latitude
+      input?.coordinate?.latitude,
   );
 
   const longitude = Number(
@@ -97,7 +108,7 @@ function toCoordinate(input: any): Coordinate | null {
       input?.lon ??
       input?.lng ??
       input?.stop_lon ??
-      input?.coordinate?.longitude
+      input?.coordinate?.longitude,
   );
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
@@ -123,7 +134,8 @@ function normalizeGeometry(raw: any): Coordinate[] {
       .map((point: any) => {
         const longitude = Number(point?.[0]);
         const latitude = Number(point?.[1]);
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude))
+          return null;
         return { latitude, longitude };
       })
       .filter(Boolean) as Coordinate[];
@@ -156,7 +168,7 @@ function normalizeLiveBus(raw: any, index = 0): LiveBus | null {
       raw?.routeId ??
       raw?.line ??
       raw?.vehicleLabel ??
-      "BUS"
+      "BUS",
   );
 
   const vehicleId = normalizeId(
@@ -164,7 +176,7 @@ function normalizeLiveBus(raw: any, index = 0): LiveBus | null {
       raw?.vehicle_id ??
       raw?.id ??
       raw?.vehicleLabel ??
-      `${number}-${index}`
+      `${number}-${index}`,
   );
 
   const id = normalizeId(raw?.id ?? vehicleId);
@@ -173,7 +185,8 @@ function normalizeLiveBus(raw: any, index = 0): LiveBus | null {
     id,
     number,
     route: raw?.route != null ? String(raw.route) : number,
-    routeId: raw?.routeId != null ? String(raw.routeId) : normalizeRouteNumber(number),
+    routeId:
+      raw?.routeId != null ? String(raw.routeId) : normalizeRouteNumber(number),
     vehicleId,
     vehicleLabel:
       raw?.vehicleLabel != null
@@ -211,9 +224,15 @@ function normalizeStop(raw: any) {
         : raw?.stop_id != null
           ? String(raw.stop_id)
           : undefined,
-    title: String(raw?.title ?? raw?.name ?? raw?.stopName ?? raw?.stop_name ?? "Stotelė"),
-    name: String(raw?.name ?? raw?.title ?? raw?.stopName ?? raw?.stop_name ?? "Stotelė"),
-    stopName: String(raw?.stopName ?? raw?.stop_name ?? raw?.name ?? raw?.title ?? "Stotelė"),
+    title: String(
+      raw?.title ?? raw?.name ?? raw?.stopName ?? raw?.stop_name ?? "Stotelė",
+    ),
+    name: String(
+      raw?.name ?? raw?.title ?? raw?.stopName ?? raw?.stop_name ?? "Stotelė",
+    ),
+    stopName: String(
+      raw?.stopName ?? raw?.stop_name ?? raw?.name ?? raw?.title ?? "Stotelė",
+    ),
     stopSequence:
       raw?.stopSequence != null
         ? Number(raw.stopSequence)
@@ -223,7 +242,8 @@ function normalizeStop(raw: any) {
     latitude: coordinate.latitude,
     longitude: coordinate.longitude,
     coordinate,
-    distanceMeters: raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
+    distanceMeters:
+      raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
     arrivalSeconds:
       raw?.arrivalSeconds != null
         ? Number(raw.arrivalSeconds)
@@ -257,11 +277,17 @@ function normalizeStops(rawStops: any): any[] {
       return normalizeStop(stop);
     })
     .filter(Boolean)
-    .filter((stop) => Number.isFinite(Number(stop.latitude)) && Number.isFinite(Number(stop.longitude)));
+    .filter(
+      (stop) =>
+        Number.isFinite(Number(stop.latitude)) &&
+        Number.isFinite(Number(stop.longitude)),
+    );
 }
 
 function cleanRouteLabel(value?: string | null) {
-  return String(value ?? "").trim().replace(/\s+/g, " ");
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 function routeNumbersFromLabel(label?: string | null) {
@@ -290,7 +316,7 @@ function normalizeStep(raw: any, index: number): TransitStep {
       raw?.routeStops ??
       raw?.stopList ??
       raw?.passedStops ??
-      raw?.summary?.stops
+      raw?.summary?.stops,
   );
 
   const routeNumber =
@@ -311,27 +337,46 @@ function normalizeStep(raw: any, index: number): TransitStep {
   const normalized: any = {
     id: String(raw?.id ?? `${type}-${index}`),
     type,
-    mode: raw?.mode ?? (type === "ride" || type === "board" || type === "bus" ? "bus" : type),
+    mode:
+      raw?.mode ??
+      (type === "ride" || type === "board" || type === "bus" ? "bus" : type),
     icon: raw?.icon,
     title: String(raw?.title ?? "Kelionės žingsnis"),
     subtitle: raw?.subtitle,
     description: raw?.description ?? raw?.subtitle,
     routeId: raw?.routeId != null ? String(raw.routeId) : undefined,
     routeNumber,
-    routeLabel: raw?.routeLabel != null ? cleanRouteLabel(raw.routeLabel) : routeNumber,
+    routeLabel:
+      raw?.routeLabel != null ? cleanRouteLabel(raw.routeLabel) : routeNumber,
     stopId: raw?.stopId != null ? String(raw.stopId) : undefined,
     stopName: raw?.stopName,
     fromStopId: raw?.fromStopId != null ? String(raw.fromStopId) : undefined,
     toStopId: raw?.toStopId != null ? String(raw.toStopId) : undefined,
     fromStopName: raw?.fromStopName ?? raw?.fromStop?.name ?? raw?.fromStop,
     toStopName: raw?.toStopName ?? raw?.toStop?.name ?? raw?.toStop,
-    stopCount: raw?.stopCount != null ? Number(raw.stopCount) : stops.length > 0 ? Math.max(0, stops.length - 1) : undefined,
+    stopCount:
+      raw?.stopCount != null
+        ? Number(raw.stopCount)
+        : stops.length > 0
+          ? Math.max(0, stops.length - 1)
+          : undefined,
     stops,
     rideStops: stops,
     routeStops: stops,
-    minutes: raw?.minutes != null ? Number(raw.minutes) : raw?.durationMinutes != null ? Number(raw.durationMinutes) : undefined,
-    durationMinutes: raw?.durationMinutes != null ? Number(raw.durationMinutes) : raw?.minutes != null ? Number(raw.minutes) : undefined,
-    distanceMeters: raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
+    minutes:
+      raw?.minutes != null
+        ? Number(raw.minutes)
+        : raw?.durationMinutes != null
+          ? Number(raw.durationMinutes)
+          : undefined,
+    durationMinutes:
+      raw?.durationMinutes != null
+        ? Number(raw.durationMinutes)
+        : raw?.minutes != null
+          ? Number(raw.minutes)
+          : undefined,
+    distanceMeters:
+      raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
     departureTime: raw?.departureTime ?? raw?.departureText,
     arrivalTime: raw?.arrivalTime ?? raw?.arrivalText,
     polyline,
@@ -341,81 +386,131 @@ function normalizeStep(raw: any, index: number): TransitStep {
 }
 
 function buildStepsFromBackendPlan(raw: any, summary: any): TransitStep[] {
-  const routeLabel = cleanRouteLabel(summary.routeLabel ?? raw?.routeLabel ?? "Autobusas");
+  const routeLabel = cleanRouteLabel(
+    summary.routeLabel ?? raw?.routeLabel ?? "Autobusas",
+  );
   const routeNumbers = routeNumbersFromLabel(routeLabel);
-  const boardStopName = String(summary.boardStopName ?? raw?.originStop?.name ?? "Įlipimo stotelė");
-  const alightStopName = String(summary.alightStopName ?? raw?.destinationStop?.name ?? "Išlipimo stotelė");
-  const totalWalkMinutes = Number(summary.totalWalkMinutes ?? raw?.totalWalkMinutes ?? raw?.walkingMinutes ?? 0);
-  const totalBusMinutes = Number(summary.totalBusMinutes ?? raw?.totalBusMinutes ?? 0);
+  const boardStopName = String(
+    summary.boardStopName ?? raw?.originStop?.name ?? "Įlipimo stotelė",
+  );
+  const alightStopName = String(
+    summary.alightStopName ?? raw?.destinationStop?.name ?? "Išlipimo stotelė",
+  );
+  const totalWalkMinutes = Number(
+    summary.totalWalkMinutes ??
+      raw?.totalWalkMinutes ??
+      raw?.walkingMinutes ??
+      0,
+  );
+  const totalBusMinutes = Number(
+    summary.totalBusMinutes ?? raw?.totalBusMinutes ?? 0,
+  );
   const stopCount = Number(summary.stopCount ?? raw?.stopCount ?? 0);
-  const transfersCount = Number(summary.transfersCount ?? raw?.transfersCount ?? Math.max(0, routeNumbers.length - 1));
-  const numbers = routeNumbers.length ? routeNumbers : [cleanRouteLabel(raw?.routeId ?? routeLabel ?? "Autobusas")];
+  const transfersCount = Number(
+    summary.transfersCount ??
+      raw?.transfersCount ??
+      Math.max(0, routeNumbers.length - 1),
+  );
+  const numbers = routeNumbers.length
+    ? routeNumbers
+    : [cleanRouteLabel(raw?.routeId ?? routeLabel ?? "Autobusas")];
   const steps: TransitStep[] = [];
 
   if (totalWalkMinutes > 0) {
-    steps.push(normalizeStep({
-      id: "walk-to-stop",
-      type: "walk",
-      mode: "walk",
-      icon: "walk",
-      title: "Eik iki stotelės",
-      subtitle: `Iki „${boardStopName}“ • ${totalWalkMinutes} min pėsčiomis`,
-      stopName: boardStopName,
-      durationMinutes: totalWalkMinutes,
-      minutes: totalWalkMinutes,
-    }, steps.length));
+    steps.push(
+      normalizeStep(
+        {
+          id: "walk-to-stop",
+          type: "walk",
+          mode: "walk",
+          icon: "walk",
+          title: "Eik iki stotelės",
+          subtitle: `Iki „${boardStopName}“ • ${totalWalkMinutes} min pėsčiomis`,
+          stopName: boardStopName,
+          durationMinutes: totalWalkMinutes,
+          minutes: totalWalkMinutes,
+        },
+        steps.length,
+      ),
+    );
   }
 
   numbers.forEach((number, routeIndex) => {
     const isLast = routeIndex === numbers.length - 1;
 
-    steps.push(normalizeStep({
-      id: `board-${routeIndex}`,
-      type: "board",
-      mode: "bus",
-      icon: "bus",
-      title: `Lipk į autobusą ${number}`,
-      subtitle: routeIndex === 0 ? `Stotelė „${boardStopName}“` : "Persėdimo stotelė",
-      routeId: number,
-      routeNumber: number,
-      stopName: routeIndex === 0 ? boardStopName : undefined,
-    }, steps.length));
+    steps.push(
+      normalizeStep(
+        {
+          id: `board-${routeIndex}`,
+          type: "board",
+          mode: "bus",
+          icon: "bus",
+          title: `Lipk į autobusą ${number}`,
+          subtitle:
+            routeIndex === 0
+              ? `Stotelė „${boardStopName}“`
+              : "Persėdimo stotelė",
+          routeId: number,
+          routeNumber: number,
+          stopName: routeIndex === 0 ? boardStopName : undefined,
+        },
+        steps.length,
+      ),
+    );
 
-    steps.push(normalizeStep({
-      id: `ride-${routeIndex}`,
-      type: "ride",
-      mode: "bus",
-      icon: "bus",
-      title: "Važiuok autobusu",
-      subtitle: isLast ? `Iki „${alightStopName}“ • ${totalBusMinutes || "?"} min • ${stopCount || "?"} st.` : "Iki persėdimo stotelės",
-      routeId: number,
-      routeNumber: number,
-      stopCount: isLast ? stopCount : undefined,
-      durationMinutes: isLast ? totalBusMinutes : undefined,
-      minutes: isLast ? totalBusMinutes : undefined,
-      toStopName: isLast ? alightStopName : undefined,
-    }, steps.length));
+    steps.push(
+      normalizeStep(
+        {
+          id: `ride-${routeIndex}`,
+          type: "ride",
+          mode: "bus",
+          icon: "bus",
+          title: "Važiuok autobusu",
+          subtitle: isLast
+            ? `Iki „${alightStopName}“ • ${totalBusMinutes || "?"} min • ${stopCount || "?"} st.`
+            : "Iki persėdimo stotelės",
+          routeId: number,
+          routeNumber: number,
+          stopCount: isLast ? stopCount : undefined,
+          durationMinutes: isLast ? totalBusMinutes : undefined,
+          minutes: isLast ? totalBusMinutes : undefined,
+          toStopName: isLast ? alightStopName : undefined,
+        },
+        steps.length,
+      ),
+    );
 
     if (!isLast || transfersCount > routeIndex) {
-      steps.push(normalizeStep({
-        id: `transfer-${routeIndex}`,
-        type: "transfer",
-        mode: "walk",
-        icon: "swap-horizontal",
-        title: "Persėsk",
-        subtitle: `Toliau važiuok autobusu ${numbers[routeIndex + 1] ?? ""}`.trim(),
-      }, steps.length));
+      steps.push(
+        normalizeStep(
+          {
+            id: `transfer-${routeIndex}`,
+            type: "transfer",
+            mode: "walk",
+            icon: "swap-horizontal",
+            title: "Persėsk",
+            subtitle:
+              `Toliau važiuok autobusu ${numbers[routeIndex + 1] ?? ""}`.trim(),
+          },
+          steps.length,
+        ),
+      );
     }
   });
 
-  steps.push(normalizeStep({
-    id: "alight-final",
-    type: "alight",
-    icon: "flag-checkered",
-    title: "Išlipk",
-    subtitle: `„${alightStopName}“`,
-    stopName: alightStopName,
-  }, steps.length));
+  steps.push(
+    normalizeStep(
+      {
+        id: "alight-final",
+        type: "alight",
+        icon: "flag-checkered",
+        title: "Išlipk",
+        subtitle: `„${alightStopName}“`,
+        stopName: alightStopName,
+      },
+      steps.length,
+    ),
+  );
 
   return steps;
 }
@@ -439,7 +534,7 @@ function normalizeBackendPlan(
   raw: any,
   index: number,
   fallbackFrom: Coordinate,
-  fallbackTo: Coordinate
+  fallbackTo: Coordinate,
 ): TransitRouteOption {
   const summary = raw?.summary ?? {};
 
@@ -461,25 +556,68 @@ function normalizeBackendPlan(
       : [];
 
   const parsedSteps = journeyStepsRaw.map(normalizeStep);
-  const routeLabel = cleanRouteLabel(summary.routeLabel ?? raw?.routeLabel ?? raw?.title ?? "Autobusas");
-  const steps = parsedSteps.length ? parsedSteps : buildStepsFromBackendPlan(raw, summary);
+  const routeLabel = cleanRouteLabel(
+    summary.routeLabel ?? raw?.routeLabel ?? raw?.title ?? "Autobusas",
+  );
+  const steps = parsedSteps.length
+    ? parsedSteps
+    : buildStepsFromBackendPlan(raw, summary);
 
-  const boardStopName = String(summary.boardStopName ?? raw?.boardStopName ?? raw?.originStop?.name ?? "Artimiausia stotelė");
-  const alightStopName = String(summary.alightStopName ?? raw?.alightStopName ?? raw?.destinationStop?.name ?? "Tikslas");
+  const boardStopName = String(
+    summary.boardStopName ??
+      raw?.boardStopName ??
+      raw?.originStop?.name ??
+      "Artimiausia stotelė",
+  );
+  const alightStopName = String(
+    summary.alightStopName ??
+      raw?.alightStopName ??
+      raw?.destinationStop?.name ??
+      "Tikslas",
+  );
 
-  const from = toCoordinate(raw?.originStop) ?? previewPoints[0] ?? fallbackFrom;
-  const to = toCoordinate(raw?.destinationStop) ?? previewPoints[previewPoints.length - 1] ?? fallbackTo;
-  const totalDurationMinutes = Number(summary.totalDurationMinutes ?? raw?.totalDurationMinutes ?? raw?.totalMinutes ?? 0);
-  const totalWalkMinutes = Number(summary.totalWalkMinutes ?? raw?.totalWalkMinutes ?? raw?.walkingMinutes ?? 0);
-  const transfersCount = Number(summary.transfersCount ?? raw?.transfersCount ?? raw?.transfers ?? Math.max(0, routeNumbersFromLabel(routeLabel).length - 1));
-  const stopCount = Number(summary.stopCount ?? raw?.stopCount ?? steps.reduce((sum: number, step: TransitStep) => sum + Number(step.stopCount ?? 0), 0));
+  const from =
+    toCoordinate(raw?.originStop) ?? previewPoints[0] ?? fallbackFrom;
+  const to =
+    toCoordinate(raw?.destinationStop) ??
+    previewPoints[previewPoints.length - 1] ??
+    fallbackTo;
+  const totalDurationMinutes = Number(
+    summary.totalDurationMinutes ??
+      raw?.totalDurationMinutes ??
+      raw?.totalMinutes ??
+      0,
+  );
+  const totalWalkMinutes = Number(
+    summary.totalWalkMinutes ??
+      raw?.totalWalkMinutes ??
+      raw?.walkingMinutes ??
+      0,
+  );
+  const transfersCount = Number(
+    summary.transfersCount ??
+      raw?.transfersCount ??
+      raw?.transfers ??
+      Math.max(0, routeNumbersFromLabel(routeLabel).length - 1),
+  );
+  const stopCount = Number(
+    summary.stopCount ??
+      raw?.stopCount ??
+      steps.reduce(
+        (sum: number, step: TransitStep) => sum + Number(step.stopCount ?? 0),
+        0,
+      ),
+  );
 
   return {
     id: String(raw?.id ?? `route-${index}`),
     title: routeLabel,
     subtitle: summary.journeyMessage ?? raw?.subtitle ?? undefined,
     mode: raw?.mode,
-    routeId: raw?.routeId != null ? String(raw.routeId) : normalizeRouteNumber(routeLabel),
+    routeId:
+      raw?.routeId != null
+        ? String(raw.routeId)
+        : normalizeRouteNumber(routeLabel),
     shapeId: raw?.shapeId ?? summary.shapeId ?? null,
     routeLabel,
     routeNumbers: routeNumbersFromLabel(routeLabel),
@@ -487,8 +625,18 @@ function normalizeBackendPlan(
     totalDurationMinutes,
     walkingMinutes: totalWalkMinutes,
     totalWalkMinutes,
-    totalBusMinutes: summary.totalBusMinutes != null ? Number(summary.totalBusMinutes) : raw?.totalBusMinutes != null ? Number(raw.totalBusMinutes) : undefined,
-    etaMinutes: summary.etaMinutes != null ? Number(summary.etaMinutes) : raw?.etaMinutes != null ? Number(raw.etaMinutes) : null,
+    totalBusMinutes:
+      summary.totalBusMinutes != null
+        ? Number(summary.totalBusMinutes)
+        : raw?.totalBusMinutes != null
+          ? Number(raw.totalBusMinutes)
+          : undefined,
+    etaMinutes:
+      summary.etaMinutes != null
+        ? Number(summary.etaMinutes)
+        : raw?.etaMinutes != null
+          ? Number(raw.etaMinutes)
+          : null,
     liveEta: raw?.liveEta ?? null,
     boardingState: raw?.boardingState ?? null,
     transfers: transfersCount,
@@ -502,10 +650,14 @@ function normalizeBackendPlan(
     polyline: rawPolyline.length >= 2 ? rawPolyline : previewPoints,
     steps,
     journeySteps: steps,
-    departureText: summary.etaMinutes != null ? `Atvyksta po ${summary.etaMinutes} min` : raw?.departureText,
+    departureText:
+      summary.etaMinutes != null
+        ? `Atvyksta po ${summary.etaMinutes} min`
+        : raw?.departureText,
     arrivalText: raw?.arrivalText,
     journeyMessage: summary.journeyMessage ?? raw?.journeyMessage,
-    headsign: summary.headsign ?? summary.directionCode ?? raw?.headsign ?? null,
+    headsign:
+      summary.headsign ?? summary.directionCode ?? raw?.headsign ?? null,
     liveVehicle: raw?.liveVehicle ? normalizeLiveBus(raw.liveVehicle) : null,
     summary,
   } as TransitRouteOption;
@@ -533,12 +685,19 @@ export async function getLiveBuses(): Promise<LiveBus[]> {
 }
 
 function normalizePlaceType(item: any): PlaceResult["type"] {
-  const rawType = String(item?.type ?? item?.kind ?? item?.category ?? "poi").toLowerCase();
+  const rawType = String(
+    item?.type ?? item?.kind ?? item?.category ?? "poi",
+  ).toLowerCase();
 
   // IMPORTANT: do not convert POI/address into stop just because the title contains
   // a stop-like word. Stops are only stops when backend explicitly returns stop type
   // or GTFS stop identifiers. This keeps Akropolis as POI, not Akropolio st.
-  if (rawType === "stop" || rawType === "bus_stop" || item?.stop_id || item?.stopId) {
+  if (
+    rawType === "stop" ||
+    rawType === "bus_stop" ||
+    item?.stop_id ||
+    item?.stopId
+  ) {
     return "stop" as PlaceResult["type"];
   }
 
@@ -546,11 +705,21 @@ function normalizePlaceType(item: any): PlaceResult["type"] {
     return "address" as PlaceResult["type"];
   }
 
-  if (rawType === "city" || rawType === "town" || rawType === "village" || rawType === "locality") {
+  if (
+    rawType === "city" ||
+    rawType === "town" ||
+    rawType === "village" ||
+    rawType === "locality"
+  ) {
     return "city" as PlaceResult["type"];
   }
 
-  if (rawType === "region" || rawType === "county" || rawType === "state" || rawType === "area") {
+  if (
+    rawType === "region" ||
+    rawType === "county" ||
+    rawType === "state" ||
+    rawType === "area"
+  ) {
     return "region" as PlaceResult["type"];
   }
 
@@ -566,7 +735,10 @@ function normalizeSearchPayload(data: any): any[] {
   return [];
 }
 
-function rankPlaceResult(item: PlaceResult & { score?: number; priority?: number }, query: string): number {
+function rankPlaceResult(
+  item: PlaceResult & { score?: number; priority?: number },
+  query: string,
+): number {
   const q = query.toLowerCase();
   const title = String(item.title ?? "").toLowerCase();
   const subtitle = String(item.subtitle ?? "").toLowerCase();
@@ -620,9 +792,7 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
     `${apiBase()}/search?${params}`,
     `${apiBase()}/places/search?${params}`,
     `${apiBase()}/stops/search?${params}`,
-    API_ENDPOINTS.placesSearch
-      ? `${API_ENDPOINTS.placesSearch}?${params}`
-      : "",
+    API_ENDPOINTS.placesSearch ? `${API_ENDPOINTS.placesSearch}?${params}` : "",
   ].filter(Boolean);
 
   for (const url of urls) {
@@ -643,31 +813,55 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
           const type = normalizePlaceType(item);
 
           return {
-            id: String(item.id ?? item.placeId ?? item.osmId ?? item.stop_id ?? item.stopId ?? `${type}-${index}`),
-            title: String(item.title ?? item.name ?? item.displayName ?? item.stopName ?? item.stop_name ?? "Vieta"),
+            id: String(
+              item.id ??
+                item.placeId ??
+                item.osmId ??
+                item.stop_id ??
+                item.stopId ??
+                `${type}-${index}`,
+            ),
+            title: String(
+              item.title ??
+                item.name ??
+                item.displayName ??
+                item.stopName ??
+                item.stop_name ??
+                "Vieta",
+            ),
             subtitle:
               item.subtitle ??
               item.address ??
               item.description ??
               item.label ??
               item.stop_desc ??
-              (type === "address" ? "Adresas" : type === "stop" ? "Stotelė" : "Vieta"),
+              (type === "address"
+                ? "Adresas"
+                : type === "stop"
+                  ? "Stotelė"
+                  : "Vieta"),
             type,
             source: item.source,
             distanceMeters:
-              item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
+              item.distanceMeters != null
+                ? Number(item.distanceMeters)
+                : undefined,
             latitude: coordinate.latitude,
             longitude: coordinate.longitude,
             coordinate,
             // Keep backend ranking data for debugging/sorting; TS model may ignore it.
             ...(item.score != null ? { score: Number(item.score) } : {}),
-            ...(item.priority != null ? { priority: Number(item.priority) } : {}),
+            ...(item.priority != null
+              ? { priority: Number(item.priority) }
+              : {}),
           } as PlaceResult;
         })
         .filter(Boolean) as PlaceResult[];
 
       return dedupePlaceResults(normalized)
-        .sort((a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q))
+        .sort(
+          (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
+        )
         .slice(0, 24);
     } catch {
       // Try next compatible endpoint.
@@ -677,20 +871,21 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
   return [];
 }
 
-
-export async function reverseGeocodePlace(coordinate: Coordinate): Promise<PlaceResult> {
+export async function reverseGeocodePlace(
+  coordinate: Coordinate,
+): Promise<PlaceResult> {
   const lat = Number(coordinate.latitude);
   const lng = Number(coordinate.longitude);
 
   const fallback: PlaceResult = {
     id: `map-${lat.toFixed(6)}-${lng.toFixed(6)}`,
-    title: 'Pasirinkta vieta',
+    title: "Pasirinkta vieta",
     subtitle: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
-    type: 'address' as PlaceResult['type'],
+    type: "address" as PlaceResult["type"],
     latitude: lat,
     longitude: lng,
     coordinate: { latitude: lat, longitude: lng },
-    source: 'map_tap',
+    source: "map_tap",
   } as PlaceResult;
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return fallback;
@@ -711,13 +906,16 @@ export async function reverseGeocodePlace(coordinate: Coordinate): Promise<Place
 
       return {
         id: String(raw.id ?? fallback.id),
-        title: String(raw.title ?? raw.name ?? raw.displayName ?? fallback.title),
-        subtitle: raw.subtitle ?? raw.address ?? raw.description ?? fallback.subtitle,
+        title: String(
+          raw.title ?? raw.name ?? raw.displayName ?? fallback.title,
+        ),
+        subtitle:
+          raw.subtitle ?? raw.address ?? raw.description ?? fallback.subtitle,
         type: normalizePlaceType(raw),
         latitude: coordinateFromResponse.latitude,
         longitude: coordinateFromResponse.longitude,
         coordinate: coordinateFromResponse,
-        source: raw.source ?? 'reverse',
+        source: raw.source ?? "reverse",
       } as PlaceResult;
     } catch {
       // Try compatible fallback endpoint.
@@ -727,23 +925,21 @@ export async function reverseGeocodePlace(coordinate: Coordinate): Promise<Place
   return fallback;
 }
 
-
 export async function planTransitRoute(params: {
   from: Coordinate;
   to: Coordinate;
   destination?: PlaceResult;
 }): Promise<TransitRouteOption[]> {
-  const destination =
-    params.destination ?? {
-      id: "destination",
-      title: "Tikslas",
-      subtitle: "",
-      type: "place",
-      distanceMeters: 0,
-      latitude: params.to.latitude,
-      longitude: params.to.longitude,
-      coordinate: params.to,
-    };
+  const destination = params.destination ?? {
+    id: "destination",
+    title: "Tikslas",
+    subtitle: "",
+    type: "place",
+    distanceMeters: 0,
+    latitude: params.to.latitude,
+    longitude: params.to.longitude,
+    coordinate: params.to,
+  };
 
   const response = await fetchWithRetry(API_ENDPOINTS.transitPlan, {
     method: "POST",
@@ -778,23 +974,21 @@ export async function planTransitRoute(params: {
   const uniqueRoutes = rawRoutes.filter(
     (route, index, arr) =>
       route &&
-      arr.findIndex((item) => String(item?.id) === String(route?.id)) === index
+      arr.findIndex((item) => String(item?.id) === String(route?.id)) === index,
   );
 
   return uniqueRoutes.map((route: any, index: number) =>
-    normalizeBackendPlan(route, index, params.from, params.to)
+    normalizeBackendPlan(route, index, params.from, params.to),
   );
 }
 
 export async function fetchWalkingRoute(
   fromOrParams: Coordinate | { from: Coordinate; to: Coordinate },
-  maybeTo?: Coordinate
+  maybeTo?: Coordinate,
 ): Promise<WalkingRouteResult | null> {
-  const from =
-    "from" in fromOrParams ? fromOrParams.from : fromOrParams;
+  const from = "from" in fromOrParams ? fromOrParams.from : fromOrParams;
 
-  const to =
-    "from" in fromOrParams ? fromOrParams.to : maybeTo;
+  const to = "from" in fromOrParams ? fromOrParams.to : maybeTo;
 
   if (!from || !to) return null;
   const body = JSON.stringify({
@@ -828,7 +1022,7 @@ export async function fetchWalkingRoute(
           headers: { "Content-Type": "application/json" },
           body,
         },
-        0
+        0,
       );
 
       if (!response.ok) continue;
@@ -858,11 +1052,15 @@ export async function fetchWalkingRoute(
           geometry,
           polyline: geometry,
           points: geometry,
-          durationSeconds: Number.isFinite(durationNumber) ? durationNumber : null,
+          durationSeconds: Number.isFinite(durationNumber)
+            ? durationNumber
+            : null,
           durationMinutes: Number.isFinite(durationNumber)
             ? Math.max(1, Math.round(durationNumber / 60))
             : null,
-          distanceMeters: Number.isFinite(distanceNumber) ? distanceNumber : null,
+          distanceMeters: Number.isFinite(distanceNumber)
+            ? distanceNumber
+            : null,
         };
       }
     } catch {
@@ -872,8 +1070,6 @@ export async function fetchWalkingRoute(
 
   return null;
 }
-
-
 
 export type StationAccessPoint = {
   id: string;
@@ -900,7 +1096,9 @@ export type DepartureBoardItem = {
   stopSequence?: number | null;
 };
 
-export async function fetchDepartures(stopId?: string | number | null): Promise<DepartureBoardItem[]> {
+export async function fetchDepartures(
+  stopId?: string | number | null,
+): Promise<DepartureBoardItem[]> {
   if (!stopId) return [];
 
   const response = await fetchWithRetry(API_ENDPOINTS.departures(stopId));
@@ -918,19 +1116,31 @@ export async function fetchDepartures(stopId?: string | number | null): Promise<
 
   return rawDepartures.map((item: any, index: number) => ({
     tripId: String(item?.tripId ?? item?.trip_id ?? `departure-${index}`),
-    routeId: item?.routeId != null ? String(item.routeId) : item?.route_id != null ? String(item.route_id) : null,
-    routeLabel: item?.routeLabel != null ? String(item.routeLabel) : item?.route_short_name != null ? String(item.route_short_name) : null,
+    routeId:
+      item?.routeId != null
+        ? String(item.routeId)
+        : item?.route_id != null
+          ? String(item.route_id)
+          : null,
+    routeLabel:
+      item?.routeLabel != null
+        ? String(item.routeLabel)
+        : item?.route_short_name != null
+          ? String(item.route_short_name)
+          : null,
     routeColor: item?.routeColor ?? null,
     headsign: item?.headsign ?? null,
     arrivalTime: item?.arrivalTime ?? item?.arrival_time ?? null,
     departureTime: item?.departureTime ?? item?.departure_time ?? null,
-    countdownMinutes: item?.countdownMinutes != null ? Number(item.countdownMinutes) : null,
+    countdownMinutes:
+      item?.countdownMinutes != null ? Number(item.countdownMinutes) : null,
     stopSequence: item?.stopSequence != null ? Number(item.stopSequence) : null,
   }));
 }
 
-
-export async function fetchStationAccess(stopId?: string | number | null): Promise<StationAccessPoint[]> {
+export async function fetchStationAccess(
+  stopId?: string | number | null,
+): Promise<StationAccessPoint[]> {
   if (!stopId) return [];
   const response = await fetchWithRetry(API_ENDPOINTS.stationAccess(stopId));
 
@@ -953,7 +1163,7 @@ export async function fetchStationAccess(stopId?: string | number | null): Promi
       if (!coordinate) return null;
       return {
         id: String(item?.id ?? `access-${stopId}-${index}`),
-        type: String(item?.type ?? 'entrance'),
+        type: String(item?.type ?? "entrance"),
         title: String(item?.title ?? item?.name ?? `Įėjimas ${index + 1}`),
         description: item?.description ?? null,
         code: item?.code ?? null,
@@ -967,7 +1177,9 @@ export async function fetchStationAccess(stopId?: string | number | null): Promi
     .filter(Boolean) as StationAccessPoint[];
 }
 
-export async function fetchVehicle(id?: string | number | null): Promise<any | null> {
+export async function fetchVehicle(
+  id?: string | number | null,
+): Promise<any | null> {
   if (!id) return null;
   const response = await fetchWithRetry(API_ENDPOINTS.vehicle(id));
 
@@ -978,7 +1190,9 @@ export async function fetchVehicle(id?: string | number | null): Promise<any | n
   return safeJson<any>(response);
 }
 
-export async function fetchTransitShape(shapeId?: string | null): Promise<Coordinate[]> {
+export async function fetchTransitShape(
+  shapeId?: string | null,
+): Promise<Coordinate[]> {
   if (!shapeId) return [];
 
   const url = API_ENDPOINTS.transitShape(shapeId);
@@ -994,7 +1208,9 @@ export async function fetchTransitShape(shapeId?: string | null): Promise<Coordi
   return points.map(toCoordinate).filter(Boolean) as Coordinate[];
 }
 
-export async function fetchLiveEta(route: TransitRouteOption): Promise<LiveEtaResult | null> {
+export async function fetchLiveEta(
+  route: TransitRouteOption,
+): Promise<LiveEtaResult | null> {
   const routeId = route.routeNumbers?.[0] ?? route.routeId ?? route.routeLabel;
   const stop = route.originStop;
 
@@ -1008,11 +1224,19 @@ export async function fetchLiveEta(route: TransitRouteOption): Promise<LiveEtaRe
   });
 
   if (route.destinationStop?.coordinate) {
-    params.set("destinationStopLat", String(route.destinationStop.coordinate.latitude));
-    params.set("destinationStopLon", String(route.destinationStop.coordinate.longitude));
+    params.set(
+      "destinationStopLat",
+      String(route.destinationStop.coordinate.latitude),
+    );
+    params.set(
+      "destinationStopLon",
+      String(route.destinationStop.coordinate.longitude),
+    );
     params.set(
       "destinationStopName",
-      route.destinationStop.name ?? route.destinationStop.title ?? route.alightStopName
+      route.destinationStop.name ??
+        route.destinationStop.title ??
+        route.alightStopName,
     );
   }
 
@@ -1020,7 +1244,9 @@ export async function fetchLiveEta(route: TransitRouteOption): Promise<LiveEtaRe
     params.set("headsign", route.headsign);
   }
 
-  const response = await fetchWithRetry(`${API_ENDPOINTS.liveEta}?${params.toString()}`);
+  const response = await fetchWithRetry(
+    `${API_ENDPOINTS.liveEta}?${params.toString()}`,
+  );
 
   if (!response.ok) {
     throw new Error(`Live ETA failed: ${response.status}`);
