@@ -677,6 +677,57 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
   return [];
 }
 
+
+export async function reverseGeocodePlace(coordinate: Coordinate): Promise<PlaceResult> {
+  const lat = Number(coordinate.latitude);
+  const lng = Number(coordinate.longitude);
+
+  const fallback: PlaceResult = {
+    id: `map-${lat.toFixed(6)}-${lng.toFixed(6)}`,
+    title: 'Pasirinkta vieta',
+    subtitle: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+    type: 'address' as PlaceResult['type'],
+    latitude: lat,
+    longitude: lng,
+    coordinate: { latitude: lat, longitude: lng },
+    source: 'map_tap',
+  } as PlaceResult;
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return fallback;
+
+  const urls = [
+    `${apiBase()}/search/reverse?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`,
+    `${API_ENDPOINTS.placesSearch}/reverse?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const response = await fetchWithRetry(url, undefined, 0);
+      if (!response.ok) continue;
+      const data = await safeJson<any>(response);
+      const raw = data?.place || data?.result || data?.results?.[0];
+      const coordinateFromResponse = toCoordinate(raw) ?? fallback.coordinate;
+      if (!raw || !coordinateFromResponse) continue;
+
+      return {
+        id: String(raw.id ?? fallback.id),
+        title: String(raw.title ?? raw.name ?? raw.displayName ?? fallback.title),
+        subtitle: raw.subtitle ?? raw.address ?? raw.description ?? fallback.subtitle,
+        type: normalizePlaceType(raw),
+        latitude: coordinateFromResponse.latitude,
+        longitude: coordinateFromResponse.longitude,
+        coordinate: coordinateFromResponse,
+        source: raw.source ?? 'reverse',
+      } as PlaceResult;
+    } catch {
+      // Try compatible fallback endpoint.
+    }
+  }
+
+  return fallback;
+}
+
+
 export async function planTransitRoute(params: {
   from: Coordinate;
   to: Coordinate;

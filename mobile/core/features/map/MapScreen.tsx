@@ -1,11 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, StyleSheet, View } from "react-native";
-import MapView from "react-native-maps";
+import MapView, { Marker } from "react-native-maps";
 
 import { useLiveBuses } from "../transit/hooks/useLiveBuses";
 import { useTransitPlanner } from "../transit/hooks/useTransitPlanner";
 import { useUserLocation } from "../transit/hooks/useUserLocation";
-import { fetchStationAccess, type StationAccessPoint } from "../transit/services/transitApi";
+import {
+  fetchStationAccess,
+  reverseGeocodePlace,
+  type StationAccessPoint,
+} from "../transit/services/transitApi";
 
 import JourneySheet from "./JourneySheet";
 import DestinationMarkerLayer from "./layers/DestinationMarkerLayer";
@@ -135,6 +139,8 @@ export default function MapScreen() {
   const selectedRoute = planner.selectedRoute;
   const selectedDestination = planner.selectedDestination;
   const [stationAccessPoints, setStationAccessPoints] = useState<StationAccessPoint[]>([]);
+  const [selectedMapPlace, setSelectedMapPlace] = useState<any | null>(null);
+  const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -312,9 +318,43 @@ export default function MapScreen() {
     return;
   }, [activeCameraTarget, planner.flowState, selectedLiveBus]);
 
+
+  const handleMapPress = async (event: any) => {
+    Keyboard.dismiss();
+
+    const coordinate = event?.nativeEvent?.coordinate;
+    const latitude = Number(coordinate?.latitude);
+    const longitude = Number(coordinate?.longitude);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+
+    const provisional = {
+      id: `map-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
+      type: "address",
+      title: "Pasirinkta vieta",
+      subtitle: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+      latitude,
+      longitude,
+      coordinate: { latitude, longitude },
+      source: "map_tap",
+    };
+
+    setSelectedMapPlace(provisional);
+    setIsReverseGeocoding(true);
+
+    try {
+      const place = await reverseGeocodePlace({ latitude, longitude });
+      setSelectedMapPlace({ ...provisional, ...place, coordinate: place.coordinate || provisional.coordinate });
+    } catch {
+      setSelectedMapPlace(provisional);
+    } finally {
+      setIsReverseGeocoding(false);
+    }
+  };
+
   return (
     <View style={styles.screen}>
-      <MapCanvas ref={mapRef} onPress={() => Keyboard.dismiss()}>
+      <MapCanvas ref={mapRef} onPress={handleMapPress}>
         <UserLocationLayer coordinate={userLocation} />
 
         <RoutePolylineLayer
@@ -335,6 +375,18 @@ export default function MapScreen() {
           selectedVehicleId={selectedVehicleId}
         />
 
+        {selectedMapPlace?.coordinate ? (
+          <Marker
+            coordinate={selectedMapPlace.coordinate}
+            anchor={{ x: 0.5, y: 1 }}
+            tracksViewChanges={false}
+          >
+            <View style={styles.mapTapMarker}>
+              <View style={styles.mapTapMarkerInner} />
+            </View>
+          </Marker>
+        ) : null}
+
         <DestinationMarkerLayer destination={selectedDestination} />
       </MapCanvas>
 
@@ -349,6 +401,8 @@ export default function MapScreen() {
         selectedRoute={selectedRoute}
         selectedOrigin={planner.selectedOrigin}
         selectedDestination={planner.selectedDestination}
+        selectedMapPlace={selectedMapPlace}
+        isReverseGeocoding={isReverseGeocoding}
         error={planner.error}
         isOffline={planner.isOffline}
         offlineMessage={planner.offlineMessage}
@@ -365,13 +419,26 @@ export default function MapScreen() {
         }}
         onSelectDestination={(item) => {
           Keyboard.dismiss();
+          setSelectedMapPlace(null);
           void planner.selectDestination(item);
         }}
         onSelectOrigin={(item) => {
           Keyboard.dismiss();
+          setSelectedMapPlace(null);
           planner.selectOrigin(item);
         }}
         onClearOrigin={planner.clearOrigin}
+        onClearMapPlace={() => setSelectedMapPlace(null)}
+        onUseMapPlaceAsOrigin={(place) => {
+          Keyboard.dismiss();
+          planner.selectOrigin(place);
+          setSelectedMapPlace(null);
+        }}
+        onUseMapPlaceAsDestination={(place) => {
+          Keyboard.dismiss();
+          setSelectedMapPlace(null);
+          void planner.selectDestination(place);
+        }}
         onChooseRoute={planner.chooseRoute}
         onStartJourney={planner.startJourney}
         onNextStep={planner.nextStep}
@@ -387,5 +454,21 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: "#05070D",
+  },
+  mapTapMarker: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(52,245,179,0.25)",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.92)",
+  },
+  mapTapMarkerInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#34F5B3",
   },
 });

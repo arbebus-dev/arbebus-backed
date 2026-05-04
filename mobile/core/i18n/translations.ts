@@ -47,6 +47,11 @@ export const translations = {
       addWork: "Pridėti darbą",
       noResultsTitle: "Pradėk nuo kelionės formos",
       noResultsText: "Įvesk vietą, adresą, rajoną arba stotelę lauke „Į kur“.",
+      selectedPlace: "Pasirinkta vieta",
+      useAsFrom: "Naudoti kaip Iš kur",
+      useAsTo: "Naudoti kaip Į kur",
+      showRoute: "Maršrutas",
+      locatingPlace: "Tikriname vietą…",
     },
   },
   en: {
@@ -93,6 +98,11 @@ export const translations = {
       addWork: "Add work",
       noResultsTitle: "Start with the trip form",
       noResultsText: "Enter a place, address, region or stop in the “To” field.",
+      selectedPlace: "Selected place",
+      useAsFrom: "Use as From",
+      useAsTo: "Use as To",
+      showRoute: "Route",
+      locatingPlace: "Checking place…",
     },
   },
 } as const;

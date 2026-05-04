@@ -2,7 +2,7 @@ const { normalizeText } = require('./utils/normalizeText');
 const { rankResults, dedupeResults } = require('./utils/rankSearchResults');
 const { cacheStats } = require('./cache/searchCache');
 const { searchLocalPoi, localPoiHealth } = require('./providers/localPoi.provider');
-const { searchNominatim } = require('./providers/nominatim.provider');
+const { searchNominatim, reverseNominatim } = require('./providers/nominatim.provider');
 const { searchOverpass } = require('./providers/overpass.provider');
 const { searchGooglePlaces } = require('./providers/googlePlaces.provider');
 const { searchGtfsStops, gtfsHealth, loadGtfsStops } = require('./providers/gtfsStops.provider');
@@ -111,6 +111,67 @@ function healthMeta() {
   };
 }
 
+
+
+async function reverse(query = {}) {
+  const latitude = Number(query.lat ?? query.latitude);
+  const longitude = Number(query.lng ?? query.lon ?? query.longitude);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return {
+      ok: false,
+      error: 'lat/lng required',
+      place: null,
+      result: null,
+      meta: healthMeta(),
+    };
+  }
+
+  const nominatim = await runProvider('nominatim_reverse', async () => {
+    const result = await reverseNominatim(latitude, longitude, { zoom: query.zoom || 18 });
+    return result ? [result] : [];
+  });
+
+  let result = nominatim.results[0] || null;
+
+  if (!result) {
+    result = {
+      id: `map-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
+      type: 'address',
+      title: 'Pasirinkta vieta',
+      name: 'Pasirinkta vieta',
+      subtitle: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+      latitude,
+      longitude,
+      coordinate: { latitude, longitude },
+      source: 'map_tap',
+      score: 1,
+      priority: 0,
+      keywords: [],
+    };
+  } else {
+    result = {
+      ...result,
+      latitude,
+      longitude,
+      coordinate: { latitude, longitude },
+      source: result.source || 'nominatim',
+    };
+  }
+
+  return {
+    ok: true,
+    query: { latitude, longitude },
+    result,
+    place: result,
+    results: [result],
+    meta: {
+      ...healthMeta(),
+      providers: [{ name: nominatim.name, ok: nominatim.ok, count: nominatim.results.length, error: nominatim.error }],
+    },
+  };
+}
+
 function health() {
   return { ok: true, routes: ['/api/search', '/api/search/debug', '/api/search/health', '/api/search/stops'], meta: healthMeta() };
 }
@@ -135,4 +196,4 @@ function findNearestStop(input) {
   return loadGtfsStops().map((s) => ({ ...s, distanceMeters: distance({ latitude, longitude }, s) })).sort((a, b) => a.distanceMeters - b.distanceMeters)[0] || null;
 }
 
-module.exports = { index, debug, stops, health, healthMeta, allStops, findNearestStop, normalizeText };
+module.exports = { index, debug, reverse, stops, health, healthMeta, allStops, findNearestStop, normalizeText };

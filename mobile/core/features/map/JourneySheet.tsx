@@ -43,6 +43,11 @@ type Props = {
   selectedRoute: TransitRouteOption | null;
   selectedOrigin?: PlaceSearchResult | null;
   selectedDestination?: PlaceSearchResult | null;
+  selectedMapPlace?: PlaceSearchResult | null;
+  isReverseGeocoding?: boolean;
+  onClearMapPlace?: () => void;
+  onUseMapPlaceAsOrigin?: (place: PlaceSearchResult) => void;
+  onUseMapPlaceAsDestination?: (place: PlaceSearchResult) => void;
   error?: string | null;
   isOffline?: boolean;
   offlineMessage?: string | null;
@@ -449,6 +454,67 @@ function TripSearchForm({
   );
 }
 
+
+function iconForPlaceType(type?: string) {
+  const value = String(type || '').toLowerCase();
+  if (value === 'stop') return 'bus-stop';
+  if (value === 'station') return 'train';
+  if (value === 'ferry') return 'ferry';
+  if (value === 'city' || value === 'region') return 'map-marker-radius';
+  if (value === 'address') return 'map-marker-outline';
+  return 'map-marker';
+}
+
+function PlacePreviewCard({ props }: { props: Props }) {
+  const { t } = useLanguage();
+  const place = props.selectedMapPlace;
+  if (!place) return null;
+
+  const useAsOrigin = () => {
+    void Haptics.selectionAsync();
+    props.onUseMapPlaceAsOrigin?.(place);
+  };
+
+  const useAsDestination = () => {
+    void Haptics.selectionAsync();
+    props.onUseMapPlaceAsDestination?.(place);
+  };
+
+  return (
+    <View style={styles.placePreviewCard}>
+      <View style={styles.placePreviewTop}>
+        <View style={styles.placePreviewIcon}>
+          <MaterialCommunityIcons name={iconForPlaceType(place.type) as any} size={18} color={COLORS.greenDark} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.placePreviewKicker}>{t.sheet.selectedPlace}</Text>
+          <Text style={styles.placePreviewTitle} numberOfLines={1}>{place.title}</Text>
+          <Text style={styles.placePreviewSubtitle} numberOfLines={2}>{place.subtitle || placeSubtitle(place)}</Text>
+        </View>
+        <Pressable onPress={props.onClearMapPlace} hitSlop={12} style={styles.placePreviewClose}>
+          <Ionicons name="close" size={14} color="#657088" />
+        </Pressable>
+      </View>
+
+      {props.isReverseGeocoding ? (
+        <View style={styles.placeLoadingRow}>
+          <ActivityIndicator size="small" color={COLORS.green} />
+          <Text style={styles.placeLoadingText}>{t.sheet.locatingPlace}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.placePreviewActions}>
+        <Pressable style={styles.placeActionButtonSecondary} onPress={useAsOrigin}>
+          <Text style={styles.placeActionText}>{t.sheet.useAsFrom}</Text>
+        </Pressable>
+        <Pressable style={styles.placeActionButtonPrimary} onPress={useAsDestination}>
+          <Text style={styles.placeActionTextPrimary}>{t.sheet.useAsTo}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 function AppleMenuContent(props: Props) {
   const { t } = useLanguage();
 
@@ -498,6 +564,8 @@ function SearchState(props: Props & { panHandlers?: any }) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        <PlacePreviewCard props={props} />
+
         <TripSearchForm props={props} activeField={activeField} setActiveField={setActiveField} />
 
         {hasResults ? props.searchResults.slice(0, 10).map((place) => (
@@ -813,6 +881,99 @@ const styles = StyleSheet.create({
   appleStatusChipWarning: { minHeight: 28, borderRadius: 14, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,193,7,0.18)" },
   appleStatusText: { color: COLORS.greenDark, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
   appleStatusTextWarning: { color: "#8A5A00", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
+  placePreviewCard: {
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.78)",
+    borderWidth: 1,
+    borderColor: "rgba(20,27,37,0.07)",
+    padding: 13,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+  },
+  placePreviewTop: { flexDirection: "row", alignItems: "center", gap: 11 },
+  placePreviewIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(52,245,179,0.18)",
+  },
+  placePreviewKicker: {
+    color: "#667083",
+    fontSize: T.tiny,
+    lineHeight: LINE_HEIGHT.tiny,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  placePreviewTitle: {
+    color: COLORS.textDark,
+    fontSize: T.body,
+    lineHeight: LINE_HEIGHT.body,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  placePreviewSubtitle: {
+    color: "#667083",
+    fontSize: T.caption,
+    lineHeight: LINE_HEIGHT.caption,
+    fontWeight: "700",
+    marginTop: 1,
+  },
+  placePreviewClose: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(18,25,36,0.07)",
+  },
+  placeLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+    paddingLeft: 53,
+  },
+  placeLoadingText: {
+    color: "#667083",
+    fontSize: T.caption,
+    lineHeight: LINE_HEIGHT.caption,
+    fontWeight: "800",
+  },
+  placePreviewActions: { flexDirection: "row", gap: 8, marginTop: 12 },
+  placeActionButtonSecondary: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(20,27,37,0.07)",
+  },
+  placeActionButtonPrimary: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.green,
+  },
+  placeActionText: {
+    color: COLORS.textDark,
+    fontSize: T.caption,
+    lineHeight: LINE_HEIGHT.caption,
+    fontWeight: "900",
+  },
+  placeActionTextPrimary: {
+    color: COLORS.greenDark,
+    fontSize: T.caption,
+    lineHeight: LINE_HEIGHT.caption,
+    fontWeight: "900",
+  },
   appleMenuRoot: { paddingBottom: 18 },
   menuSectionTitle: { color: "#667083", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 8, marginLeft: 4 },
   menuSectionTitleInside: { color: "#667083", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 6, paddingHorizontal: 4 },
