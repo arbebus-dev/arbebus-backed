@@ -1,0 +1,104 @@
+[
+  {
+    "id": "poi_akropolis_klaipeda",
+    "type": "poi",
+    "title": "Akropolis Klaipėda",
+    "subtitle": "Taikos pr. 61, Klaipėda",
+    "latitude": 55.6947,
+    "longitude": 21.1583,
+    "category": "shopping_mall",
+    "aliases": [
+      "akropolis",
+      "akro",
+      "pc akropolis",
+      "prekybos centras",
+      "prekybos centras akropolis",
+      "taikos 61",
+      "taikos pr 61",
+      "taikos prospektas 61"
+    ],
+    "priority": 100
+  },
+  {
+    "id": "poi_svyturio_arena",
+    "type": "poi",
+    "title": "Švyturio Arena",
+    "subtitle": "Dubysos g. 10, Klaipėda",
+    "latitude": 55.6807,
+    "longitude": 21.1576,
+    "category": "arena",
+    "aliases": [
+      "arena",
+      "svyturio arena",
+      "švyturio arena",
+      "gg arena"
+    ],
+    "priority": 95
+  },
+  {
+    "id": "poi_klaipedos_baseinas",
+    "type": "poi",
+    "title": "Klaipėdos baseinas",
+    "subtitle": "Dubysos g. 12, Klaipėda",
+    "latitude": 55.6815,
+    "longitude": 21.1569,
+    "category": "sport",
+    "aliases": [
+      "baseinas",
+      "klaipedos baseinas",
+      "klaipėdos baseinas"
+    ],
+    "priority": 90
+  },
+  {
+    "id": "poi_klaipedos_gelezinkelio_stotis",
+    "type": "station",
+    "title": "Klaipėdos geležinkelio stotis",
+    "subtitle": "Priestočio g., Klaipėda",
+    "latitude": 55.7201,
+    "longitude": 21.1365,
+    "category": "train_station",
+    "aliases": [
+      "gelezinkelio stotis",
+      "geležinkelio stotis",
+      "traukinys",
+      "klaipedos gelezinkelio stotis",
+      "klaipėdos geležinkelio stotis"
+    ],
+    "priority": 88
+  },
+  {
+    "id": "poi_senoji_perkela",
+    "type": "ferry",
+    "title": "Senoji perkėla",
+    "subtitle": "Danės g., Klaipėda",
+    "latitude": 55.7104,
+    "longitude": 21.1297,
+    "category": "ferry_terminal",
+    "aliases": [
+      "senoji perkela",
+      "senoji perkėla",
+      "keltas",
+      "smiltynes perkela",
+      "smiltynės perkėla"
+    ],
+    "priority": 88
+  },
+  {
+    "id": "poi_naujoji_perkela",
+    "type": "ferry",
+    "title": "Naujoji perkėla",
+    "subtitle": "Nemuno g., Klaipėda",
+    "latitude": 55.6847,
+    "longitude": 21.1279,
+    "category": "ferry_terminal",
+    "aliases": [
+      "naujoji perkela",
+      "naujoji perkėla",
+      "keltas",
+      "smiltynes perkela",
+      "smiltynės perkėla"
+    ],
+    "priority": 88
+  }
+]

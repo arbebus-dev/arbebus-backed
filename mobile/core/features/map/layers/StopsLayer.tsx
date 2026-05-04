@@ -175,9 +175,9 @@ export default function StopsLayer({ route, flowState }: Props) {
           <Marker
             key={`${stop.id}-${index}`}
             coordinate={stop.coordinate}
-            anchor={{ x: 0.5, y: 0.92 }}
+            anchor={{ x: 0.5, y: 0.86 }}
             tracksViewChanges={false}
-            zIndex={isActive ? 520 : isBoard || isAlight ? 500 : 280}
+            zIndex={isActive ? 390 : isBoard || isAlight ? 370 : 260}
           >
             <View style={styles.pinWrap}>
               {isActive ? <View style={styles.activeGlow} /> : null}
@@ -198,7 +198,7 @@ export default function StopsLayer({ route, flowState }: Props) {
                 ) : null}
 
                 {isBoard || isAlight ? (
-                  <Text style={styles.text}>{isBoard ? "ĮLIPK" : "IŠLIPK"}</Text>
+                  <Text style={styles.text}>{isBoard ? "Įlipk" : "Išlipk"}</Text>
                 ) : null}
               </View>
 
@@ -224,59 +224,64 @@ const styles = StyleSheet.create({
   },
   activeGlow: {
     position: "absolute",
-    top: -5,
-    width: 64,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "rgba(255,255,255,0.13)",
+    top: -4,
+    width: 42,
+    height: 25,
+    borderRadius: 13,
+    backgroundColor: "rgba(255,255,255,0.10)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.55)",
+    borderColor: "rgba(255,255,255,0.30)",
   },
   pin: {
-    minWidth: 24,
-    height: 24,
-    paddingHorizontal: 5,
-    borderRadius: 12,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 4,
+    borderRadius: 10,
     flexDirection: "row",
-    gap: 4,
+    gap: 3,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(10,16,30,0.95)",
-    borderWidth: 1.5,
+    borderWidth: 1.2,
     borderColor: "#35F2B4",
+    shadowColor: "#000",
+    shadowOpacity: 0.20,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
   },
   activePin: {
-    transform: [{ scale: 1.08 }],
+    transform: [{ scale: 1.02 }],
   },
   stopIn: {
-    minWidth: 54,
-    height: 28,
-    backgroundColor: "#35F2B4",
-    borderColor: "white",
+    minWidth: 42,
+    height: 23,
+    backgroundColor: "rgba(53,242,180,0.96)",
+    borderColor: "rgba(255,255,255,0.96)",
   },
   stopOut: {
-    minWidth: 58,
-    height: 28,
-    backgroundColor: "#FFB84D",
-    borderColor: "white",
+    minWidth: 46,
+    height: 23,
+    backgroundColor: "rgba(255,184,77,0.96)",
+    borderColor: "rgba(255,255,255,0.96)",
   },
   pinDot: {
     marginTop: -1,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
     backgroundColor: "#35F2B4",
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: "white",
   },
   text: {
     color: "#06111F",
-    fontSize: 8,
+    fontSize: 7,
     fontWeight: "900",
+    letterSpacing: -0.1,
   },
   number: {
     color: "#CFFFEA",
-    fontSize: 8,
+    fontSize: 7,
     fontWeight: "900",
   },
 });

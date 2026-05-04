@@ -1,28 +1,27 @@
 const service = require('./search.service');
 
+function params(req) {
+  return { ...(req.query || {}), ...(req.body || {}) };
+}
+
 async function index(req, res, next) {
-  try {
-    res.json(await service.index({ ...(req.query || {}), ...(req.body || {}) }));
-  } catch (error) {
-    next(error);
-  }
+  try { res.json(await service.index(params(req))); } catch (error) { next(error); }
+}
+
+async function debug(req, res, next) {
+  try { res.json(await service.debug(params(req))); } catch (error) { next(error); }
+}
+
+async function health(req, res, next) {
+  try { res.json(service.health()); } catch (error) { next(error); }
 }
 
 async function stops(req, res, next) {
-  try {
-    res.json(await service.stops({ ...(req.query || {}), ...(req.body || {}) }));
-  } catch (error) {
-    next(error);
-  }
+  try { res.json(await service.stops(params(req))); } catch (error) { next(error); }
 }
 
 async function nearestStop(req, res, next) {
-  try {
-    const stop = service.findNearestStop(req.query, { routeId: req.query.routeId || req.query.routeNumber });
-    res.json({ ok: true, stop, nearestStop: stop });
-  } catch (error) {
-    next(error);
-  }
+  try { res.json({ ok: true, stop: service.findNearestStop(req.query), nearestStop: service.findNearestStop(req.query) }); } catch (error) { next(error); }
 }
 
-module.exports = { index, stops, nearestStop };
+module.exports = { index, debug, health, stops, nearestStop, places: index };

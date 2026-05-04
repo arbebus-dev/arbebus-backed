@@ -3,28 +3,26 @@ const controller = require("../../modules/search/search.controller");
 
 const router = express.Router();
 
-/**
- * GET /api/search?q=...
- * Bendras search: vietos + stotelės
- */
-router.get("/", controller.index);
+const mainSearchHandler =
+  controller.search ||
+  controller.index ||
+  controller.searchPlaces ||
+  controller.handleSearch;
 
-/**
- * POST /api/search
- * Body: { "q": "akropolis" }
- */
-router.post("/", controller.index);
+if (typeof mainSearchHandler !== "function") {
+  console.log("[search.routes] controller keys:", Object.keys(controller));
+  throw new Error(
+    "Search controller does not export search/index/searchPlaces/handleSearch",
+  );
+}
 
-/**
- * GET /api/search/places?q=...
- * POI / places paieška
- */
-router.get("/places", controller.places || controller.index);
+router.get("/health", controller.health);
+router.get("/debug", controller.debug);
 
-/**
- * GET /api/search/stops?q=...
- * GTFS stops.txt realių stotelių paieška
- */
-router.get("/stops", controller.stops);
+router.get("/", mainSearchHandler);
+router.post("/", mainSearchHandler);
+
+router.get("/places", mainSearchHandler);
+router.get("/stops", controller.stops || mainSearchHandler);
 
 module.exports = router;

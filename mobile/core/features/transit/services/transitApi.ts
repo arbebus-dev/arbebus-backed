@@ -532,61 +532,149 @@ export async function getLiveBuses(): Promise<LiveBus[]> {
     .filter(Boolean) as LiveBus[];
 }
 
+function normalizePlaceType(item: any): PlaceResult["type"] {
+  const rawType = String(item?.type ?? item?.kind ?? item?.category ?? "poi").toLowerCase();
+
+  // IMPORTANT: do not convert POI/address into stop just because the title contains
+  // a stop-like word. Stops are only stops when backend explicitly returns stop type
+  // or GTFS stop identifiers. This keeps Akropolis as POI, not Akropolio st.
+  if (rawType === "stop" || rawType === "bus_stop" || item?.stop_id || item?.stopId) {
+    return "stop" as PlaceResult["type"];
+  }
+
+  if (rawType === "address" || rawType === "street" || rawType === "house") {
+    return "address" as PlaceResult["type"];
+  }
+
+  if (rawType === "city" || rawType === "town" || rawType === "village" || rawType === "locality") {
+    return "city" as PlaceResult["type"];
+  }
+
+  if (rawType === "region" || rawType === "county" || rawType === "state" || rawType === "area") {
+    return "region" as PlaceResult["type"];
+  }
+
+  return "poi" as PlaceResult["type"];
+}
+
+function normalizeSearchPayload(data: any): any[] {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.results)) return data.results;
+  if (Array.isArray(data?.places)) return data.places;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
+}
+
+function rankPlaceResult(item: PlaceResult & { score?: number; priority?: number }, query: string): number {
+  const q = query.toLowerCase();
+  const title = String(item.title ?? "").toLowerCase();
+  const subtitle = String(item.subtitle ?? "").toLowerCase();
+  const source = String((item as any).source ?? "").toLowerCase();
+
+  let score = Number((item as any).score ?? (item as any).priority ?? 0);
+
+  // Mobile-side safety ranking. Backend already ranks, but this protects old builds
+  // and aliases that still route through /places/search.
+  if (item.type === "poi") score += 500;
+  if (item.type === "address") score += 420;
+  if (item.type === "city" || item.type === "region") score += 260;
+  if (item.type === "stop") score += 80;
+
+  if (source.includes("local_poi")) score += 300;
+  if (source.includes("nominatim")) score += 180;
+  if (source.includes("overpass")) score += 150;
+  if (source.includes("gtfs")) score += 40;
+
+  if (title === q) score += 500;
+  if (title.startsWith(q)) score += 250;
+  if (title.includes(q)) score += 120;
+  if (subtitle.includes(q)) score += 60;
+
+  return score;
+}
+
+function dedupePlaceResults(results: PlaceResult[]): PlaceResult[] {
+  const seen = new Set<string>();
+
+  return results.filter((item) => {
+    const lat = Number(item.latitude).toFixed(5);
+    const lng = Number(item.longitude).toFixed(5);
+    const key = `${String(item.type).toLowerCase()}|${String(item.title).toLowerCase()}|${lat}|${lng}`;
+
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export async function searchPlaces(query: string): Promise<PlaceResult[]> {
   const q = query.trim();
   if (q.length < 2) return [];
 
-  const url = `${API_ENDPOINTS.placesSearch}?q=${encodeURIComponent(q)}&limit=24`;
+  const params = `q=${encodeURIComponent(q)}&limit=24`;
 
-  try {
-    const response = await fetchWithRetry(url);
-    if (!response.ok) return [];
+  // Primary endpoint: dynamic POI engine.
+  // Fallback endpoints are kept for older backend/mobile builds.
+  const urls = [
+    `${apiBase()}/search?${params}`,
+    `${apiBase()}/places/search?${params}`,
+    `${apiBase()}/stops/search?${params}`,
+    API_ENDPOINTS.placesSearch
+      ? `${API_ENDPOINTS.placesSearch}?${params}`
+      : "",
+  ].filter(Boolean);
 
-    const data = await safeJson<any>(response);
-    const rawResults = data.results || data.places || data.items || [];
+  for (const url of urls) {
+    try {
+      const response = await fetchWithRetry(url, undefined, 0);
+      if (!response.ok) continue;
 
-    if (!Array.isArray(rawResults) || !rawResults.length) return [];
+      const data = await safeJson<any>(response);
+      const rawResults = normalizeSearchPayload(data);
 
-    return rawResults
-      .map((item: any, index: number): PlaceResult | null => {
-        const coordinate = toCoordinate(item);
-        if (!coordinate) return null;
+      if (!rawResults.length) continue;
 
-        const rawType = String(item.type ?? item.kind ?? "place").toLowerCase();
-        const type =
-          rawType === "stop" || item.stop_id || item.stopId
-            ? "stop"
-            : rawType === "address" || rawType === "street"
-              ? "address"
-              : rawType === "city" || rawType === "locality"
-                ? "city"
-                : rawType === "region" || rawType === "county"
-                  ? "region"
-                  : "poi";
+      const normalized = rawResults
+        .map((item: any, index: number): PlaceResult | null => {
+          const coordinate = toCoordinate(item);
+          if (!coordinate) return null;
 
-        return {
-          id: String(item.id ?? item.stop_id ?? item.stopId ?? `${type}-${index}`),
-          title: String(item.title ?? item.name ?? item.stopName ?? item.stop_name ?? "Vieta"),
-          subtitle:
-            item.subtitle ??
-            item.address ??
-            item.description ??
-            item.label ??
-            item.stop_desc ??
-            (type === "address" ? "Adresas" : "Lietuva"),
-          type,
-          source: item.source,
-          distanceMeters:
-            item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
-          latitude: coordinate.latitude,
-          longitude: coordinate.longitude,
-          coordinate,
-        } as PlaceResult;
-      })
-      .filter(Boolean) as PlaceResult[];
-  } catch {
-    return [];
+          const type = normalizePlaceType(item);
+
+          return {
+            id: String(item.id ?? item.placeId ?? item.osmId ?? item.stop_id ?? item.stopId ?? `${type}-${index}`),
+            title: String(item.title ?? item.name ?? item.displayName ?? item.stopName ?? item.stop_name ?? "Vieta"),
+            subtitle:
+              item.subtitle ??
+              item.address ??
+              item.description ??
+              item.label ??
+              item.stop_desc ??
+              (type === "address" ? "Adresas" : type === "stop" ? "Stotelė" : "Vieta"),
+            type,
+            source: item.source,
+            distanceMeters:
+              item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            coordinate,
+            // Keep backend ranking data for debugging/sorting; TS model may ignore it.
+            ...(item.score != null ? { score: Number(item.score) } : {}),
+            ...(item.priority != null ? { priority: Number(item.priority) } : {}),
+          } as PlaceResult;
+        })
+        .filter(Boolean) as PlaceResult[];
+
+      return dedupePlaceResults(normalized)
+        .sort((a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q))
+        .slice(0, 24);
+    } catch {
+      // Try next compatible endpoint.
+    }
   }
+
+  return [];
 }
 
 export async function planTransitRoute(params: {

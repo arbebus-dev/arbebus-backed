@@ -22,7 +22,7 @@
       "bundleIdentifier": "com.arbebus.app",
       "supportsTablet": true,
       "usesAppleSignIn": true,
-      "buildNumber": "77",
+      "buildNumber": "78",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": ["location", "fetch", "remote-notification"],

@@ -14,30 +14,32 @@ export default function StationAccessLayer({ accessPoints }: Props) {
 
   return (
     <>
-      {accessPoints.map((point) => (
-        <Marker
-          key={point.id}
-          coordinate={point.coordinate}
-          anchor={{ x: 0.5, y: 0.95 }}
-          tracksViewChanges={false}
-          zIndex={1350}
-        >
-          <View style={styles.wrap}>
-            <View style={styles.glow} />
-            <View style={styles.marker}>
-              <Ionicons
-                name={point.type === "exit" ? "exit-outline" : "enter-outline"}
-                size={14}
-                color="#06111F"
-              />
-              <Text style={styles.code}>{point.code || "A"}</Text>
+      {accessPoints.map((point) => {
+        const isExit = point.type === "exit";
+
+        return (
+          <Marker
+            key={point.id}
+            coordinate={point.coordinate}
+            anchor={{ x: 0.5, y: 0.9 }}
+            tracksViewChanges={false}
+            zIndex={360}
+          >
+            <View style={styles.wrap}>
+              <View style={[styles.marker, isExit && styles.exitMarker]}>
+                <Ionicons
+                  name={isExit ? "exit-outline" : "enter-outline"}
+                  size={12}
+                  color="#07101F"
+                />
+              </View>
+              <View style={styles.label}>
+                <Text style={styles.labelText} numberOfLines={1}>{point.title}</Text>
+              </View>
             </View>
-            <View style={styles.label}>
-              <Text style={styles.labelText} numberOfLines={1}>{point.title}</Text>
-            </View>
-          </View>
-        </Marker>
-      ))}
+          </Marker>
+        );
+      })}
     </>
   );
 }
@@ -47,46 +49,36 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  glow: {
-    position: "absolute",
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: "rgba(255,255,255,0.18)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.55)",
-  },
   marker: {
-    minWidth: 40,
-    height: 34,
-    paddingHorizontal: 8,
-    borderRadius: 17,
-    backgroundColor: "#FFFFFF",
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "rgba(255,255,255,0.94)",
     borderWidth: 2,
     borderColor: "#35F2B4",
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.22,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
   },
-  code: {
-    color: "#06111F",
-    fontWeight: "900",
-    fontSize: 10,
+  exitMarker: {
+    borderColor: "#FFB84D",
   },
   label: {
-    marginTop: 4,
-    maxWidth: 132,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    marginTop: 3,
+    maxWidth: 116,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: 999,
-    backgroundColor: "rgba(5,7,13,0.82)",
+    backgroundColor: "rgba(5,7,13,0.76)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.16)",
+    borderColor: "rgba(255,255,255,0.12)",
   },
   labelText: {
     color: "#FFFFFF",
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "800",
   },
 });

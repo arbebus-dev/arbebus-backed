@@ -1,0 +1,98 @@
+export type AppLanguage = "lt" | "en";
+
+export const LANGUAGE_STORAGE_KEY = "arbebus.language.v1";
+
+export const translations = {
+  lt: {
+    splash: {
+      chooseLanguage: "Pasirink kalbą",
+      lithuanian: "Arbebus",
+      english: "Arbebus",
+      ltLabel: "LT",
+      enLabel: "EN",
+      ltSubtitle: "Lietuvių kalba",
+      enSubtitle: "English language",
+    },
+    common: {
+      appName: "Arbebus",
+      currentLocation: "Mano vieta",
+      searchPlaceholder: "Ieškoti vietos, adreso ar stotelės",
+      loadingRoutes: "Ieškome maršrutų",
+      checkingStops: "Tikriname stoteles ir tvarkaraščius",
+      calculating: "Skaičiuojame kelionės variantus…",
+      directions: "Maršrutas",
+      routeDetails: "Maršruto detalės",
+      startNavigation: "Pradėti navigaciją",
+      leaveNow: "Išvykti dabar",
+      prefer: "Pasirinkimai",
+      busScheduled: "Autobusas pagal tvarkaraštį",
+      direct: "tiesiogiai",
+      transferShort: "pers.",
+      walk: "eiti",
+      minutes: "min",
+    },
+    sheet: {
+      from: "Iš kur",
+      to: "Į kur",
+      when: "Kada",
+      now: "Dabar",
+      favourites: "Mėgstamos vietos",
+      favouriteStops: "Mėgstamos stotelės",
+      favouriteStopsSubtitle: "Stebimi maršrutai ir dažnos kryptys",
+      favouritePlaces: "Mėgstamos vietos",
+      favouritePlacesSubtitle: "Greitas pasirinkimas be paieškos",
+      addHome: "Pridėti namus",
+      addWork: "Pridėti darbą",
+      noResultsTitle: "Pradėk nuo kelionės formos",
+      noResultsText: "Įvesk vietą, adresą, rajoną arba stotelę lauke „Į kur“.",
+    },
+  },
+  en: {
+    splash: {
+      chooseLanguage: "Choose language",
+      lithuanian: "Arbebus",
+      english: "Arbebus",
+      ltLabel: "LT",
+      enLabel: "EN",
+      ltSubtitle: "Lithuanian language",
+      enSubtitle: "English language",
+    },
+    common: {
+      appName: "Arbebus",
+      currentLocation: "My Location",
+      searchPlaceholder: "Search place, address or stop",
+      loadingRoutes: "Finding routes",
+      checkingStops: "Checking stops and schedules",
+      calculating: "Calculating trip options…",
+      directions: "Directions",
+      routeDetails: "Route details",
+      startNavigation: "Start navigation",
+      leaveNow: "Leave now",
+      prefer: "Prefer",
+      busScheduled: "Bus scheduled",
+      direct: "direct",
+      transferShort: "transfer",
+      walk: "walk",
+      minutes: "min",
+    },
+    sheet: {
+      from: "From",
+      to: "To",
+      when: "When",
+      now: "Now",
+      favourites: "Favourite places",
+      favouriteStops: "Favourite stops",
+      favouriteStopsSubtitle: "Tracked routes and frequent directions",
+      favouritePlaces: "Favourite places",
+      favouritePlacesSubtitle: "Quick selection without search",
+      addHome: "Add home",
+      addWork: "Add work",
+      noResultsTitle: "Start with the trip form",
+      noResultsText: "Enter a place, address, region or stop in the “To” field.",
+    },
+  },
+} as const;
+
+export function isAppLanguage(value: unknown): value is AppLanguage {
+  return value === "lt" || value === "en";
+}

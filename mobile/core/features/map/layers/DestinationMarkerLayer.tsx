@@ -9,12 +9,32 @@ type Props = { destination: PlaceSearchResult | null };
 export default function DestinationMarkerLayer({ destination }: Props) {
   if (!destination) return null;
   return (
-    <Marker coordinate={destination.coordinate} anchor={{ x: 0.5, y: 1 }}>
-      <View style={styles.pin}><Ionicons name="flag" size={18} color="#07101F" /></View>
+    <Marker
+      coordinate={destination.coordinate}
+      anchor={{ x: 0.5, y: 0.88 }}
+      tracksViewChanges={false}
+      zIndex={340}
+    >
+      <View style={styles.pin}>
+        <Ionicons name="flag" size={13} color="#07101F" />
+      </View>
     </Marker>
   );
 }
 
 const styles = StyleSheet.create({
-  pin: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: "#FFB84D", borderWidth: 2, borderColor: "white" },
+  pin: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFB84D",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.96)",
+    shadowColor: "#000",
+    shadowOpacity: 0.22,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 2 },
+  },
 });

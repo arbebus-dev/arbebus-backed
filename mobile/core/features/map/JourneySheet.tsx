@@ -7,7 +7,6 @@ import {
   Animated,
   Dimensions,
   Keyboard,
-  Share,
   PanResponder,
   Pressable,
   ScrollView,
@@ -17,6 +16,7 @@ import {
   View,
 } from "react-native";
 
+import { useLanguage } from "@/core/i18n/LanguageContext";
 import { COLORS, LINE_HEIGHT, T } from "@/core/theme/typography";
 import {
   buildJourneyViewModel,
@@ -63,7 +63,7 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_TOP = 68;
 const SNAP_FULL = SHEET_TOP;
 const SNAP_MID = Math.round(SCREEN_HEIGHT * 0.43);
-const SNAP_BOTTOM = Math.max(SCREEN_HEIGHT - 210, SCREEN_HEIGHT * 0.73);
+const SNAP_BOTTOM = Math.max(SCREEN_HEIGHT - 360, SCREEN_HEIGHT * 0.58);
 const SNAP_COMPACT = Math.max(SCREEN_HEIGHT - 220, SCREEN_HEIGHT * 0.72);
 const SHEET_HEIGHT = SCREEN_HEIGHT - SHEET_TOP + 28;
 
@@ -208,6 +208,7 @@ function Header({
 }
 
 function SearchInput(props: Pick<Props, "query" | "isSearching" | "onChangeQuery" | "onSubmitSearch" | "onReset">) {
+  const { t } = useLanguage();
   return (
     <View style={styles.searchInputRow}>
       <Ionicons name="search" size={16} color="#657088" />
@@ -218,7 +219,7 @@ function SearchInput(props: Pick<Props, "query" | "isSearching" | "onChangeQuery
           Keyboard.dismiss();
           props.onSubmitSearch();
         }}
-        placeholder="Kur važiuojam?"
+        placeholder={t.common.searchPlaceholder}
         placeholderTextColor="#75809A"
         returnKeyType="search"
         autoCorrect={false}
@@ -249,26 +250,16 @@ function ProfileAvatar() {
   );
 }
 
-function AppleSearchHeader(props: Props) {
+function AppleSearchHeader() {
+  const { t } = useLanguage();
   return (
     <View style={styles.fixedHeader}>
-      <View style={styles.appleTopRow}>
-        <View style={styles.appleSearchPill}>
-          <SearchInput {...props} />
+      <View style={styles.appleTitleRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.appleSheetKicker}>ARBE NAVIGATION</Text>
+          <Text style={styles.appleSheetTitle}>{t.common.appName}</Text>
         </View>
         <ProfileAvatar />
-      </View>
-      <View style={styles.appleStatusRow}>
-        <View style={styles.appleStatusChip}>
-          <MaterialCommunityIcons name="bus-clock" size={13} color={COLORS.greenDark} />
-          <Text style={styles.appleStatusText}>{props.liveBusCount} live autobusai</Text>
-        </View>
-        {props.isOffline ? (
-          <View style={styles.appleStatusChipWarning}>
-            <Ionicons name="cloud-offline" size={13} color="#8A5A00" />
-            <Text style={styles.appleStatusTextWarning}>Offline</Text>
-          </View>
-        ) : null}
       </View>
     </View>
   );
@@ -328,72 +319,90 @@ function SuggestionChip({
   );
 }
 
-function AppleMenuContent(props: Props) {
-  const runPresetSearch = (value: string) => {
-    props.onChangeQuery(value);
-    setTimeout(() => props.onSubmitSearch(), 0);
-  };
-
-  const shareLocation = () => {
-    void Share.share({
-      message: "Dalinuosi savo lokacija per Arbebus.",
-    });
-  };
-
+function TripInputRow({
+  icon,
+  label,
+  value,
+  children,
+}: {
+  icon: any;
+  label: string;
+  value?: string;
+  children?: React.ReactNode;
+}) {
   return (
-    <View style={styles.appleMenuRoot}>
-      <Text style={styles.menuSectionTitle}>Arbebus Suggestions</Text>
-      <View style={styles.suggestionGrid}>
-        <SuggestionChip icon="briefcase" label="Į darbą" onPress={() => runPresetSearch("darbas")} />
-        <SuggestionChip icon="bus-stop" label="Artimiausia stotelė" onPress={() => runPresetSearch("stotelė")} />
-        <SuggestionChip icon="ferry" label="Keltas" onPress={() => runPresetSearch("Smiltynė")} />
-        <SuggestionChip icon="train" label="Traukinys" onPress={() => runPresetSearch("geležinkelio stotis")} />
+    <View style={styles.tripInputRow}>
+      <View style={styles.tripInputIcon}>
+        <MaterialCommunityIcons name={icon} size={15} color={COLORS.greenDark} />
       </View>
-
-      <View style={styles.menuCard}>
-        <Text style={styles.menuSectionTitleInside}>Places</Text>
-        <QuickMenuRow icon="home" title="Namai" subtitle="Pridėk namų adresą greitam maršrutui" onPress={() => runPresetSearch("namai")} />
-        <QuickMenuRow icon="briefcase" title="Darbas" subtitle="Pridėk darbo adresą rytiniam maršrutui" onPress={() => runPresetSearch("darbas")} />
-        <QuickMenuRow icon="plus-circle" title="Pridėti vietą" subtitle="Home, Work arba mėgstama vieta" onPress={() => runPresetSearch("pridėti vietą")} />
-      </View>
-
-      <View style={styles.menuCard}>
-        <Text style={styles.menuSectionTitleInside}>Recents</Text>
-        <QuickMenuRow icon="history" title="Akropolis" subtitle="Prekybos centras · Klaipėda" onPress={() => runPresetSearch("Akropolis")} />
-        <QuickMenuRow icon="history" title="Radailiai" subtitle="Klaipėdos rajonas" onPress={() => runPresetSearch("Radailiai")} />
-      </View>
-
-      <View style={styles.menuCard}>
-        <Text style={styles.menuSectionTitleInside}>Favourites</Text>
-        <QuickMenuRow icon="star" title="Mėgstamos stotelės" subtitle="Stebimi maršrutai ir dažnos kryptys" onPress={() => runPresetSearch("mėgstamos stotelės")} />
-        <QuickMenuRow icon="heart" title="Mėgstamos vietos" subtitle="Greitas pasirinkimas be paieškos" onPress={() => runPresetSearch("mėgstamos vietos")} />
-      </View>
-
-      <View style={styles.menuCard}>
-        <Text style={styles.menuSectionTitleInside}>Actions</Text>
-        <QuickMenuRow icon="share-variant" title="Dalintis lokacija" subtitle="Išsiųsti dabartinę lokaciją" onPress={shareLocation} />
-        <QuickMenuRow icon="map-marker-plus" title="Pažymėti vietą" subtitle="Išsaugoti tašką žemėlapyje" onPress={() => runPresetSearch("pažymėti vietą")} />
-        <QuickMenuRow icon="alert-circle-outline" title="Pranešti problemą" subtitle="Stotelė, maršrutas arba duomenų klaida" onPress={() => runPresetSearch("pranešti problemą")} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.tripInputLabel}>{label}</Text>
+        {children ? children : <Text style={styles.tripInputValue} numberOfLines={1}>{value}</Text>}
       </View>
     </View>
   );
 }
 
-function SearchHeader(props: Props) {
-  return <AppleSearchHeader {...props} />;
+function TripSearchForm(props: Props) {
+  const { t } = useLanguage();
+  return (
+    <View style={styles.tripFormCard}>
+      <TripInputRow icon="crosshairs-gps" label={t.sheet.from} value={t.common.currentLocation} />
+      <View style={styles.tripDivider} />
+      <TripInputRow icon="map-marker" label={t.sheet.to}>
+        <SearchInput {...props} />
+      </TripInputRow>
+      <View style={styles.tripDivider} />
+      <TripInputRow icon="clock-outline" label={t.sheet.when} value={t.sheet.now} />
+    </View>
+  );
+}
+
+function AppleMenuContent(props: Props) {
+  const { t } = useLanguage();
+
+  const runPresetSearch = (value: string) => {
+    props.onChangeQuery(value);
+    setTimeout(() => props.onSubmitSearch(), 0);
+  };
+
+  return (
+    <View style={styles.appleMenuRoot}>
+      <View style={styles.menuCard}>
+        <Text style={styles.menuSectionTitleInside}>{t.sheet.favourites}</Text>
+        <QuickMenuRow
+          icon="heart"
+          title={t.sheet.favouritePlaces}
+          subtitle={t.sheet.favouritePlacesSubtitle}
+          onPress={() => runPresetSearch(t.sheet.favouritePlaces)}
+        />
+        <QuickMenuRow
+          icon="star"
+          title={t.sheet.favouriteStops}
+          subtitle={t.sheet.favouriteStopsSubtitle}
+          onPress={() => runPresetSearch(t.sheet.favouriteStops)}
+        />
+      </View>
+    </View>
+  );
+}
+
+function SearchHeader() {
+  return <AppleSearchHeader />;
 }
 
 function SearchState(props: Props) {
   const hasResults = props.searchResults.length > 0;
   return (
     <View style={styles.stateRoot}>
-      <SearchHeader {...props} />
+      <SearchHeader />
       <ScrollView
         style={styles.scrollArea}
         contentContainerStyle={styles.searchScrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        <TripSearchForm {...props} />
         {props.error ? <Text style={styles.inlineError}>{props.error}</Text> : null}
         {hasResults ? props.searchResults.slice(0, 10).map((place) => (
           <Pressable
@@ -752,4 +761,13 @@ const styles = StyleSheet.create({
   stickyCtaWrap: { position: "absolute", left: 18, right: 18, bottom: 22 },
   primaryButton: { height: 48, borderRadius: 18, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, backgroundColor: COLORS.green },
   primaryButtonText: { color: COLORS.greenDark, fontSize: T.cta, lineHeight: LINE_HEIGHT.cta, fontWeight: "900" },
+  appleTitleRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 6 },
+  appleSheetKicker: { color: COLORS.green, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 2.4, marginBottom: 2 },
+  appleSheetTitle: { color: COLORS.textDark, fontSize: 28, lineHeight: 34, fontWeight: "900" },
+  tripFormCard: { borderRadius: 24, padding: 12, backgroundColor: "rgba(255,255,255,0.72)", borderWidth: 1, borderColor: "rgba(20,27,37,0.06)", marginBottom: 12 },
+  tripInputRow: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 8, paddingVertical: 6 },
+  tripInputIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(53,242,180,0.16)" },
+  tripInputLabel: { color: "#667083", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 2 },
+  tripInputValue: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "900" },
+  tripDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "rgba(45,55,72,0.16)", marginLeft: 54 },
 });

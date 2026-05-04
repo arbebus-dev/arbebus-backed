@@ -14,22 +14,23 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import type { AppLanguage } from "@/core/i18n/translations";
+import { translations } from "@/core/i18n/translations";
+
 const BRAND = "#34F5B3";
 const BG = "#03070B";
-
 const SPLASH_IMAGE = require("../../../assets/splash.png");
 
 type LaunchScreenProps = {
-  onStart: () => void;
+  onSelectLanguage: (language: AppLanguage) => void | Promise<void>;
 };
 
-export default function LaunchScreen({ onStart }: LaunchScreenProps) {
+export default function LaunchScreen({ onSelectLanguage }: LaunchScreenProps) {
   const screenFade = useRef(new Animated.Value(0)).current;
-  const imageScale = useRef(new Animated.Value(1.045)).current;
-  const imageY = useRef(new Animated.Value(10)).current;
-  const buttonOpacity = useRef(new Animated.Value(0)).current;
-  const buttonY = useRef(new Animated.Value(22)).current;
-  const pulse = useRef(new Animated.Value(0)).current;
+  const imageScale = useRef(new Animated.Value(1.035)).current;
+  const imageY = useRef(new Animated.Value(8)).current;
+  const controlsOpacity = useRef(new Animated.Value(0)).current;
+  const controlsY = useRef(new Animated.Value(18)).current;
   const leaving = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -45,7 +46,7 @@ export default function LaunchScreen({ onStart }: LaunchScreenProps) {
         }),
         Animated.timing(imageScale, {
           toValue: 1,
-          duration: 1250,
+          duration: 1200,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
@@ -55,67 +56,40 @@ export default function LaunchScreen({ onStart }: LaunchScreenProps) {
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.timing(buttonOpacity, {
+        Animated.timing(controlsOpacity, {
           toValue: 1,
-          duration: 480,
-          delay: 260,
+          duration: 460,
+          delay: 220,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.timing(buttonY, {
+        Animated.timing(controlsY, {
           toValue: 0,
-          duration: 560,
-          delay: 260,
+          duration: 540,
+          delay: 220,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
       ]).start();
-
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulse, {
-            toValue: 1,
-            duration: 1450,
-            easing: Easing.inOut(Easing.quad),
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulse, {
-            toValue: 0,
-            duration: 1450,
-            easing: Easing.inOut(Easing.quad),
-            useNativeDriver: true,
-          }),
-        ]),
-      ).start();
     };
 
     boot();
-  }, [buttonOpacity, buttonY, imageScale, imageY, pulse, screenFade]);
+  }, [controlsOpacity, controlsY, imageScale, imageY, screenFade]);
 
-  const handleStart = async () => {
+  const chooseLanguage = async (language: AppLanguage) => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
       () => undefined,
     );
 
     Animated.timing(leaving, {
       toValue: 0,
-      duration: 240,
+      duration: 220,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start(({ finished }) => {
-      if (finished) onStart();
+      if (finished) void onSelectLanguage(language);
     });
   };
-
-  const glowScale = pulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.035],
-  });
-
-  const glowOpacity = pulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.34, 0.62],
-  });
 
   return (
     <Animated.View style={[styles.root, { opacity: leaving }]}> 
@@ -138,39 +112,65 @@ export default function LaunchScreen({ onStart }: LaunchScreenProps) {
         </ImageBackground>
       </Animated.View>
 
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.buttonGlow,
-          { opacity: glowOpacity, transform: [{ scale: glowScale }] },
-        ]}
-      />
-
       <SafeAreaView pointerEvents="box-none" style={styles.safe}>
         <Animated.View
           style={[
-            styles.bottom,
-            { opacity: buttonOpacity, transform: [{ translateY: buttonY }] },
+            styles.languagePanel,
+            { opacity: controlsOpacity, transform: [{ translateY: controlsY }] },
           ]}
         >
-          <BlurView intensity={Platform.OS === "ios" ? 32 : 18} tint="dark" style={styles.buttonShell}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Open Arbebus"
-              onPress={handleStart}
-              style={({ pressed }) => [
-                styles.button,
-                pressed && styles.buttonPressed,
-              ]}
-            >
-              <Text style={styles.buttonText}>Arbebus AI Go</Text>
-            </Pressable>
-          </BlurView>
-
-          <Text style={styles.note}>Klaipėda transit preview • TestFlight</Text>
+          <Text style={styles.chooseTitle}>Pasirink kalbą / Choose language</Text>
+          <View style={styles.languageRow}>
+            <LanguageButton
+              flag="🇱🇹"
+              title={translations.lt.splash.lithuanian}
+              code={translations.lt.splash.ltLabel}
+              subtitle={translations.lt.splash.ltSubtitle}
+              onPress={() => chooseLanguage("lt")}
+            />
+            <LanguageButton
+              flag="🇬🇧"
+              title={translations.en.splash.english}
+              code={translations.en.splash.enLabel}
+              subtitle={translations.en.splash.enSubtitle}
+              onPress={() => chooseLanguage("en")}
+            />
+          </View>
         </Animated.View>
       </SafeAreaView>
     </Animated.View>
+  );
+}
+
+function LanguageButton({
+  flag,
+  title,
+  code,
+  subtitle,
+  onPress,
+}: {
+  flag: string;
+  title: string;
+  code: string;
+  subtitle: string;
+  onPress: () => void;
+}) {
+  return (
+    <BlurView intensity={Platform.OS === "ios" ? 30 : 18} tint="dark" style={styles.languageShell}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${title} ${code}`}
+        onPress={onPress}
+        style={({ pressed }) => [styles.languageButton, pressed && styles.buttonPressed]}
+      >
+        <Text style={styles.flag}>{flag}</Text>
+        <Text style={styles.languageTitle}>{title}</Text>
+        <View style={styles.codePill}>
+          <Text style={styles.codeText}>{code}</Text>
+        </View>
+        <Text style={styles.languageSubtitle}>{subtitle}</Text>
+      </Pressable>
+    </BlurView>
   );
 }
 
@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 120,
-    backgroundColor: "rgba(3,7,11,0.10)",
+    backgroundColor: "rgba(3,7,11,0.06)",
   },
   bottomShade: {
     position: "absolute",
@@ -203,61 +203,82 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     height: 260,
-    backgroundColor: "rgba(3,7,11,0.46)",
+    backgroundColor: "rgba(3,7,11,0.34)",
   },
   safe: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: "flex-end",
   },
-  bottom: {
-    paddingHorizontal: 24,
-    paddingBottom: 34,
-    alignItems: "center",
-  },
-  buttonGlow: {
+  languagePanel: {
     position: "absolute",
-    left: 34,
-    right: 34,
-    bottom: 64,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: BRAND,
-    shadowColor: BRAND,
-    shadowOpacity: 0.62,
-    shadowRadius: 32,
-    shadowOffset: { width: 0, height: 14 },
+    left: 0,
+    right: 0,
+    top: "50%",
+    paddingHorizontal: 22,
+    gap: 12,
   },
-  buttonShell: {
-    width: "100%",
-    borderRadius: 34,
+  chooseTitle: {
+    color: "rgba(255,255,255,0.90)",
+    fontSize: 15,
+    fontWeight: "800",
+    textAlign: "center",
+    letterSpacing: 0.3,
+  },
+  languageRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  languageShell: {
+    flex: 1,
+    borderRadius: 26,
     overflow: "hidden",
-    backgroundColor: "rgba(255,255,255,0.05)",
+    backgroundColor: "rgba(0,0,0,0.30)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
   },
-  button: {
-    width: "100%",
-    minHeight: 64,
-    borderRadius: 34,
-    backgroundColor: BRAND,
+  languageButton: {
+    minHeight: 124,
+    paddingVertical: 15,
+    paddingHorizontal: 12,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.22)",
+    backgroundColor: "rgba(2,8,14,0.34)",
   },
   buttonPressed: {
     transform: [{ scale: 0.985 }],
-    opacity: 0.93,
+    opacity: 0.88,
   },
-  buttonText: {
-    color: "#02130D",
-    fontSize: 20,
+  flag: {
+    fontSize: 28,
+    marginBottom: 8,
+  },
+  languageTitle: {
+    color: "white",
+    fontSize: 18,
+    lineHeight: 24,
     fontWeight: "900",
-    letterSpacing: 0.15,
+    textAlign: "center",
   },
-  note: {
-    marginTop: 15,
-    color: "rgba(226,232,240,0.62)",
-    fontSize: 13,
+  codePill: {
+    marginTop: 9,
+    minWidth: 48,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: BRAND,
+  },
+  codeText: {
+    color: "#06110D",
+    fontSize: 14,
+    fontWeight: "900",
+    letterSpacing: 0.9,
+  },
+  languageSubtitle: {
+    color: "rgba(255,255,255,0.72)",
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: "700",
-    letterSpacing: 0.1,
+    textAlign: "center",
+    marginTop: 8,
   },
 });

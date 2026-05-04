@@ -20,6 +20,8 @@ function formatDistance(meters?: number) {
 
 function iconForType(type?: string) {
   if (type === "stop") return "bus";
+  if (type === "station") return "train";
+  if (type === "ferry") return "boat";
   if (type === "address") return "home";
   if (type === "city" || type === "region") return "map";
   if (type === "poi") return "business";
@@ -28,6 +30,8 @@ function iconForType(type?: string) {
 
 function labelForType(type?: string) {
   if (type === "stop") return "Stotelė";
+  if (type === "station") return "Geležinkelio stotis";
+  if (type === "ferry") return "Perkėla";
   if (type === "address") return "Adresas";
   if (type === "city") return "Miestas / gyvenvietė";
   if (type === "region") return "Regionas";
