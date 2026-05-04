@@ -1,6 +1,7 @@
 const express = require("express");
 const routes = require("../../api/routes");
 const transitRoutes = require("../../api/routes/transit.routes");
+const searchRoutes = require("../../api/routes/search.routes");
 const corsMiddleware = require("./middlewares/cors");
 const { notFound, errorHandler } = require("./middlewares/errorHandler");
 
@@ -18,6 +19,10 @@ function createApp() {
   // Existing routes
   app.use("/api", routes);
   app.use("/", routes);
+
+  // Direct search routes fallback/fix for Render deployments.
+  app.use("/api/search", searchRoutes);
+  app.use("/search", searchRoutes);
 
   // Direct transit routes fallback/fix
   // Ensures:
