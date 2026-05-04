@@ -933,6 +933,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<PlaceSearchResult[]>([]);
   const [selectedDestination, setSelectedDestination] = useState<PlaceSearchResult | null>(null);
+  const [selectedOrigin, setSelectedOrigin] = useState<PlaceSearchResult | null>(null);
   const [routeOptions, setRouteOptions] = useState<TransitRouteOption[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<TransitRouteOption | null>(null);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -1097,9 +1098,22 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     [query]
   );
 
+  const selectOrigin = useCallback((rawOrigin: PlaceSearchResult) => {
+    const origin = normalizePlace(rawOrigin) ?? rawOrigin;
+    setSelectedOrigin(origin);
+    setQuery(origin.title || origin.name || "");
+    setSearchResults([]);
+    setError(null);
+  }, []);
+
+  const clearOrigin = useCallback(() => {
+    setSelectedOrigin(null);
+  }, []);
+
   const selectDestination = useCallback(
     async (rawDestination: PlaceSearchResult) => {
       const destination = normalizePlace(rawDestination) ?? rawDestination;
+      const routeOrigin = selectedOrigin?.coordinate ?? userLocation;
 
       setSelectedDestination(destination);
       setSelectedRoute(null);
@@ -1113,8 +1127,8 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       deviationConfirmations.current = 0;
       setFlowState("destination_selected");
 
-      if (!userLocation) {
-        setError("Lokacija nerasta");
+      if (!routeOrigin) {
+        setError("Pasirink pradžios vietą arba įjunk GPS lokaciją");
         return;
       }
 
@@ -1127,7 +1141,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         for (let i = 0; i < 2; i++) {
           try {
             rawOptions = await planTransitRoute({
-              from: userLocation,
+              from: routeOrigin,
               to: destination.coordinate,
               destination,
             });
@@ -1140,17 +1154,17 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         }
 
         const normalizedOptions = safeArray(rawOptions)
-          .map((route, index) => normalizeRoute(route, index, userLocation, destination))
+          .map((route, index) => normalizeRoute(route, index, routeOrigin, destination))
           .filter(hasRealBusSegment);
 
         const options = await Promise.all(
           normalizedOptions.map((route) =>
-            enrichRouteWithRealWalkingGeometry(route, userLocation, destination)
+            enrichRouteWithRealWalkingGeometry(route, routeOrigin, destination)
           )
         );
 
         if (!options.length) {
-          const walkOnlyRoute = await buildWalkOnlyFallback(userLocation, destination);
+          const walkOnlyRoute = await buildWalkOnlyFallback(routeOrigin, destination);
 
           if (walkOnlyRoute) {
             setRouteOptions([walkOnlyRoute]);
@@ -1213,7 +1227,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         setIsPlanning(false);
       }
     },
-    [hydrateRouteDetails, userLocation]
+    [hydrateRouteDetails, selectedOrigin, userLocation]
   );
 
   const chooseRoute = useCallback(
@@ -1668,6 +1682,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     setQuery("");
     setSearchResults([]);
     setSelectedDestination(null);
+    setSelectedOrigin(null);
     setRouteOptions([]);
     setSelectedRoute(null);
     setCurrentStepIndex(0);
@@ -1689,6 +1704,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     setQuery,
     searchResults,
     selectedDestination,
+    selectedOrigin,
     routeOptions,
     selectedRoute,
     activeInstruction,
@@ -1702,6 +1718,8 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     reroutingMessage,
     runSearch,
     selectDestination,
+    selectOrigin,
+    clearOrigin,
     chooseRoute,
     startJourney,
     nextStep,

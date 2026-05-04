@@ -41,6 +41,8 @@ type Props = {
   isPlanning?: boolean;
   routeOptions: TransitRouteOption[];
   selectedRoute: TransitRouteOption | null;
+  selectedOrigin?: PlaceSearchResult | null;
+  selectedDestination?: PlaceSearchResult | null;
   error?: string | null;
   isOffline?: boolean;
   offlineMessage?: string | null;
@@ -49,6 +51,8 @@ type Props = {
   onChangeQuery: (text: string) => void;
   onSubmitSearch: () => void;
   onSelectDestination: (place: PlaceSearchResult) => void;
+  onSelectOrigin?: (place: PlaceSearchResult) => void;
+  onClearOrigin?: () => void;
   onChooseRoute: (route: TransitRouteOption) => void;
   onStartJourney: () => void;
   onNextStep: () => void;
@@ -63,7 +67,7 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_TOP = 68;
 const SNAP_FULL = SHEET_TOP;
 const SNAP_MID = Math.round(SCREEN_HEIGHT * 0.43);
-const SNAP_BOTTOM = Math.max(SCREEN_HEIGHT - 360, SCREEN_HEIGHT * 0.58);
+const SNAP_BOTTOM = Math.max(SCREEN_HEIGHT - 118, SCREEN_HEIGHT * 0.855);
 const SNAP_COMPACT = Math.max(SCREEN_HEIGHT - 220, SCREEN_HEIGHT * 0.72);
 const SHEET_HEIGHT = SCREEN_HEIGHT - SHEET_TOP + 28;
 
@@ -250,17 +254,11 @@ function ProfileAvatar() {
   );
 }
 
-function AppleSearchHeader() {
+function AppleSearchHeader({ panHandlers }: { panHandlers?: any }) {
   const { t } = useLanguage();
   return (
-    <View style={styles.fixedHeader}>
-      <View style={styles.appleTitleRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.appleSheetKicker}>ARBE NAVIGATION</Text>
-          <Text style={styles.appleSheetTitle}>{t.common.appName}</Text>
-        </View>
-        <ProfileAvatar />
-      </View>
+    <View {...(panHandlers || {})} style={styles.fixedHeaderCompact}>
+      <Text style={styles.appleSheetTitleCentered}>{t.common.appName}</Text>
     </View>
   );
 }
@@ -343,14 +341,107 @@ function TripInputRow({
   );
 }
 
-function TripSearchForm(props: Props) {
+function InlineInput({
+  value,
+  placeholder,
+  onChangeText,
+  onFocus,
+  onSubmit,
+  onClear,
+  isLoading,
+}: {
+  value: string;
+  placeholder: string;
+  onChangeText: (text: string) => void;
+  onFocus?: () => void;
+  onSubmit?: () => void;
+  onClear?: () => void;
+  isLoading?: boolean;
+}) {
+  return (
+    <View style={styles.inlineInputRow}>
+      <Ionicons name="search" size={16} color="#657088" />
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        onFocus={onFocus}
+        onSubmitEditing={() => {
+          Keyboard.dismiss();
+          onSubmit?.();
+        }}
+        placeholder={placeholder}
+        placeholderTextColor="#75809A"
+        returnKeyType="search"
+        autoCorrect={false}
+        autoCapitalize="none"
+        style={styles.inlineInput}
+      />
+      {isLoading ? <ActivityIndicator size="small" color={COLORS.green} /> : null}
+      {value.trim().length ? (
+        <Pressable onPress={onClear} hitSlop={12} style={styles.searchClearButton}>
+          <Ionicons name="close" size={13} color="#657088" />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function TripSearchForm({
+  props,
+  activeField,
+  setActiveField,
+}: {
+  props: Props;
+  activeField: "from" | "to";
+  setActiveField: (field: "from" | "to") => void;
+}) {
   const { t } = useLanguage();
+  const fromValue = activeField === "from" ? props.query : props.selectedOrigin?.title || "";
+  const toValue = activeField === "to" ? props.query : props.selectedDestination?.title || props.query || "";
+
+  const beginEdit = (field: "from" | "to") => {
+    setActiveField(field);
+    if (field === "from") {
+      props.onChangeQuery(props.selectedOrigin?.title || "");
+    } else {
+      props.onChangeQuery(props.selectedDestination?.title || props.query || "");
+    }
+  };
+
   return (
     <View style={styles.tripFormCard}>
-      <TripInputRow icon="crosshairs-gps" label={t.sheet.from} value={t.common.currentLocation} />
+      <TripInputRow icon="crosshairs-gps" label={t.sheet.from}>
+        <InlineInput
+          value={fromValue}
+          placeholder={t.sheet.fromPlaceholder || t.sheet.from}
+          onFocus={() => beginEdit("from")}
+          onChangeText={(text) => {
+            setActiveField("from");
+            props.onChangeQuery(text);
+          }}
+          onSubmit={() => props.onSubmitSearch()}
+          onClear={() => {
+            setActiveField("from");
+            props.onClearOrigin?.();
+            props.onChangeQuery("");
+          }}
+          isLoading={activeField === "from" && props.isSearching}
+        />
+      </TripInputRow>
       <View style={styles.tripDivider} />
       <TripInputRow icon="map-marker" label={t.sheet.to}>
-        <SearchInput {...props} />
+        <InlineInput
+          value={toValue}
+          placeholder={t.sheet.toPlaceholder || t.common.searchPlaceholder}
+          onFocus={() => beginEdit("to")}
+          onChangeText={(text) => {
+            setActiveField("to");
+            props.onChangeQuery(text);
+          }}
+          onSubmit={props.onSubmitSearch}
+          onClear={props.onReset}
+          isLoading={activeField === "to" && props.isSearching}
+        />
       </TripInputRow>
       <View style={styles.tripDivider} />
       <TripInputRow icon="clock-outline" label={t.sheet.when} value={t.sheet.now} />
@@ -387,29 +478,39 @@ function AppleMenuContent(props: Props) {
   );
 }
 
-function SearchHeader() {
-  return <AppleSearchHeader />;
+function SearchHeader({ panHandlers }: { panHandlers?: any }) {
+  return <AppleSearchHeader panHandlers={panHandlers} />;
 }
 
-function SearchState(props: Props) {
+function SearchState(props: Props & { panHandlers?: any }) {
+  const { t } = useLanguage();
+  const [activeField, setActiveField] = React.useState<"from" | "to">("to");
   const hasResults = props.searchResults.length > 0;
+  const hasQuery = props.query.trim().length >= 2;
+  const showEmpty = hasQuery && !hasResults && !props.isSearching;
+
   return (
     <View style={styles.stateRoot}>
-      <SearchHeader />
+      <SearchHeader panHandlers={props.panHandlers} />
       <ScrollView
         style={styles.scrollArea}
         contentContainerStyle={styles.searchScrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <TripSearchForm {...props} />
-        {props.error ? <Text style={styles.inlineError}>{props.error}</Text> : null}
+        <TripSearchForm props={props} activeField={activeField} setActiveField={setActiveField} />
+
         {hasResults ? props.searchResults.slice(0, 10).map((place) => (
           <Pressable
             key={place.id}
             style={styles.searchResultRow}
             onPress={() => {
               void Haptics.selectionAsync();
+              if (activeField === "from") {
+                props.onSelectOrigin?.(place);
+                props.onChangeQuery("");
+                return;
+              }
               props.onSelectDestination(place);
             }}
           >
@@ -420,9 +521,16 @@ function SearchState(props: Props) {
             </View>
             <Ionicons name="chevron-forward" size={14} color={COLORS.dim} />
           </Pressable>
-        )) : (
-          <AppleMenuContent {...props} />
-        )}
+        )) : null}
+
+        {showEmpty ? (
+          <View style={styles.emptyBlockCompact}>
+            <Text style={styles.emptyTitle}>{t.sheet.noResultsTitle}</Text>
+            <Text style={styles.emptyText}>{activeField === "from" ? (t.sheet.fromPlaceholder || t.sheet.noResultsText) : t.sheet.noResultsText}</Text>
+          </View>
+        ) : null}
+
+        {!hasResults ? <AppleMenuContent {...props} /> : null}
       </ScrollView>
     </View>
   );
@@ -642,7 +750,7 @@ export default function JourneySheet(props: Props) {
         <View {...panResponder.panHandlers} style={styles.dragArea}>
           <View style={styles.grabber} />
         </View>
-        {stage === "search" ? <SearchState {...props} /> : null}
+        {stage === "search" ? <SearchState {...props} panHandlers={panResponder.panHandlers} /> : null}
         {stage === "loading" ? <LoadingState onReset={props.onReset} /> : null}
         {stage === "routes" ? <RoutesListState {...props} /> : null}
         {stage === "details" ? <RouteDetailsState {...props} /> : null}
@@ -670,10 +778,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(247,250,247,0.92)",
   },
   blurSurface: { flex: 1, backgroundColor: "rgba(247,250,247,0.74)" },
-  dragArea: { height: 28, alignItems: "center", justifyContent: "center" },
+  dragArea: { height: 24, alignItems: "center", justifyContent: "center" },
   grabber: { width: 56, height: 5, borderRadius: 99, backgroundColor: "rgba(25,35,50,0.20)" },
   stateRoot: { flex: 1 },
   fixedHeader: { paddingHorizontal: 18, paddingBottom: 10 },
+  fixedHeaderCompact: { paddingHorizontal: 18, paddingBottom: 10, alignItems: "center", justifyContent: "center" },
   scrollArea: { flex: 1 },
   headerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
   roundControl: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,27,37,0.08)" },
@@ -716,6 +825,7 @@ const styles = StyleSheet.create({
   quickMenuTitle: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "900" },
   quickMenuSubtitle: { color: "#6A7488", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 1 },
   emptyBlock: { paddingTop: 24 },
+  emptyBlockCompact: { borderRadius: 18, backgroundColor: "rgba(255,255,255,0.56)", paddingHorizontal: 14, paddingVertical: 12, marginBottom: 10 },
   emptyTitle: { color: COLORS.textDark, fontSize: T.section, lineHeight: LINE_HEIGHT.section, fontWeight: "900" },
   emptyText: { color: "#667083", fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700", marginTop: 4 },
   searchResultRow: { minHeight: 52, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "rgba(255,255,255,0.62)", marginBottom: 8 },
@@ -764,7 +874,8 @@ const styles = StyleSheet.create({
   appleTitleRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 6 },
   appleSheetKicker: { color: COLORS.green, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 2.4, marginBottom: 2 },
   appleSheetTitle: { color: COLORS.textDark, fontSize: 28, lineHeight: 34, fontWeight: "900" },
-  tripFormCard: { borderRadius: 24, padding: 12, backgroundColor: "rgba(255,255,255,0.72)", borderWidth: 1, borderColor: "rgba(20,27,37,0.06)", marginBottom: 12 },
+  appleSheetTitleCentered: { color: COLORS.textDark, fontSize: 20, lineHeight: 24, fontWeight: "900", textAlign: "center", letterSpacing: -0.2 },
+  tripFormCard: { borderRadius: 24, padding: 12, backgroundColor: "rgba(255,255,255,0.72)", borderWidth: 1, borderColor: "rgba(20,27,37,0.06)", marginBottom: 12, marginTop: 2 },
   tripInputRow: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 8, paddingVertical: 6 },
   tripInputIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(53,242,180,0.16)" },
   tripInputLabel: { color: "#667083", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 2 },

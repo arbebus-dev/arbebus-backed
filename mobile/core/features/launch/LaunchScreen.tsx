@@ -27,10 +27,9 @@ type LaunchScreenProps = {
 
 export default function LaunchScreen({ onSelectLanguage }: LaunchScreenProps) {
   const screenFade = useRef(new Animated.Value(0)).current;
-  const imageScale = useRef(new Animated.Value(1.035)).current;
-  const imageY = useRef(new Animated.Value(8)).current;
+  const imageScale = useRef(new Animated.Value(1.025)).current;
   const controlsOpacity = useRef(new Animated.Value(0)).current;
-  const controlsY = useRef(new Animated.Value(18)).current;
+  const controlsY = useRef(new Animated.Value(14)).current;
   const leaving = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -40,33 +39,27 @@ export default function LaunchScreen({ onSelectLanguage }: LaunchScreenProps) {
       Animated.parallel([
         Animated.timing(screenFade, {
           toValue: 1,
-          duration: 420,
+          duration: 360,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
         Animated.timing(imageScale, {
           toValue: 1,
-          duration: 1200,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(imageY, {
-          toValue: 0,
-          duration: 900,
+          duration: 1050,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
         Animated.timing(controlsOpacity, {
           toValue: 1,
-          duration: 460,
-          delay: 220,
+          duration: 420,
+          delay: 180,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
         Animated.timing(controlsY, {
           toValue: 0,
-          duration: 540,
-          delay: 220,
+          duration: 500,
+          delay: 180,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
@@ -74,7 +67,7 @@ export default function LaunchScreen({ onSelectLanguage }: LaunchScreenProps) {
     };
 
     boot();
-  }, [controlsOpacity, controlsY, imageScale, imageY, screenFade]);
+  }, [controlsOpacity, controlsY, imageScale, screenFade]);
 
   const chooseLanguage = async (language: AppLanguage) => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
@@ -83,7 +76,7 @@ export default function LaunchScreen({ onSelectLanguage }: LaunchScreenProps) {
 
     Animated.timing(leaving, {
       toValue: 0,
-      duration: 220,
+      duration: 190,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start(({ finished }) => {
@@ -98,7 +91,7 @@ export default function LaunchScreen({ onSelectLanguage }: LaunchScreenProps) {
           styles.imageWrap,
           {
             opacity: screenFade,
-            transform: [{ scale: imageScale }, { translateY: imageY }],
+            transform: [{ scale: imageScale }],
           },
         ]}
       >
@@ -107,7 +100,6 @@ export default function LaunchScreen({ onSelectLanguage }: LaunchScreenProps) {
           style={styles.hero}
           resizeMode="cover"
         >
-          <View pointerEvents="none" style={styles.topShade} />
           <View pointerEvents="none" style={styles.bottomShade} />
         </ImageBackground>
       </Animated.View>
@@ -119,7 +111,8 @@ export default function LaunchScreen({ onSelectLanguage }: LaunchScreenProps) {
             { opacity: controlsOpacity, transform: [{ translateY: controlsY }] },
           ]}
         >
-          <Text style={styles.chooseTitle}>Pasirink kalbą / Choose language</Text>
+          <Text style={styles.chooseTitle}>Pasirink kalbą</Text>
+          <Text style={styles.chooseSubtitle}>Choose language</Text>
           <View style={styles.languageRow}>
             <LanguageButton
               flag="🇱🇹"
@@ -156,7 +149,7 @@ function LanguageButton({
   onPress: () => void;
 }) {
   return (
-    <BlurView intensity={Platform.OS === "ios" ? 30 : 18} tint="dark" style={styles.languageShell}>
+    <BlurView intensity={Platform.OS === "ios" ? 28 : 16} tint="dark" style={styles.languageShell}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${title} ${code}`}
@@ -189,21 +182,13 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  topShade: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 120,
-    backgroundColor: "rgba(3,7,11,0.06)",
-  },
   bottomShade: {
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
-    height: 260,
-    backgroundColor: "rgba(3,7,11,0.34)",
+    height: 230,
+    backgroundColor: "rgba(3,7,11,0.22)",
   },
   safe: {
     ...StyleSheet.absoluteFillObject,
@@ -212,73 +197,88 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
-    top: "50%",
-    paddingHorizontal: 22,
-    gap: 12,
+    top: "58%",
+    paddingHorizontal: 38,
+    gap: 4,
   },
   chooseTitle: {
-    color: "rgba(255,255,255,0.90)",
-    fontSize: 15,
+    color: "rgba(255,255,255,0.96)",
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "900",
+    textAlign: "center",
+    letterSpacing: 0.2,
+    textShadowColor: "rgba(0,0,0,0.60)",
+    textShadowRadius: 10,
+  },
+  chooseSubtitle: {
+    color: "rgba(255,255,255,0.74)",
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: "800",
     textAlign: "center",
-    letterSpacing: 0.3,
+    marginTop: -5,
+    marginBottom: 0,
+    textShadowColor: "rgba(0,0,0,0.55)",
+    textShadowRadius: 8,
   },
   languageRow: {
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
   },
   languageShell: {
     flex: 1,
-    borderRadius: 26,
+    borderRadius: 16,
     overflow: "hidden",
-    backgroundColor: "rgba(0,0,0,0.30)",
+    backgroundColor: "rgba(0,0,0,0.20)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
+    borderColor: "rgba(255,255,255,0.12)",
   },
   languageButton: {
-    minHeight: 124,
-    paddingVertical: 15,
-    paddingHorizontal: 12,
+    minHeight: 62,
+    paddingVertical: 6,
+    paddingHorizontal: 7,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(2,8,14,0.34)",
+    backgroundColor: "rgba(2,8,14,0.22)",
   },
   buttonPressed: {
     transform: [{ scale: 0.985 }],
     opacity: 0.88,
   },
   flag: {
-    fontSize: 28,
-    marginBottom: 8,
+    fontSize: 15,
+    marginBottom: 4,
   },
   languageTitle: {
     color: "white",
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 12,
+    lineHeight: 15,
     fontWeight: "900",
     textAlign: "center",
   },
   codePill: {
-    marginTop: 9,
-    minWidth: 48,
-    height: 30,
-    borderRadius: 15,
+    marginTop: 6,
+    borderRadius: 999,
+    minHeight: 28,
+    minWidth: 54,
+    paddingHorizontal: 14,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: BRAND,
   },
   codeText: {
-    color: "#06110D",
-    fontSize: 14,
+    color: "#03140F",
+    fontSize: 12,
+    lineHeight: 15,
     fontWeight: "900",
-    letterSpacing: 0.9,
   },
   languageSubtitle: {
-    color: "rgba(255,255,255,0.72)",
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "700",
+    marginTop: 6,
+    color: "rgba(255,255,255,0.74)",
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "800",
     textAlign: "center",
-    marginTop: 8,
   },
 });

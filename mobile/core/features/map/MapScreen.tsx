@@ -347,6 +347,8 @@ export default function MapScreen() {
         isPlanning={planner.isPlanning}
         routeOptions={planner.routeOptions}
         selectedRoute={selectedRoute}
+        selectedOrigin={planner.selectedOrigin}
+        selectedDestination={planner.selectedDestination}
         error={planner.error}
         isOffline={planner.isOffline}
         offlineMessage={planner.offlineMessage}
@@ -365,6 +367,11 @@ export default function MapScreen() {
           Keyboard.dismiss();
           void planner.selectDestination(item);
         }}
+        onSelectOrigin={(item) => {
+          Keyboard.dismiss();
+          planner.selectOrigin(item);
+        }}
+        onClearOrigin={planner.clearOrigin}
         onChooseRoute={planner.chooseRoute}
         onStartJourney={planner.startJourney}
         onNextStep={planner.nextStep}

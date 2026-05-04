@@ -11,12 +11,20 @@ SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 function RootLayoutInner() {
   const { isLanguageReady, setLanguage } = useLanguage();
+
+  // IMPORTANT:
+  // Arbebus must show the LT / EN launch screen on every fresh app open.
+  // We still save language for UI text after selection, but we never use
+  // saved language to skip the launch screen.
   const [hasEnteredApp, setHasEnteredApp] = useState(false);
 
-  const handleSelectLanguage = useCallback(async (language: AppLanguage) => {
-    await setLanguage(language);
-    setHasEnteredApp(true);
-  }, [setLanguage]);
+  const handleSelectLanguage = useCallback(
+    async (language: AppLanguage) => {
+      await setLanguage(language);
+      setHasEnteredApp(true);
+    },
+    [setLanguage],
+  );
 
   if (!isLanguageReady) {
     return <View style={{ flex: 1, backgroundColor: "#03070B" }} />;
