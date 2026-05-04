@@ -24,9 +24,8 @@ initSentry();
 
 const app = createApp();
 
-app.listen(env.PORT, () => {
-  logger.info(
-    { port: env.PORT, nodeEnv: env.NODE_ENV },
-    "Arbebus backend started",
-  );
+const PORT = process.env.PORT || env.PORT || 3000;
+
+app.listen(PORT, "0.0.0.0", () => {
+  logger.info({ port: PORT, nodeEnv: env.NODE_ENV }, "Arbebus backend started");
 });
