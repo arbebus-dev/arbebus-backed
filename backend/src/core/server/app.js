@@ -16,21 +16,17 @@ function createApp() {
     res.json({ ok: true, service: "arbebus-backend" });
   });
 
-  // Existing routes
-  app.use("/api", routes);
-  app.use("/", routes);
-
-  // Direct search routes fallback/fix for Render deployments.
+  // Direct Render-safe routes. Keep these BEFORE the catch-all /api router.
   app.use("/api/search", searchRoutes);
   app.use("/search", searchRoutes);
+  app.use("/api/places/search", searchRoutes);
+  app.use("/api/stops/search", searchRoutes);
 
-  // Direct transit routes fallback/fix
-  // Ensures:
-  // /api/transit/live-buses
-  // /api/transit/plan
-  // /api/transit/departures
-  // /api/transit/vehicle/:id
   app.use("/api/transit", transitRoutes);
+
+  // Full API router and legacy aliases.
+  app.use("/api", routes);
+  app.use("/", routes);
 
   app.use(notFound);
   app.use(errorHandler);
