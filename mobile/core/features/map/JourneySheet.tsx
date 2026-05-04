@@ -5,6 +5,8 @@ import React, { useEffect, useMemo, useRef } from "react";
 import {
   ActivityIndicator,
   Animated,
+  Image,
+  Linking,
   Dimensions,
   Keyboard,
   PanResponder,
@@ -402,14 +404,14 @@ function TripSearchForm({
 }) {
   const { t } = useLanguage();
   const fromValue = activeField === "from" ? props.query : props.selectedOrigin?.title || "";
-  const toValue = activeField === "to" ? props.query : props.selectedDestination?.title || props.query || "";
+  const toValue = activeField === "to" ? props.query : props.selectedDestination?.title || "";
 
   const beginEdit = (field: "from" | "to") => {
     setActiveField(field);
     if (field === "from") {
       props.onChangeQuery(props.selectedOrigin?.title || "");
     } else {
-      props.onChangeQuery(props.selectedDestination?.title || props.query || "");
+      props.onChangeQuery(props.selectedDestination?.title || "");
     }
   };
 
@@ -465,10 +467,28 @@ function iconForPlaceType(type?: string) {
   return 'map-marker';
 }
 
+function formatCategory(place: PlaceSearchResult) {
+  const category = String((place as any).category || place.type || "vieta");
+  return category.replace(/_/g, " ");
+}
+
 function PlacePreviewCard({ props }: { props: Props }) {
   const { t } = useLanguage();
-  const place = props.selectedMapPlace;
+  const place = props.selectedMapPlace as (PlaceSearchResult & {
+    rating?: number | null;
+    userRatingCount?: number | null;
+    openNow?: boolean | null;
+    photoUrls?: string[];
+    category?: string | null;
+    phone?: string | null;
+    website?: string | null;
+    googleMapsUri?: string | null;
+  }) | null;
   if (!place) return null;
+
+  const photos = Array.isArray(place.photoUrls) ? place.photoUrls.slice(0, 5) : [];
+  const hasRating = typeof place.rating === "number" && Number.isFinite(place.rating);
+  const openLabel = place.openNow === true ? t.sheet.openNow : place.openNow === false ? t.sheet.closedNow : null;
 
   const useAsOrigin = () => {
     void Haptics.selectionAsync();
@@ -481,14 +501,22 @@ function PlacePreviewCard({ props }: { props: Props }) {
   };
 
   return (
-    <View style={styles.placePreviewCard}>
+    <View style={styles.placePreviewCardPro}>
+      {photos.length ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.placePhotoRail}>
+          {photos.map((uri, index) => (
+            <Image key={`${uri}-${index}`} source={{ uri }} style={styles.placePhoto} resizeMode="cover" />
+          ))}
+        </ScrollView>
+      ) : null}
+
       <View style={styles.placePreviewTop}>
         <View style={styles.placePreviewIcon}>
           <MaterialCommunityIcons name={iconForPlaceType(place.type) as any} size={18} color={COLORS.greenDark} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.placePreviewKicker}>{t.sheet.selectedPlace}</Text>
-          <Text style={styles.placePreviewTitle} numberOfLines={1}>{place.title}</Text>
+          <Text style={styles.placePreviewTitle} numberOfLines={2}>{place.title}</Text>
           <Text style={styles.placePreviewSubtitle} numberOfLines={2}>{place.subtitle || placeSubtitle(place)}</Text>
         </View>
         <Pressable onPress={props.onClearMapPlace} hitSlop={12} style={styles.placePreviewClose}>
@@ -496,12 +524,25 @@ function PlacePreviewCard({ props }: { props: Props }) {
         </Pressable>
       </View>
 
-      {props.isReverseGeocoding ? (
-        <View style={styles.placeLoadingRow}>
-          <ActivityIndicator size="small" color={COLORS.green} />
-          <Text style={styles.placeLoadingText}>{t.sheet.locatingPlace}</Text>
-        </View>
-      ) : null}
+      <View style={styles.placeMetaRowWrap}>
+        <View style={styles.placeMetaPill}><Text style={styles.placeMetaText}>{formatCategory(place)}</Text></View>
+        {hasRating ? (
+          <View style={styles.placeMetaPillGold}>
+            <Ionicons name="star" size={12} color="#8A5A00" />
+            <Text style={styles.placeMetaTextGold}>{place.rating?.toFixed(1)}{place.userRatingCount ? ` · ${place.userRatingCount}` : ""}</Text>
+          </View>
+        ) : null}
+        {openLabel ? (
+          <View style={[styles.placeMetaPill, place.openNow ? styles.placeMetaOpen : styles.placeMetaClosed]}>
+            <Text style={[styles.placeMetaText, place.openNow ? styles.placeMetaOpenText : styles.placeMetaClosedText]}>{openLabel}</Text>
+          </View>
+        ) : null}
+        {props.isReverseGeocoding ? (
+          <View style={styles.placeMetaPill}>
+            <ActivityIndicator size="small" color={COLORS.green} />
+          </View>
+        ) : null}
+      </View>
 
       <View style={styles.placePreviewActions}>
         <Pressable style={styles.placeActionButtonSecondary} onPress={useAsOrigin}>
@@ -515,6 +556,14 @@ function PlacePreviewCard({ props }: { props: Props }) {
         <MaterialCommunityIcons name="navigation-variant" size={16} color={COLORS.greenDark} />
         <Text style={styles.placeRouteButtonText}>{t.sheet.showRoute}</Text>
       </Pressable>
+
+      {(place.phone || place.website || place.googleMapsUri) ? (
+        <View style={styles.placeLinkRow}>
+          {place.phone ? <Pressable style={styles.placeLinkButton} onPress={() => Linking.openURL(`tel:${place.phone}`)}><Ionicons name="call" size={14} color={COLORS.textDark} /><Text style={styles.placeLinkText}>{t.sheet.call}</Text></Pressable> : null}
+          {place.website ? <Pressable style={styles.placeLinkButton} onPress={() => Linking.openURL(String(place.website))}><Ionicons name="globe" size={14} color={COLORS.textDark} /><Text style={styles.placeLinkText}>{t.sheet.website}</Text></Pressable> : null}
+          {place.googleMapsUri ? <Pressable style={styles.placeLinkButton} onPress={() => Linking.openURL(String(place.googleMapsUri))}><Ionicons name="map" size={14} color={COLORS.textDark} /><Text style={styles.placeLinkText}>Google</Text></Pressable> : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -581,8 +630,10 @@ function SearchState(props: Props & { panHandlers?: any }) {
               if (activeField === "from") {
                 props.onSelectOrigin?.(place);
                 props.onChangeQuery("");
+                setActiveField("to");
                 return;
               }
+              props.onChangeQuery("");
               props.onSelectDestination(place);
             }}
           >
@@ -949,6 +1000,27 @@ const styles = StyleSheet.create({
     lineHeight: LINE_HEIGHT.caption,
     fontWeight: "800",
   },
+  placeMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+    paddingLeft: 53,
+  },
+  placeMetaPill: {
+    minHeight: 24,
+    borderRadius: 12,
+    paddingHorizontal: 9,
+    justifyContent: "center",
+    backgroundColor: "rgba(20,27,37,0.06)",
+  },
+  placeMetaText: {
+    color: "#667083",
+    fontSize: T.tiny,
+    lineHeight: LINE_HEIGHT.tiny,
+    fontWeight: "900",
+    textTransform: "capitalize",
+  },
   placePreviewActions: { flexDirection: "row", gap: 8, marginTop: 12 },
   placeActionButtonSecondary: {
     flex: 1,
@@ -1066,4 +1138,83 @@ const styles = StyleSheet.create({
   tripInputLabel: { color: "#667083", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 2 },
   tripInputValue: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "900" },
   tripDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "rgba(45,55,72,0.16)", marginLeft: 54 },
+
+  placePreviewCardPro: {
+    borderRadius: 26,
+    padding: 12,
+    backgroundColor: "rgba(255,255,255,0.78)",
+    borderWidth: 1,
+    borderColor: "rgba(20,27,37,0.07)",
+    marginBottom: 12,
+    overflow: "hidden",
+    shadowColor: "#0B1220",
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+  },
+  placePhotoRail: {
+    gap: 8,
+    paddingBottom: 10,
+  },
+  placePhoto: {
+    width: 142,
+    height: 92,
+    borderRadius: 18,
+    backgroundColor: "rgba(20,27,37,0.08)",
+  },
+  placeMetaRowWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 7,
+    marginTop: 12,
+  },
+  placeMetaPillGold: {
+    minHeight: 24,
+    borderRadius: 12,
+    paddingHorizontal: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(255,193,7,0.22)",
+  },
+  placeMetaTextGold: {
+    color: "#8A5A00",
+    fontSize: T.tiny,
+    lineHeight: LINE_HEIGHT.tiny,
+    fontWeight: "900",
+  },
+  placeMetaOpen: {
+    backgroundColor: "rgba(32,201,151,0.14)",
+  },
+  placeMetaClosed: {
+    backgroundColor: "rgba(255,99,99,0.13)",
+  },
+  placeMetaOpenText: {
+    color: "#087F5B",
+  },
+  placeMetaClosedText: {
+    color: "#B42318",
+  },
+  placeLinkRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+  placeLinkButton: {
+    minHeight: 34,
+    borderRadius: 17,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(20,27,37,0.07)",
+  },
+  placeLinkText: {
+    color: COLORS.textDark,
+    fontSize: T.caption,
+    lineHeight: LINE_HEIGHT.caption,
+    fontWeight: "900",
+  },
 });

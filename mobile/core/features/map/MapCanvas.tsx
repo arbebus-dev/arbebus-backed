@@ -12,9 +12,10 @@ const INITIAL_REGION: Region = {
 type Props = {
   children?: React.ReactNode;
   onPress?: any;
+  onPoiClick?: any;
 };
 
-const MapCanvas = forwardRef<MapView, Props>(({ children, onPress }, ref) => {
+const MapCanvas = forwardRef<MapView, Props>(({ children, onPress, onPoiClick }, ref) => {
   return (
     <View style={styles.container}>
       <MapView
@@ -23,6 +24,7 @@ const MapCanvas = forwardRef<MapView, Props>(({ children, onPress }, ref) => {
         style={styles.map}
         initialRegion={INITIAL_REGION}
         onPress={onPress}
+        {...({ onPoiClick } as any)}
         showsUserLocation={false}
         showsMyLocationButton={false}
         showsCompass={false}

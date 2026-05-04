@@ -10,7 +10,21 @@ import type {
 
 export type { LiveBus } from "../models/transitTypes";
 export type { TransitRouteOption };
-export type PlaceResult = PlaceSearchResult;
+export type PlaceResult = PlaceSearchResult & {
+  placeId?: string;
+  googlePlaceId?: string;
+  category?: string | null;
+  rating?: number | null;
+  userRatingCount?: number | null;
+  openNow?: boolean | null;
+  businessStatus?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  googleMapsUri?: string | null;
+  photoNames?: string[];
+  photoUrls?: string[];
+  types?: string[];
+};
 
 export type LiveEtaResult = {
   ok: boolean;
@@ -36,6 +50,10 @@ export type WalkingRouteResult = {
 
 function apiBase() {
   return API_ENDPOINTS.transitPlan.replace(/\/transit\/plan$/, "");
+}
+
+function placePhotoUrl(photoName: string) {
+  return `${apiBase()}/search/photo?name=${encodeURIComponent(photoName)}`;
 }
 
 const API_TIMEOUT_MS = 9000;
@@ -842,6 +860,19 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
                   : "Vieta"),
             type,
             source: item.source,
+            placeId: item.placeId ?? item.googlePlaceId ?? (String(item.source || '').includes('google') ? item.id : undefined),
+            googlePlaceId: item.googlePlaceId ?? item.placeId ?? (String(item.source || '').includes('google') ? item.id : undefined),
+            category: item.category ?? item.types?.[0] ?? null,
+            rating: item.rating != null ? Number(item.rating) : null,
+            userRatingCount: item.userRatingCount != null ? Number(item.userRatingCount) : null,
+            openNow: typeof item.openNow === 'boolean' ? item.openNow : null,
+            businessStatus: item.businessStatus ?? null,
+            phone: item.phone ?? null,
+            website: item.website ?? null,
+            googleMapsUri: item.googleMapsUri ?? null,
+            photoNames: Array.isArray(item.photoNames) ? item.photoNames : [],
+            photoUrls: Array.isArray(item.photoNames) ? item.photoNames.map(placePhotoUrl) : [],
+            types: Array.isArray(item.types) ? item.types : [],
             distanceMeters:
               item.distanceMeters != null
                 ? Number(item.distanceMeters)
@@ -916,6 +947,19 @@ export async function reverseGeocodePlace(
         longitude: coordinateFromResponse.longitude,
         coordinate: coordinateFromResponse,
         source: raw.source ?? "reverse",
+        placeId: raw.placeId ?? raw.googlePlaceId ?? (String(raw.source || '').includes('google') ? raw.id : undefined),
+        googlePlaceId: raw.googlePlaceId ?? raw.placeId ?? (String(raw.source || '').includes('google') ? raw.id : undefined),
+        category: raw.category ?? raw.types?.[0] ?? null,
+        rating: raw.rating != null ? Number(raw.rating) : null,
+        userRatingCount: raw.userRatingCount != null ? Number(raw.userRatingCount) : null,
+        openNow: typeof raw.openNow === 'boolean' ? raw.openNow : null,
+        businessStatus: raw.businessStatus ?? null,
+        phone: raw.phone ?? null,
+        website: raw.website ?? null,
+        googleMapsUri: raw.googleMapsUri ?? null,
+        photoNames: Array.isArray(raw.photoNames) ? raw.photoNames : [],
+        photoUrls: Array.isArray(raw.photoNames) ? raw.photoNames.map(placePhotoUrl) : [],
+        types: Array.isArray(raw.types) ? raw.types : [],
       } as PlaceResult;
     } catch {
       // Try compatible fallback endpoint.
@@ -923,6 +967,52 @@ export async function reverseGeocodePlace(
   }
 
   return fallback;
+}
+
+
+export async function fetchPlaceDetails(place: PlaceResult): Promise<PlaceResult> {
+  const placeId = place.placeId ?? place.googlePlaceId ?? (String(place.source || '').includes('google') ? place.id : undefined);
+  if (!placeId) return place;
+
+  try {
+    const response = await fetchWithRetry(
+      `${apiBase()}/search/details?placeId=${encodeURIComponent(placeId)}`,
+      undefined,
+      0,
+    );
+    if (!response.ok) return place;
+    const data = await safeJson<any>(response);
+    const raw = data?.place || data?.result || data?.results?.[0];
+    if (!raw) return place;
+    const coordinate = toCoordinate(raw) ?? place.coordinate;
+    return {
+      ...place,
+      ...raw,
+      id: String(raw.id ?? place.id),
+      title: String(raw.title ?? raw.name ?? place.title),
+      subtitle: raw.subtitle ?? raw.address ?? raw.formattedAddress ?? place.subtitle,
+      type: normalizePlaceType(raw),
+      latitude: coordinate.latitude,
+      longitude: coordinate.longitude,
+      coordinate,
+      placeId: raw.placeId ?? raw.googlePlaceId ?? placeId,
+      googlePlaceId: raw.googlePlaceId ?? raw.placeId ?? placeId,
+      category: raw.category ?? raw.types?.[0] ?? place.category ?? null,
+      rating: raw.rating != null ? Number(raw.rating) : place.rating ?? null,
+      userRatingCount: raw.userRatingCount != null ? Number(raw.userRatingCount) : place.userRatingCount ?? null,
+      openNow: typeof raw.openNow === 'boolean' ? raw.openNow : place.openNow ?? null,
+      businessStatus: raw.businessStatus ?? place.businessStatus ?? null,
+      phone: raw.phone ?? place.phone ?? null,
+      website: raw.website ?? place.website ?? null,
+      googleMapsUri: raw.googleMapsUri ?? place.googleMapsUri ?? null,
+      photoNames: Array.isArray(raw.photoNames) ? raw.photoNames : place.photoNames ?? [],
+      photoUrls: Array.isArray(raw.photoNames) ? raw.photoNames.map(placePhotoUrl) : place.photoUrls ?? [],
+      types: Array.isArray(raw.types) ? raw.types : place.types ?? [],
+      source: raw.source ?? place.source,
+    } as PlaceResult;
+  } catch {
+    return place;
+  }
 }
 
 export async function planTransitRoute(params: {
