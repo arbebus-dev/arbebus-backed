@@ -112,6 +112,28 @@ function stepLabel(step: TransitStep) {
   return step.type === "walk" ? "eik" : "";
 }
 
+function timeText(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const parts = raw.split(":");
+  if (parts.length >= 2) return `${parts[0].padStart(2, "0")}:${parts[1].padStart(2, "0")}`;
+  return raw;
+}
+
+function stopTimeText(stop: any) {
+  return timeText(stop?.arrivalTime || stop?.departureTime);
+}
+
+function stepMetaLine(step: TransitStep) {
+  const items = [
+    step.departureTime ? `išvyksta ${timeText(step.departureTime)}` : null,
+    step.arrivalTime ? `atvyksta ${timeText(step.arrivalTime)}` : null,
+    step.stopCount != null && Number(step.stopCount) > 0 ? `${Number(step.stopCount)} stotelės` : null,
+    step.durationMinutes != null ? `${Number(step.durationMinutes)} min` : null,
+  ].filter(Boolean);
+  return items.join(" • ");
+}
+
 function placeSubtitle(place: PlaceSearchResult) {
   const meters = n(place.distanceMeters, 0);
   if (meters > 0 && meters < 1000) return `${Math.round(meters)} m`;
@@ -733,20 +755,53 @@ function RoutesListState(props: Props) {
   );
 }
 
-function StepRow({ step, active }: { step: TransitStep; active?: boolean }) {
+function StopTimeline({ step }: { step: TransitStep }) {
+  const stops = Array.isArray(step.stops?.length ? step.stops : step.rideStops || step.routeStops)
+    ? (step.stops?.length ? step.stops : step.rideStops || step.routeStops || [])
+    : [];
+
+  if (!stops.length || (step.type !== "ride" && step.type !== "bus")) return null;
+
+  const compactStops = stops.slice(0, 9);
+  const hidden = Math.max(0, stops.length - compactStops.length);
+
   return (
-    <View style={styles.stepRow}>
-      <View style={styles.stepRail}>
-        <View style={[styles.stepLineDot, active && styles.stepLineDotActive]} />
+    <View style={styles.stopTimelineBox}>
+      {compactStops.map((stop: any, index: number) => {
+        const name = cleanStopName(stop.stopName || stop.name || stop.title || "Stotelė");
+        const t = stopTimeText(stop);
+        return (
+          <View key={`${stop.id || name}-${index}`} style={styles.stopTimelineRow}>
+            <Text style={styles.stopTimelineTime}>{t || "—"}</Text>
+            <View style={styles.stopTimelineDot} />
+            <Text style={styles.stopTimelineName} numberOfLines={1}>{name}</Text>
+          </View>
+        );
+      })}
+      {hidden ? <Text style={styles.stopTimelineMore}>+ dar {hidden} stotelės</Text> : null}
+    </View>
+  );
+}
+
+function StepRow({ step, active }: { step: TransitStep; active?: boolean }) {
+  const meta = stepMetaLine(step);
+  const subtitle = step.subtitle || [cleanStopName(step.stopName || step.fromStopName), step.toStopName ? `→ ${cleanStopName(step.toStopName)}` : null].filter(Boolean).join(" ");
+
+  return (
+    <View style={[styles.stepRowBlock, active && styles.stepRowBlockActive]}>
+      <View style={styles.stepRowTop}>
+        <View style={styles.stepRail}>
+          <View style={[styles.stepLineDot, active && styles.stepLineDotActive]} />
+        </View>
+        <View style={styles.stepIconMini}><MaterialCommunityIcons name={stepIcon(step) as any} size={12} color={active ? COLORS.greenDark : COLORS.green} /></View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.stepTitle} numberOfLines={2}>{step.title}</Text>
+          {subtitle ? <Text style={styles.stepSubtitle} numberOfLines={2}>{subtitle}</Text> : null}
+          {meta ? <Text style={styles.stepMetaText} numberOfLines={1}>{meta}</Text> : null}
+        </View>
+        <Text style={styles.stepBadge}>{stepLabel(step)}</Text>
       </View>
-      <View style={styles.stepIconMini}><MaterialCommunityIcons name={stepIcon(step) as any} size={12} color={active ? COLORS.greenDark : COLORS.green} /></View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.stepTitle} numberOfLines={1}>{step.title}</Text>
-        <Text style={styles.stepSubtitle} numberOfLines={1}>
-          {[cleanStopName(step.stopName || step.fromStopName), step.toStopName ? `→ ${cleanStopName(step.toStopName)}` : null].filter(Boolean).join(" ")}
-        </Text>
-      </View>
-      <Text style={styles.stepBadge}>{stepLabel(step)}</Text>
+      <StopTimeline step={step} />
     </View>
   );
 }
@@ -763,9 +818,14 @@ function RouteDetailsState(props: Props) {
         <View style={styles.detailSummaryCard}>
           <View style={{ flex: 1 }}>
             <Text style={styles.detailDuration}>{s.duration || "–"} min</Text>
-            <Text style={styles.detailSubtitle} numberOfLines={1}>Bus {route.departureText || "pagal tvarkaraštį"}</Text>
+            <Text style={styles.detailSubtitle} numberOfLines={1}>Bus {route.departureText || "pagal tvarkaraštį"}{route.arrivalText ? ` • atvyksta ${route.arrivalText}` : ""}</Text>
           </View>
           <RoutePills route={route} />
+          <View style={styles.routeStatsGrid}>
+            <View style={styles.routeStatPill}><Text style={styles.routeStatValue}>{s.stops}</Text><Text style={styles.routeStatLabel}>stotelės</Text></View>
+            <View style={styles.routeStatPill}><Text style={styles.routeStatValue}>{s.transfers}</Text><Text style={styles.routeStatLabel}>persėdimai</Text></View>
+            <View style={styles.routeStatPill}><Text style={styles.routeStatValue}>{s.walk}</Text><Text style={styles.routeStatLabel}>min eiti</Text></View>
+          </View>
         </View>
       </View>
       <ScrollView style={styles.scrollArea} contentContainerStyle={styles.stepsContent} showsVerticalScrollIndicator={false}>
@@ -1176,16 +1236,30 @@ const styles = StyleSheet.create({
   detailSummaryCard: { borderRadius: 18, backgroundColor: "rgba(255,255,255,0.68)", padding: 13, marginBottom: 8 },
   detailDuration: { color: COLORS.textDark, fontSize: T.section, lineHeight: LINE_HEIGHT.section, fontWeight: "900" },
   detailSubtitle: { color: "#5E687A", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 2, marginBottom: 10 },
+  routeStatsGrid: { flexDirection: "row", gap: 8, marginTop: 10 },
+  routeStatPill: { flex: 1, borderRadius: 14, paddingVertical: 8, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,27,37,0.06)" },
+  routeStatValue: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "900" },
+  routeStatLabel: { color: "#667083", fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "800", marginTop: 1 },
   stepsContent: { paddingHorizontal: 18, paddingBottom: 132, paddingTop: 2 },
   navStepsContent: { paddingHorizontal: 18, paddingBottom: 132, paddingTop: 4 },
   stepRow: { minHeight: 49, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, paddingHorizontal: 9, paddingVertical: 7, backgroundColor: "rgba(255,255,255,0.48)", marginBottom: 7 },
+  stepRowBlock: { borderRadius: 16, paddingHorizontal: 9, paddingVertical: 8, backgroundColor: "rgba(255,255,255,0.52)", marginBottom: 8, borderWidth: 1, borderColor: "rgba(35,47,70,0.06)" },
+  stepRowBlockActive: { borderColor: "rgba(53,242,180,0.44)", backgroundColor: "rgba(53,242,180,0.10)" },
+  stepRowTop: { flexDirection: "row", alignItems: "center", gap: 10 },
   stepRail: { width: 12, alignItems: "center" },
   stepLineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "rgba(80,90,110,0.42)" },
   stepLineDotActive: { backgroundColor: COLORS.green },
   stepIconMini: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(53,242,180,0.18)" },
   stepTitle: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "800" },
   stepSubtitle: { color: "#626D82", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 1 },
+  stepMetaText: { color: "#75809A", fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "800", marginTop: 3 },
   stepBadge: { color: COLORS.greenDark, fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "900", minWidth: 36, textAlign: "right" },
+  stopTimelineBox: { marginLeft: 50, marginTop: 8, borderRadius: 14, backgroundColor: "rgba(20,27,37,0.045)", paddingHorizontal: 10, paddingVertical: 8 },
+  stopTimelineRow: { minHeight: 22, flexDirection: "row", alignItems: "center", gap: 8 },
+  stopTimelineTime: { width: 42, color: "#566174", fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "900" },
+  stopTimelineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.green },
+  stopTimelineName: { flex: 1, color: COLORS.textDark, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "800" },
+  stopTimelineMore: { marginTop: 4, color: "#667083", fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "800" },
   progressTrack: { height: 4, borderRadius: 2, backgroundColor: "rgba(20,27,37,0.12)", overflow: "hidden", marginBottom: 6 },
   progressFill: { height: 4, borderRadius: 2, backgroundColor: COLORS.green },
   stickyCtaWrap: { position: "absolute", left: 18, right: 18, bottom: 22 },

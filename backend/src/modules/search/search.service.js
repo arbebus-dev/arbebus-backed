@@ -97,6 +97,7 @@ function healthMeta() {
     env: {
       ORS_API_KEY: Boolean(process.env.ORS_API_KEY),
       GOOGLE_PLACES_API_KEY: Boolean(process.env.GOOGLE_PLACES_API_KEY),
+      SEARCH_PROVIDER_GOOGLE_ACTIVE: Boolean(process.env.GOOGLE_PLACES_API_KEY) && String(process.env.SEARCH_PROVIDER_GOOGLE_ENABLED || 'true').toLowerCase() !== 'false',
       SEARCH_PROVIDER_OSM_ENABLED: envBool('SEARCH_PROVIDER_OSM_ENABLED', true),
       SEARCH_PROVIDER_OVERPASS_ENABLED: envBool('SEARCH_PROVIDER_OVERPASS_ENABLED', true),
       SEARCH_PROVIDER_GOOGLE_ENABLED: envBool('SEARCH_PROVIDER_GOOGLE_ENABLED', false),

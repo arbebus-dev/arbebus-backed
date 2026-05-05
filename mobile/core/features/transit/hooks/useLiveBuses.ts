@@ -30,7 +30,7 @@ function normalizeLiveBus(bus: ApiLiveBus, index: number): LiveBus | null {
   };
 }
 
-export function useLiveBuses(refreshMs = 7000) {
+export function useLiveBuses(refreshMs = 3000) {
   const [buses, setBuses] = useState<LiveBus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

@@ -1,16 +1,5 @@
-import { Text, View } from "react-native";
+import AccountScreen from "@/core/features/account/screens/AccountScreen";
 
-export default function Explore() {
-  return (
-    <View
-      style={{
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-        backgroundColor: "#03070B",
-      }}
-    >
-      <Text style={{ color: "white", fontSize: 18 }}>Paskyra</Text>
-    </View>
-  );
+export default function ExploreTabCompatibility() {
+  return <AccountScreen />;
 }

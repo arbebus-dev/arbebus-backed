@@ -5,7 +5,13 @@ const { toResult } = require('../utils/mapSearchResult');
 const GOOGLE_BASE = 'https://places.googleapis.com/v1';
 
 function enabled() {
-  return String(process.env.SEARCH_PROVIDER_GOOGLE_ENABLED || 'false').toLowerCase() === 'true' && Boolean(process.env.GOOGLE_PLACES_API_KEY);
+  // Arbebus production: if GOOGLE_PLACES_API_KEY exists, Places should work by default.
+  // SEARCH_PROVIDER_GOOGLE_ENABLED can still explicitly disable it with "false".
+  const flag = process.env.SEARCH_PROVIDER_GOOGLE_ENABLED;
+  const hasKey = Boolean(process.env.GOOGLE_PLACES_API_KEY);
+  if (!hasKey) return false;
+  if (flag == null || flag === '') return true;
+  return String(flag).toLowerCase() !== 'false';
 }
 
 function languageCode() {
