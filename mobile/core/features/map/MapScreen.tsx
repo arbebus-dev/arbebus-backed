@@ -10,6 +10,7 @@ import {
   fetchStationAccess,
   reverseGeocodePlace,
   fetchPlaceDetails,
+  searchPlaces,
   type StationAccessPoint,
 } from "../transit/services/transitApi";
 
@@ -156,6 +157,7 @@ export default function MapScreen() {
   const mapRef = useRef<MapView | null>(null);
   const lastFollowAt = useRef(0);
   const lastCameraTarget = useRef<MapPoint | null>(null);
+  const lastPoiClickAt = useRef(0);
 
   const { userLocation, refreshLocation, isLocating } = useUserLocation();
   const { buses } = useLiveBuses();
@@ -361,8 +363,34 @@ export default function MapScreen() {
 
     try {
       const place = await Promise.race([
-        placeId ? fetchPlaceDetails(placeId) : reverseGeocodePlace(provisional.coordinate),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2200)),
+        (async () => {
+          if (placeId) return fetchPlaceDetails(placeId);
+
+          const title = String(provisional.title || "").trim();
+          if (shouldReverse && title && title !== "Pasirinkta vieta") {
+            const nearbyByName = await searchPlaces(title);
+            const closest = nearbyByName
+              .map((item) => ({
+                item,
+                distance: item.coordinate
+                  ? distanceMeters(provisional.coordinate, item.coordinate)
+                  : Number.POSITIVE_INFINITY,
+              }))
+              .sort((a, b) => a.distance - b.distance)[0];
+
+            if (closest?.item && closest.distance <= 260) {
+              const googleId = closest.item.placeId || closest.item.googlePlaceId;
+              if (googleId) {
+                const details = await fetchPlaceDetails(googleId);
+                return details || closest.item;
+              }
+              return closest.item;
+            }
+          }
+
+          return reverseGeocodePlace(provisional.coordinate);
+        })(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2800)),
       ]);
 
       if (place) {
@@ -386,23 +414,32 @@ export default function MapScreen() {
   };
 
   const handleMapPress = (event: any) => {
+    if (Date.now() - lastPoiClickAt.current < 650) return;
     const coordinate = event?.nativeEvent?.coordinate;
     void showPlacePreview({ coordinate, type: "address", source: "map_tap" }, true);
   };
 
   const handlePoiClick = (event: any) => {
+    lastPoiClickAt.current = Date.now();
     const native = event?.nativeEvent || {};
-    const coordinate = native.coordinate || native.position || { latitude: native.latitude, longitude: native.longitude };
-    void showPlacePreview({
-      id: native.placeId || native.id,
-      placeId: native.placeId,
-      googlePlaceId: native.placeId,
-      title: native.name || native.title || "Pasirinkta vieta",
-      subtitle: native.address || native.subtitle || "Žemėlapio vieta",
-      type: "poi",
-      coordinate,
-      source: native.placeId ? "google_places" : "map_poi",
-    }, true);
+    const coordinate =
+      native.coordinate ||
+      native.position ||
+      { latitude: native.latitude, longitude: native.longitude };
+
+    void showPlacePreview(
+      {
+        id: native.placeId || native.id,
+        placeId: native.placeId || native.id,
+        googlePlaceId: native.placeId || native.id,
+        title: native.name || native.title || native.placeName || "Pasirinkta vieta",
+        subtitle: native.address || native.subtitle || "Žemėlapio vieta",
+        type: "poi",
+        coordinate,
+        source: native.placeId || native.id ? "google_places" : "map_poi",
+      },
+      true,
+    );
   };
 
   const recenterToUser = async () => {

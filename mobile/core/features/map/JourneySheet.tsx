@@ -810,7 +810,7 @@ function NavigationState(props: Props) {
 }
 
 export default function JourneySheet(props: Props) {
-  const stage = stageFor(props.flowState, props.selectedRoute);
+  const stage: Stage = props.selectedMapPlace ? "search" : stageFor(props.flowState, props.selectedRoute);
   const translateY = useRef(new Animated.Value(snapForStage(stage, props.query, props.searchResults.length))).current;
   const translateYValue = useRef(snapForStage(stage, props.query, props.searchResults.length));
   const startY = useRef(translateYValue.current);

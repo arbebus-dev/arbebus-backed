@@ -1,6 +1,11 @@
+import Constants from "expo-constants";
 import React, { forwardRef } from "react";
-import { StyleSheet, View } from "react-native";
-import MapView, { PROVIDER_DEFAULT, type Region } from "react-native-maps";
+import { Platform, StyleSheet, View } from "react-native";
+import MapView, {
+  PROVIDER_DEFAULT,
+  PROVIDER_GOOGLE,
+  type Region,
+} from "react-native-maps";
 
 const INITIAL_REGION: Region = {
   latitude: 55.7033,
@@ -15,27 +20,47 @@ type Props = {
   onPoiClick?: any;
 };
 
-const MapCanvas = forwardRef<MapView, Props>(({ children, onPress, onPoiClick }, ref) => {
-  return (
-    <View style={styles.container}>
-      <MapView
-        ref={ref}
-        provider={PROVIDER_DEFAULT}
-        style={styles.map}
-        initialRegion={INITIAL_REGION}
-        onPress={onPress}
-        {...({ onPoiClick } as any)}
-        showsUserLocation={false}
-        showsMyLocationButton={false}
-        showsCompass={false}
-        rotateEnabled
-        pitchEnabled
-      >
-        {children}
-      </MapView>
-    </View>
-  );
-});
+function shouldUseGoogleProvider() {
+  if (Platform.OS === "web") return false;
+
+  const expoConfig: any = Constants.expoConfig || {};
+  const iosKey =
+    process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_API_KEY ||
+    process.env.GOOGLE_MAPS_IOS_API_KEY ||
+    expoConfig?.ios?.config?.googleMapsApiKey ||
+    expoConfig?.extra?.googleMapsProviderEnabled;
+
+  return Boolean(iosKey);
+}
+
+const MapCanvas = forwardRef<MapView, Props>(
+  ({ children, onPress, onPoiClick }, ref) => {
+    const useGoogleProvider = shouldUseGoogleProvider();
+
+    return (
+      <View style={styles.container}>
+        <MapView
+          ref={ref}
+          provider={useGoogleProvider ? PROVIDER_GOOGLE : PROVIDER_DEFAULT}
+          style={styles.map}
+          initialRegion={INITIAL_REGION}
+          onPress={onPress}
+          {...({ onPoiClick } as any)}
+          showsUserLocation={false}
+          showsMyLocationButton={false}
+          showsCompass={false}
+          showsBuildings
+          showsPointsOfInterest
+          showsIndoors
+          rotateEnabled
+          pitchEnabled
+        >
+          {children}
+        </MapView>
+      </View>
+    );
+  },
+);
 
 MapCanvas.displayName = "MapCanvas";
 
