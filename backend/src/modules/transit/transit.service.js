@@ -1,9 +1,9 @@
 /* eslint-env node */
-const fs = require('fs');
-const path = require('path');
-const https = require('https');
-const http = require('http');
-const orsClient = require('../routing/ors.client');
+const fs = require("fs");
+const path = require("path");
+const https = require("https");
+const http = require("http");
+const orsClient = require("../routing/ors.client");
 
 const KLAIPEDA_BOUNDS = {
   minLat: 55.55,
@@ -12,10 +12,13 @@ const KLAIPEDA_BOUNDS = {
   maxLon: 21.35,
 };
 
-const GTFS_DIR = path.resolve(__dirname, '../../data/gtfs');
-const STATION_ACCESS_PATH = path.resolve(__dirname, '../../data/stations/entrances.json');
+const GTFS_DIR = path.resolve(__dirname, "../../data/gtfs");
+const STATION_ACCESS_PATH = path.resolve(
+  __dirname,
+  "../../data/stations/entrances.json",
+);
 const LIVE_CACHE_MS = Number(process.env.LIVE_BUSES_CACHE_MS || 7000);
-const DEFAULT_GPS_URL = 'https://www.stops.lt/klaipeda/gps_full.txt';
+const DEFAULT_GPS_URL = "https://www.stops.lt/klaipeda/gps_full.txt";
 const WALK_SPEED_M_PER_MIN = 78;
 const BUS_AVG_SPEED_M_PER_MIN = 430;
 
@@ -24,13 +27,13 @@ let gtfsCache = null;
 
 function readFileSafe(fileName) {
   const filePath = path.join(GTFS_DIR, fileName);
-  if (!fs.existsSync(filePath)) return '';
-  return fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
+  if (!fs.existsSync(filePath)) return "";
+  return fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
 }
 
 function parseCsvLine(line) {
   const result = [];
-  let current = '';
+  let current = "";
   let inQuotes = false;
 
   for (let i = 0; i < line.length; i += 1) {
@@ -48,9 +51,9 @@ function parseCsvLine(line) {
       continue;
     }
 
-    if (char === ',' && !inQuotes) {
+    if (char === "," && !inQuotes) {
       result.push(current.trim());
-      current = '';
+      current = "";
       continue;
     }
 
@@ -62,7 +65,7 @@ function parseCsvLine(line) {
 }
 
 function parseCsv(text) {
-  const lines = String(text || '')
+  const lines = String(text || "")
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
@@ -74,19 +77,21 @@ function parseCsv(text) {
   return lines.slice(1).map((line) => {
     const values = parseCsvLine(line);
     return headers.reduce((row, header, index) => {
-      row[header] = values[index] ?? '';
+      row[header] = values[index] ?? "";
       return row;
     }, {});
   });
 }
 
 function toNumber(value) {
-  const number = Number(String(value ?? '').replace(',', '.'));
+  const number = Number(String(value ?? "").replace(",", "."));
   return Number.isFinite(number) ? number : null;
 }
 
 function routeLabel(route) {
-  return String(route?.route_short_name || route?.route_long_name || route?.route_id || '').trim();
+  return String(
+    route?.route_short_name || route?.route_long_name || route?.route_id || "",
+  ).trim();
 }
 
 function stopToPublic(stop, extra = {}) {
@@ -98,8 +103,8 @@ function stopToPublic(stop, extra = {}) {
     id: String(stop.stop_id ?? stop.id),
     stopId: String(stop.stop_id ?? stop.id),
     stopCode: stop.stop_code || null,
-    name: String(stop.stop_name ?? stop.name ?? 'Stotelė'),
-    title: String(stop.stop_name ?? stop.name ?? 'Stotelė'),
+    name: String(stop.stop_name ?? stop.name ?? "Stotelė"),
+    title: String(stop.stop_name ?? stop.name ?? "Stotelė"),
     latitude,
     longitude,
     coordinate: { latitude, longitude },
@@ -113,14 +118,20 @@ function publicRoute(route) {
     routeId: String(route.route_id),
     routeLabel: routeLabel(route),
     routeShortName: route.route_short_name || routeLabel(route),
-    routeLongName: route.route_long_name || '',
-    routeColor: route.route_color ? `#${String(route.route_color).replace('#', '')}` : null,
-    routeTextColor: route.route_text_color ? `#${String(route.route_text_color).replace('#', '')}` : null,
+    routeLongName: route.route_long_name || "",
+    routeColor: route.route_color
+      ? `#${String(route.route_color).replace("#", "")}`
+      : null,
+    routeTextColor: route.route_text_color
+      ? `#${String(route.route_text_color).replace("#", "")}`
+      : null,
   };
 }
 
 function secondsFromGtfsTime(time) {
-  const parts = String(time || '').split(':').map(Number);
+  const parts = String(time || "")
+    .split(":")
+    .map(Number);
   if (parts.length < 2 || parts.some((n) => Number.isNaN(n))) return null;
   const [hours, minutes, seconds = 0] = parts;
   return hours * 3600 + minutes * 60 + seconds;
@@ -131,7 +142,7 @@ function gtfsTimeFromSeconds(value) {
   const h = Math.floor(safe / 3600);
   const m = Math.floor((safe % 3600) / 60);
   const s = safe % 60;
-  return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':');
+  return [h, m, s].map((n) => String(n).padStart(2, "0")).join(":");
 }
 
 function nowSeconds() {
@@ -152,13 +163,28 @@ function distanceMeters(a, b) {
   const dLon = ((b.longitude - a.longitude) * Math.PI) / 180;
   const lat1 = (a.latitude * Math.PI) / 180;
   const lat2 = (b.latitude * Math.PI) / 180;
-  const x = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
 function toCoordinate(input, fallback) {
-  const latitude = Number(input?.latitude ?? input?.lat ?? input?.stop_lat ?? input?.coordinate?.latitude ?? fallback?.latitude);
-  const longitude = Number(input?.longitude ?? input?.lon ?? input?.lng ?? input?.stop_lon ?? input?.coordinate?.longitude ?? fallback?.longitude);
+  const latitude = Number(
+    input?.latitude ??
+      input?.lat ??
+      input?.stop_lat ??
+      input?.coordinate?.latitude ??
+      fallback?.latitude,
+  );
+  const longitude = Number(
+    input?.longitude ??
+      input?.lon ??
+      input?.lng ??
+      input?.stop_lon ??
+      input?.coordinate?.longitude ??
+      fallback?.longitude,
+  );
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
 }
@@ -169,16 +195,30 @@ function makeWalkPolyline(from, to) {
 }
 
 async function getWalkingRoute(from, to) {
-  if (!from || !to) return { polyline: makeWalkPolyline(from, to), distanceMeters: 0, durationMinutes: 0, provider: 'fallback' };
+  if (!from || !to)
+    return {
+      polyline: makeWalkPolyline(from, to),
+      distanceMeters: 0,
+      durationMinutes: 0,
+      provider: "fallback",
+    };
   const result = await orsClient.walkingDirections({ from, to });
-  const polyline = Array.isArray(result?.polyline) && result.polyline.length >= 2
-    ? result.polyline
-    : makeWalkPolyline(from, to);
+  const polyline =
+    Array.isArray(result?.polyline) && result.polyline.length >= 2
+      ? result.polyline
+      : makeWalkPolyline(from, to);
   return {
     ...result,
     polyline,
-    distanceMeters: Number.isFinite(Number(result?.distanceMeters)) ? Number(result.distanceMeters) : Math.round(distanceMeters(from, to)),
-    durationMinutes: Number.isFinite(Number(result?.durationMinutes)) ? Number(result.durationMinutes) : Math.max(1, Math.round(distanceMeters(from, to) / WALK_SPEED_M_PER_MIN)),
+    distanceMeters: Number.isFinite(Number(result?.distanceMeters))
+      ? Number(result.distanceMeters)
+      : Math.round(distanceMeters(from, to)),
+    durationMinutes: Number.isFinite(Number(result?.durationMinutes))
+      ? Number(result.durationMinutes)
+      : Math.max(
+          1,
+          Math.round(distanceMeters(from, to) / WALK_SPEED_M_PER_MIN),
+        ),
   };
 }
 
@@ -198,33 +238,55 @@ function rebuildPolylineFromSteps(steps, fallbackPolyline = []) {
 
 async function enrichPlanWithWalkingGeometry(plan) {
   if (!plan || !Array.isArray(plan.journeySteps)) return plan;
-  const steps = await Promise.all(plan.journeySteps.map(async (step) => {
-    if (step?.type !== 'walk' || !Array.isArray(step.polyline) || step.polyline.length < 2) return step;
-    const from = toCoordinate(step.polyline[0]);
-    const to = toCoordinate(step.polyline[step.polyline.length - 1]);
-    if (!from || !to) return step;
-    const walk = await getWalkingRoute(from, to);
-    return {
-      ...step,
-      polyline: walk.polyline,
-      distanceMeters: Math.round(walk.distanceMeters || step.distanceMeters || distanceMeters(from, to)),
-      durationMinutes: walk.durationMinutes || step.durationMinutes,
-      minutes: walk.durationMinutes || step.minutes,
-      provider: walk.provider,
-      subtitle: `${Math.round(walk.distanceMeters || step.distanceMeters || 0)} m • ${walk.durationMinutes || step.durationMinutes || step.minutes || 1} min`,
-    };
-  }));
+  const steps = await Promise.all(
+    plan.journeySteps.map(async (step) => {
+      if (
+        step?.type !== "walk" ||
+        !Array.isArray(step.polyline) ||
+        step.polyline.length < 2
+      )
+        return step;
+      const from = toCoordinate(step.polyline[0]);
+      const to = toCoordinate(step.polyline[step.polyline.length - 1]);
+      if (!from || !to) return step;
+      const walk = await getWalkingRoute(from, to);
+      return {
+        ...step,
+        polyline: walk.polyline,
+        distanceMeters: Math.round(
+          walk.distanceMeters ||
+            step.distanceMeters ||
+            distanceMeters(from, to),
+        ),
+        durationMinutes: walk.durationMinutes || step.durationMinutes,
+        minutes: walk.durationMinutes || step.minutes,
+        provider: walk.provider,
+        subtitle: `${Math.round(walk.distanceMeters || step.distanceMeters || 0)} m • ${walk.durationMinutes || step.durationMinutes || step.minutes || 1} min`,
+      };
+    }),
+  );
 
-  const accessWalk = steps.find((step) => step.id?.includes('walk-access'));
-  const egressWalk = steps.find((step) => step.id?.includes('walk-egress'));
+  const accessWalk = steps.find((step) => step.id?.includes("walk-access"));
+  const egressWalk = steps.find((step) => step.id?.includes("walk-egress"));
   const totalWalkMinutes = steps
-    .filter((step) => step.type === 'walk')
-    .reduce((sum, step) => sum + Number(step.durationMinutes || step.minutes || 0), 0);
+    .filter((step) => step.type === "walk")
+    .reduce(
+      (sum, step) => sum + Number(step.durationMinutes || step.minutes || 0),
+      0,
+    );
   const totalWalkMeters = steps
-    .filter((step) => step.type === 'walk')
+    .filter((step) => step.type === "walk")
     .reduce((sum, step) => sum + Number(step.distanceMeters || 0), 0);
-  const polyline = rebuildPolylineFromSteps(steps, plan.polyline || plan.previewPoints || []);
-  const totalDurationMinutes = Math.max(1, Number(plan.totalBusMinutes || 0) + totalWalkMinutes + Number(plan.summary?.transferWaitMinutes || 0));
+  const polyline = rebuildPolylineFromSteps(
+    steps,
+    plan.polyline || plan.previewPoints || [],
+  );
+  const totalDurationMinutes = Math.max(
+    1,
+    Number(plan.totalBusMinutes || 0) +
+      totalWalkMinutes +
+      Number(plan.summary?.transferWaitMinutes || 0),
+  );
 
   return {
     ...plan,
@@ -237,14 +299,14 @@ async function enrichPlanWithWalkingGeometry(plan) {
     totalWalkingDistanceMeters: Math.round(totalWalkMeters),
     totalDurationMinutes,
     totalMinutes: totalDurationMinutes,
-    walkingProvider: 'ors-with-fallback',
+    walkingProvider: "ors-with-fallback",
     accessWalkProvider: accessWalk?.provider || null,
     egressWalkProvider: egressWalk?.provider || null,
     summary: {
       ...(plan.summary || {}),
       totalWalkMinutes,
       totalDurationMinutes,
-      walkingProvider: 'ors-with-fallback',
+      walkingProvider: "ors-with-fallback",
     },
   };
 }
@@ -261,11 +323,11 @@ function simplifyPoints(points, maxPoints = 180) {
 function loadGtfs() {
   if (gtfsCache) return gtfsCache;
 
-  const stops = parseCsv(readFileSafe('stops.txt'));
-  const routes = parseCsv(readFileSafe('routes.txt'));
-  const trips = parseCsv(readFileSafe('trips.txt'));
-  const stopTimes = parseCsv(readFileSafe('stop_times.txt'));
-  const shapes = parseCsv(readFileSafe('shapes.txt'));
+  const stops = parseCsv(readFileSafe("stops.txt"));
+  const routes = parseCsv(readFileSafe("routes.txt"));
+  const trips = parseCsv(readFileSafe("trips.txt"));
+  const stopTimes = parseCsv(readFileSafe("stop_times.txt"));
+  const shapes = parseCsv(readFileSafe("shapes.txt"));
 
   const stopsById = new Map();
   const routesById = new Map();
@@ -290,14 +352,14 @@ function loadGtfs() {
   for (const trip of trips) {
     if (!trip.trip_id) continue;
     tripsById.set(String(trip.trip_id), trip);
-    const routeId = String(trip.route_id || '');
+    const routeId = String(trip.route_id || "");
     if (!tripsByRouteId.has(routeId)) tripsByRouteId.set(routeId, []);
     tripsByRouteId.get(routeId).push(trip);
   }
 
   for (const stopTime of stopTimes) {
-    const stopId = String(stopTime.stop_id || '');
-    const tripId = String(stopTime.trip_id || '');
+    const stopId = String(stopTime.stop_id || "");
+    const tripId = String(stopTime.trip_id || "");
     if (!stopId || !tripId) continue;
 
     if (!stopTimesByStopId.has(stopId)) stopTimesByStopId.set(stopId, []);
@@ -308,29 +370,36 @@ function loadGtfs() {
   }
 
   for (const list of stopTimesByTripId.values()) {
-    list.sort((a, b) => Number(a.stop_sequence || 0) - Number(b.stop_sequence || 0));
+    list.sort(
+      (a, b) => Number(a.stop_sequence || 0) - Number(b.stop_sequence || 0),
+    );
   }
 
   for (const list of stopTimesByStopId.values()) {
-    list.sort((a, b) => String(a.departure_time || a.arrival_time).localeCompare(String(b.departure_time || b.arrival_time)));
+    list.sort((a, b) =>
+      String(a.departure_time || a.arrival_time).localeCompare(
+        String(b.departure_time || b.arrival_time),
+      ),
+    );
   }
 
   for (const trip of trips) {
-    const routeId = String(trip.route_id || '');
+    const routeId = String(trip.route_id || "");
     const tripTimes = stopTimesByTripId.get(String(trip.trip_id)) || [];
     if (!routeId || !tripTimes.length) continue;
     if (!stopsByRouteId.has(routeId)) stopsByRouteId.set(routeId, new Set());
     for (const stopTime of tripTimes) {
-      const stopId = String(stopTime.stop_id || '');
+      const stopId = String(stopTime.stop_id || "");
       if (!stopId) continue;
       stopsByRouteId.get(routeId).add(stopId);
-      if (!routeIdsByStopId.has(stopId)) routeIdsByStopId.set(stopId, new Set());
+      if (!routeIdsByStopId.has(stopId))
+        routeIdsByStopId.set(stopId, new Set());
       routeIdsByStopId.get(stopId).add(routeId);
     }
   }
 
   for (const shape of shapes) {
-    const shapeId = String(shape.shape_id || '');
+    const shapeId = String(shape.shape_id || "");
     if (!shapeId) continue;
     if (!shapesByShapeId.has(shapeId)) shapesByShapeId.set(shapeId, []);
     const latitude = toNumber(shape.shape_pt_lat);
@@ -390,7 +459,9 @@ function nearestStops(coordinate, limit = 6, maxDistanceMeters = 1600) {
 function routesForStop(stopId) {
   const gtfs = loadGtfs();
   const routeIds = Array.from(gtfs.routeIdsByStopId.get(String(stopId)) || []);
-  return routeIds.map((id) => publicRoute(gtfs.routesById.get(id))).filter(Boolean);
+  return routeIds
+    .map((id) => publicRoute(gtfs.routesById.get(id)))
+    .filter(Boolean);
 }
 
 function tripStopPublic(stopTime) {
@@ -431,16 +502,24 @@ function shapeForTrip(trip, fallbackStops = []) {
     .map((stop) => stop?.coordinate || toCoordinate(stop))
     .filter(Boolean);
 
-  const shapeId = String(trip?.shape_id || '');
-  const fullShape = shapeId && gtfs.shapesByShapeId.has(shapeId)
-    ? gtfs.shapesByShapeId.get(shapeId)
-    : [];
+  const shapeId = String(trip?.shape_id || "");
+  const fullShape =
+    shapeId && gtfs.shapesByShapeId.has(shapeId)
+      ? gtfs.shapesByShapeId.get(shapeId)
+      : [];
 
   if (fullShape.length >= 2 && stopPolyline.length >= 2) {
     const startIndex = nearestShapeIndex(fullShape, stopPolyline[0]);
-    const endIndex = nearestShapeIndex(fullShape, stopPolyline[stopPolyline.length - 1]);
+    const endIndex = nearestShapeIndex(
+      fullShape,
+      stopPolyline[stopPolyline.length - 1],
+    );
 
-    if (startIndex >= 0 && endIndex >= 0 && Math.abs(endIndex - startIndex) >= 1) {
+    if (
+      startIndex >= 0 &&
+      endIndex >= 0 &&
+      Math.abs(endIndex - startIndex) >= 1
+    ) {
       const from = Math.min(startIndex, endIndex);
       const to = Math.max(startIndex, endIndex);
       const sliced = fullShape.slice(from, to + 1);
@@ -460,7 +539,12 @@ function shapeForTrip(trip, fallbackStops = []) {
   return stopPolyline;
 }
 
-function findTripSegment(routeId, fromStopId, toStopId, afterSeconds = nowSeconds() - 120) {
+function findTripSegment(
+  routeId,
+  fromStopId,
+  toStopId,
+  afterSeconds = nowSeconds() - 120,
+) {
   const gtfs = loadGtfs();
   const trips = gtfs.tripsByRouteId.get(String(routeId)) || [];
   let best = null;
@@ -471,7 +555,8 @@ function findTripSegment(routeId, fromStopId, toStopId, afterSeconds = nowSecond
     let toIndex = -1;
 
     for (let i = 0; i < times.length; i += 1) {
-      if (String(times[i].stop_id) === String(fromStopId) && fromIndex < 0) fromIndex = i;
+      if (String(times[i].stop_id) === String(fromStopId) && fromIndex < 0)
+        fromIndex = i;
       if (fromIndex >= 0 && String(times[i].stop_id) === String(toStopId)) {
         toIndex = i;
         break;
@@ -482,14 +567,24 @@ function findTripSegment(routeId, fromStopId, toStopId, afterSeconds = nowSecond
 
     const fromTime = times[fromIndex];
     const toTime = times[toIndex];
-    const departureSeconds = secondsFromGtfsTime(fromTime.departure_time || fromTime.arrival_time);
-    const arrivalSeconds = secondsFromGtfsTime(toTime.arrival_time || toTime.departure_time);
+    const departureSeconds = secondsFromGtfsTime(
+      fromTime.departure_time || fromTime.arrival_time,
+    );
+    const arrivalSeconds = secondsFromGtfsTime(
+      toTime.arrival_time || toTime.departure_time,
+    );
     if (departureSeconds == null || arrivalSeconds == null) continue;
     if (departureSeconds < afterSeconds) continue;
 
-    const segmentStops = times.slice(fromIndex, toIndex + 1).map(tripStopPublic).filter(Boolean);
+    const segmentStops = times
+      .slice(fromIndex, toIndex + 1)
+      .map(tripStopPublic)
+      .filter(Boolean);
     const route = gtfs.routesById.get(String(routeId));
-    const durationMinutes = Math.max(1, Math.round((arrivalSeconds - departureSeconds) / 60));
+    const durationMinutes = Math.max(
+      1,
+      Math.round((arrivalSeconds - departureSeconds) / 60),
+    );
     const candidate = {
       trip,
       route,
@@ -513,7 +608,8 @@ function findTripSegment(routeId, fromStopId, toStopId, afterSeconds = nowSecond
       headsign: trip.trip_headsign || null,
     };
 
-    if (!best || candidate.departureSeconds < best.departureSeconds) best = candidate;
+    if (!best || candidate.departureSeconds < best.departureSeconds)
+      best = candidate;
   }
 
   return best;
@@ -521,24 +617,53 @@ function findTripSegment(routeId, fromStopId, toStopId, afterSeconds = nowSecond
 
 function candidateDirectRoutes(originStops, destinationStops, options = {}) {
   const gtfs = loadGtfs();
-  const after = Number.isFinite(Number(options.afterSeconds)) ? Number(options.afterSeconds) : nowSeconds() - 120;
-  const arriveBy = Number.isFinite(Number(options.arriveBySeconds)) ? Number(options.arriveBySeconds) : null;
-  const options = [];
+  const after = Number.isFinite(Number(options.afterSeconds))
+    ? Number(options.afterSeconds)
+    : nowSeconds() - 120;
+  const arriveBy = Number.isFinite(Number(options.arriveBySeconds))
+    ? Number(options.arriveBySeconds)
+    : null;
+  const routeOptions = [];
 
   for (const origin of originStops) {
-    const originRoutes = Array.from(gtfs.routeIdsByStopId.get(String(origin.id)) || []);
+    const originRoutes = Array.from(
+      gtfs.routeIdsByStopId.get(String(origin.id)) || [],
+    );
     for (const destination of destinationStops) {
-      const destinationRouteIds = new Set(Array.from(gtfs.routeIdsByStopId.get(String(destination.id)) || []));
-      const sharedRoutes = originRoutes.filter((routeId) => destinationRouteIds.has(routeId));
+      const destinationRouteIds = new Set(
+        Array.from(gtfs.routeIdsByStopId.get(String(destination.id)) || []),
+      );
+      const sharedRoutes = originRoutes.filter((routeId) =>
+        destinationRouteIds.has(routeId),
+      );
 
       for (const routeId of sharedRoutes) {
-        const segment = findTripSegment(routeId, origin.id, destination.id, after);
+        const segment = findTripSegment(
+          routeId,
+          origin.id,
+          destination.id,
+          after,
+        );
         if (!segment) continue;
-        if (arriveBy != null && Number(segment.arrivalSeconds) > arriveBy) continue;
-        const walkingMeters = Number(origin.distanceMeters || 0) + Number(destination.distanceMeters || 0);
-        const walkingMinutes = Math.max(1, Math.round(walkingMeters / WALK_SPEED_M_PER_MIN));
+        if (arriveBy != null && Number(segment.arrivalSeconds) > arriveBy)
+          continue;
+        const walkingMeters =
+          Number(origin.distanceMeters || 0) +
+          Number(destination.distanceMeters || 0);
+        const walkingMinutes = Math.max(
+          1,
+          Math.round(walkingMeters / WALK_SPEED_M_PER_MIN),
+        );
         const totalMinutes = walkingMinutes + segment.durationMinutes;
-        options.push({ type: 'direct', origin, destination, segments: [segment], walkingMeters, walkingMinutes, totalMinutes });
+        options.push({
+          type: "direct",
+          origin,
+          destination,
+          segments: [segment],
+          walkingMeters,
+          walkingMinutes,
+          totalMinutes,
+        });
       }
     }
   }
@@ -548,14 +673,22 @@ function candidateDirectRoutes(originStops, destinationStops, options = {}) {
 
 function candidateTransferRoutes(originStops, destinationStops, options = {}) {
   const gtfs = loadGtfs();
-  const after = Number.isFinite(Number(options.afterSeconds)) ? Number(options.afterSeconds) : nowSeconds() - 120;
-  const arriveBy = Number.isFinite(Number(options.arriveBySeconds)) ? Number(options.arriveBySeconds) : null;
-  const options = [];
+  const after = Number.isFinite(Number(options.afterSeconds))
+    ? Number(options.afterSeconds)
+    : nowSeconds() - 120;
+  const arriveBy = Number.isFinite(Number(options.arriveBySeconds))
+    ? Number(options.arriveBySeconds)
+    : null;
+  const candidates = [];
 
   for (const origin of originStops.slice(0, 4)) {
-    const originRouteIds = Array.from(gtfs.routeIdsByStopId.get(String(origin.id)) || []).slice(0, 16);
+    const originRouteIds = Array.from(
+      gtfs.routeIdsByStopId.get(String(origin.id)) || [],
+    ).slice(0, 16);
     for (const destination of destinationStops.slice(0, 4)) {
-      const destinationRouteIds = Array.from(gtfs.routeIdsByStopId.get(String(destination.id)) || []).slice(0, 16);
+      const destinationRouteIds = Array.from(
+        gtfs.routeIdsByStopId.get(String(destination.id)) || [],
+      ).slice(0, 16);
 
       for (const firstRouteId of originRouteIds) {
         const firstRouteStops = gtfs.stopsByRouteId.get(String(firstRouteId));
@@ -563,7 +696,9 @@ function candidateTransferRoutes(originStops, destinationStops, options = {}) {
 
         for (const secondRouteId of destinationRouteIds) {
           if (String(firstRouteId) === String(secondRouteId)) continue;
-          const secondRouteStops = gtfs.stopsByRouteId.get(String(secondRouteId));
+          const secondRouteStops = gtfs.stopsByRouteId.get(
+            String(secondRouteId),
+          );
           if (!secondRouteStops) continue;
 
           const transferStopIds = [];
@@ -573,19 +708,44 @@ function candidateTransferRoutes(originStops, destinationStops, options = {}) {
           }
 
           for (const transferStopId of transferStopIds) {
-            const leg1 = findTripSegment(firstRouteId, origin.id, transferStopId, after);
+            const leg1 = findTripSegment(
+              firstRouteId,
+              origin.id,
+              transferStopId,
+              after,
+            );
             if (!leg1) continue;
-            const leg2 = findTripSegment(secondRouteId, transferStopId, destination.id, leg1.arrivalSeconds + 120);
+            const leg2 = findTripSegment(
+              secondRouteId,
+              transferStopId,
+              destination.id,
+              leg1.arrivalSeconds + 120,
+            );
             if (!leg2) continue;
-            if (arriveBy != null && Number(leg2.arrivalSeconds) > arriveBy) continue;
-            const transferStop = stopToPublic(gtfs.stopsById.get(String(transferStopId)));
+            if (arriveBy != null && Number(leg2.arrivalSeconds) > arriveBy)
+              continue;
+            const transferStop = stopToPublic(
+              gtfs.stopsById.get(String(transferStopId)),
+            );
             if (!transferStop) continue;
-            const walkingMeters = Number(origin.distanceMeters || 0) + Number(destination.distanceMeters || 0);
-            const walkingMinutes = Math.max(1, Math.round(walkingMeters / WALK_SPEED_M_PER_MIN));
-            const waitMinutes = Math.max(0, Math.round((leg2.departureSeconds - leg1.arrivalSeconds) / 60));
-            const totalMinutes = walkingMinutes + leg1.durationMinutes + waitMinutes + leg2.durationMinutes;
-            options.push({
-              type: 'transfer',
+            const walkingMeters =
+              Number(origin.distanceMeters || 0) +
+              Number(destination.distanceMeters || 0);
+            const walkingMinutes = Math.max(
+              1,
+              Math.round(walkingMeters / WALK_SPEED_M_PER_MIN),
+            );
+            const waitMinutes = Math.max(
+              0,
+              Math.round((leg2.departureSeconds - leg1.arrivalSeconds) / 60),
+            );
+            const totalMinutes =
+              walkingMinutes +
+              leg1.durationMinutes +
+              waitMinutes +
+              leg2.durationMinutes;
+            candidates.push({
+              type: "transfer",
               origin,
               destination,
               transferStop,
@@ -601,23 +761,43 @@ function candidateTransferRoutes(originStops, destinationStops, options = {}) {
     }
   }
 
-  return options.sort((a, b) => a.totalMinutes - b.totalMinutes).slice(0, 4);
+  return candidates.sort((a, b) => a.totalMinutes - b.totalMinutes).slice(0, 4);
 }
 
 function fallbackOption(from, to, destinationTitle) {
   const meters = Math.round(distanceMeters(from, to));
-  const totalDurationMinutes = Math.max(8, Math.round(meters / BUS_AVG_SPEED_M_PER_MIN));
-  const walkingMinutes = Math.max(2, Math.round(Math.min(meters, 900) / WALK_SPEED_M_PER_MIN));
+  const totalDurationMinutes = Math.max(
+    8,
+    Math.round(meters / BUS_AVG_SPEED_M_PER_MIN),
+  );
+  const walkingMinutes = Math.max(
+    2,
+    Math.round(Math.min(meters, 900) / WALK_SPEED_M_PER_MIN),
+  );
   const busMinutes = Math.max(6, totalDurationMinutes - walkingMinutes);
-  const routeNumber = meters > 5000 ? '8' : '6';
-  const originStop = { id: 'nearest-stop', name: 'Artimiausia stotelė', title: 'Artimiausia stotelė', ...from, coordinate: from, distanceMeters: 220 };
-  const destinationStop = { id: 'destination-stop', name: destinationTitle, title: destinationTitle, ...to, coordinate: to, distanceMeters: 180 };
+  const routeNumber = meters > 5000 ? "8" : "6";
+  const originStop = {
+    id: "nearest-stop",
+    name: "Artimiausia stotelė",
+    title: "Artimiausia stotelė",
+    ...from,
+    coordinate: from,
+    distanceMeters: 220,
+  };
+  const destinationStop = {
+    id: "destination-stop",
+    name: destinationTitle,
+    title: destinationTitle,
+    ...to,
+    coordinate: to,
+    distanceMeters: 180,
+  };
   const polyline = [from, to];
 
   return {
     id: `fallback-${routeNumber}`,
     title: `Autobusas ${routeNumber}`,
-    mode: 'bus',
+    mode: "bus",
     routeId: routeNumber,
     routeLabel: routeNumber,
     routeNumbers: [routeNumber],
@@ -654,26 +834,52 @@ function fallbackOption(from, to, destinationTitle) {
 }
 
 function buildPlanFromCandidate(candidate, from, to, index = 0) {
-  const routeNumbers = candidate.segments.map((segment) => String(segment.routeLabel || segment.routeId));
-  const routeLabelText = routeNumbers.join(' → ');
+  const routeNumbers = candidate.segments.map((segment) =>
+    String(segment.routeLabel || segment.routeId),
+  );
+  const routeLabelText = routeNumbers.join(" → ");
   const originStop = candidate.origin;
   const destinationStop = candidate.destination;
-  const accessWalkMinutes = Math.max(1, Math.round(Number(originStop.distanceMeters || 0) / WALK_SPEED_M_PER_MIN));
-  const egressWalkMinutes = Math.max(1, Math.round(Number(destinationStop.distanceMeters || 0) / WALK_SPEED_M_PER_MIN));
+  const accessWalkMinutes = Math.max(
+    1,
+    Math.round(Number(originStop.distanceMeters || 0) / WALK_SPEED_M_PER_MIN),
+  );
+  const egressWalkMinutes = Math.max(
+    1,
+    Math.round(
+      Number(destinationStop.distanceMeters || 0) / WALK_SPEED_M_PER_MIN,
+    ),
+  );
   const firstDeparture = candidate.segments[0]?.departureTime || null;
-  const lastArrival = candidate.segments[candidate.segments.length - 1]?.arrivalTime || null;
-  const busMinutes = candidate.segments.reduce((sum, segment) => sum + segment.durationMinutes, 0);
-  const stopCount = candidate.segments.reduce((sum, segment) => sum + segment.stopCount, 0);
+  const lastArrival =
+    candidate.segments[candidate.segments.length - 1]?.arrivalTime || null;
+  const busMinutes = candidate.segments.reduce(
+    (sum, segment) => sum + segment.durationMinutes,
+    0,
+  );
+  const stopCount = candidate.segments.reduce(
+    (sum, segment) => sum + segment.stopCount,
+    0,
+  );
   const transfersCount = Math.max(0, candidate.segments.length - 1);
-  const polyline = [from, originStop.coordinate, ...candidate.segments.flatMap((segment) => segment.polyline), destinationStop.coordinate, to]
+  const polyline = [
+    from,
+    originStop.coordinate,
+    ...candidate.segments.flatMap((segment) => segment.polyline),
+    destinationStop.coordinate,
+    to,
+  ]
     .filter(Boolean)
-    .filter((point, pointIndex, arr) => pointIndex === 0 || distanceMeters(point, arr[pointIndex - 1]) > 4);
+    .filter(
+      (point, pointIndex, arr) =>
+        pointIndex === 0 || distanceMeters(point, arr[pointIndex - 1]) > 4,
+    );
 
   const journeySteps = [];
   journeySteps.push({
     id: `walk-access-${index}`,
-    type: 'walk',
-    mode: 'walk',
+    type: "walk",
+    mode: "walk",
     title: `Eik iki stotelės „${originStop.name}“`,
     subtitle: `${Math.round(originStop.distanceMeters || 0)} m • ${accessWalkMinutes} min`,
     stopId: originStop.id,
@@ -689,10 +895,10 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
     const alightStop = segment.stops[segment.stops.length - 1];
     journeySteps.push({
       id: `board-${index}-${segmentIndex}`,
-      type: 'board',
-      mode: 'bus',
+      type: "board",
+      mode: "bus",
       title: `Lipk į autobusą ${segment.routeLabel}`,
-      subtitle: `${boardStop?.name || originStop.name} • ${segment.departureTime}${segment.headsign ? ` • ${segment.headsign}` : ''}`,
+      subtitle: `${boardStop?.name || originStop.name} • ${segment.departureTime}${segment.headsign ? ` • ${segment.headsign}` : ""}`,
       routeId: segment.routeId,
       routeNumber: segment.routeLabel,
       routeLabel: segment.routeLabel,
@@ -704,8 +910,8 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
     });
     journeySteps.push({
       id: `ride-${index}-${segmentIndex}`,
-      type: 'ride',
-      mode: 'bus',
+      type: "ride",
+      mode: "bus",
       title: `Važiuok autobusu ${segment.routeLabel}`,
       subtitle: `Iki „${alightStop?.name || destinationStop.name}“ • ${segment.stopCount} st. • ${segment.durationMinutes} min`,
       routeId: segment.routeId,
@@ -732,9 +938,9 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
       const wait = candidate.waitMinutes || 2;
       journeySteps.push({
         id: `transfer-${index}-${segmentIndex}`,
-        type: 'transfer',
-        mode: 'walk',
-        title: `Persėsk stotelėje „${transfer?.name || alightStop?.name || 'Persėdimas'}“`,
+        type: "transfer",
+        mode: "walk",
+        title: `Persėsk stotelėje „${transfer?.name || alightStop?.name || "Persėdimas"}“`,
         subtitle: `Lauk ${wait} min • kitas autobusas ${candidate.segments[segmentIndex + 1].routeLabel}`,
         transferFromRoute: segment.routeLabel,
         transferToRoute: candidate.segments[segmentIndex + 1].routeLabel,
@@ -743,15 +949,17 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
         stopName: transfer?.name,
         durationMinutes: wait,
         minutes: wait,
-        polyline: transfer?.coordinate ? [transfer.coordinate, transfer.coordinate] : [],
+        polyline: transfer?.coordinate
+          ? [transfer.coordinate, transfer.coordinate]
+          : [],
       });
     }
   });
 
   journeySteps.push({
     id: `walk-egress-${index}`,
-    type: 'walk',
-    mode: 'walk',
+    type: "walk",
+    mode: "walk",
     title: `Eik iki tikslo`,
     subtitle: `Nuo „${destinationStop.name}“ • ${Math.round(destinationStop.distanceMeters || 0)} m • ${egressWalkMinutes} min`,
     stopId: destinationStop.id,
@@ -763,12 +971,17 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
   });
 
   const totalDurationMinutes = Math.max(1, candidate.totalMinutes);
-  const etaMinutes = Math.max(0, Math.round((candidate.segments[0]?.departureSeconds - nowSeconds()) / 60));
+  const etaMinutes = Math.max(
+    0,
+    Math.round((candidate.segments[0]?.departureSeconds - nowSeconds()) / 60),
+  );
 
   return {
-    id: `${candidate.type}-${routeNumbers.join('-')}-${index}`,
-    title: transfersCount ? `Autobusai ${routeLabelText}` : `Autobusas ${routeLabelText}`,
-    mode: transfersCount ? 'mixed' : 'bus',
+    id: `${candidate.type}-${routeNumbers.join("-")}-${index}`,
+    title: transfersCount
+      ? `Autobusai ${routeLabelText}`
+      : `Autobusas ${routeLabelText}`,
+    mode: transfersCount ? "mixed" : "bus",
     routeId: candidate.segments[0]?.routeId || routeNumbers[0],
     routeLabel: routeLabelText,
     routeNumbers,
@@ -780,7 +993,12 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
     totalBusMinutes: busMinutes,
     etaMinutes,
     liveEta: { etaMinutes, etaSeconds: etaMinutes * 60, distanceMeters: null },
-    boardingState: etaMinutes <= 2 ? 'boarding_soon' : etaMinutes <= 6 ? 'on_the_way' : 'later',
+    boardingState:
+      etaMinutes <= 2
+        ? "boarding_soon"
+        : etaMinutes <= 6
+          ? "on_the_way"
+          : "later",
     transfers: transfersCount,
     transfersCount,
     stopCount,
@@ -789,7 +1007,9 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
     originStop,
     destinationStop,
     transferStops: candidate.transferStop ? [candidate.transferStop] : [],
-    transferMessages: candidate.transferStop ? [`Persėsk: ${candidate.transferStop.name}`] : [],
+    transferMessages: candidate.transferStop
+      ? [`Persėsk: ${candidate.transferStop.name}`]
+      : [],
     previewPoints: polyline,
     polyline: simplifyPoints(polyline, 250),
     steps: journeySteps,
@@ -798,7 +1018,7 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
     arrivalText: lastArrival,
     headsign: candidate.segments[0]?.headsign || null,
     journeyMessage: transfersCount
-      ? `Važiuok ${routeLabelText} su persėdimu ties „${candidate.transferStop?.name || 'persėdimo stotele'}“`
+      ? `Važiuok ${routeLabelText} su persėdimu ties „${candidate.transferStop?.name || "persėdimo stotele"}“`
       : `Važiuok autobusu ${routeLabelText} iki „${destinationStop.name}“`,
     summary: {
       routeLabel: routeLabelText,
@@ -815,13 +1035,13 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
       arrivalTime: lastArrival,
       headsign: candidate.segments[0]?.headsign || null,
       journeyMessage: transfersCount
-        ? `Važiuok ${routeLabelText} su persėdimu ties „${candidate.transferStop?.name || 'persėdimo stotele'}“`
+        ? `Važiuok ${routeLabelText} su persėdimu ties „${candidate.transferStop?.name || "persėdimo stotele"}“`
         : `Važiuok autobusu ${routeLabelText} iki „${destinationStop.name}“`,
     },
     legs: candidate.segments.map((segment) => ({
       id: segment.trip.trip_id,
-      type: 'bus',
-      mode: 'bus',
+      type: "bus",
+      mode: "bus",
       routeId: segment.routeId,
       routeNumber: segment.routeLabel,
       routeLabel: segment.routeLabel,
@@ -836,14 +1056,36 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
 }
 
 async function plan(body = {}) {
-  const from = toCoordinate(body.origin) || toCoordinate(body.from) || { latitude: 55.7033, longitude: 21.1443 };
-  const to = toCoordinate(body.destination) || toCoordinate(body.to) || toCoordinate(body.selectedDestination) || { latitude: 55.68962, longitude: 21.14691 };
-  const destinationTitle = body.selectedDestination?.title || body.destination?.title || body.to?.title || 'Tikslas';
-  const timeMode = ['now', 'depart', 'arrive'].includes(String(body.timeMode)) ? String(body.timeMode) : 'now';
-  const requestedSeconds = secondsFromRequestedTime(body.travelAt, nowSeconds());
-  const planTimeOptions = timeMode === 'arrive'
-    ? { afterSeconds: Math.max(0, requestedSeconds - 4 * 3600), arriveBySeconds: requestedSeconds }
-    : { afterSeconds: timeMode === 'depart' ? requestedSeconds : nowSeconds() - 120 };
+  const from = toCoordinate(body.origin) ||
+    toCoordinate(body.from) || { latitude: 55.7033, longitude: 21.1443 };
+  const to = toCoordinate(body.destination) ||
+    toCoordinate(body.to) ||
+    toCoordinate(body.selectedDestination) || {
+      latitude: 55.68962,
+      longitude: 21.14691,
+    };
+  const destinationTitle =
+    body.selectedDestination?.title ||
+    body.destination?.title ||
+    body.to?.title ||
+    "Tikslas";
+  const timeMode = ["now", "depart", "arrive"].includes(String(body.timeMode))
+    ? String(body.timeMode)
+    : "now";
+  const requestedSeconds = secondsFromRequestedTime(
+    body.travelAt,
+    nowSeconds(),
+  );
+  const planTimeOptions =
+    timeMode === "arrive"
+      ? {
+          afterSeconds: Math.max(0, requestedSeconds - 4 * 3600),
+          arriveBySeconds: requestedSeconds,
+        }
+      : {
+          afterSeconds:
+            timeMode === "depart" ? requestedSeconds : nowSeconds() - 120,
+        };
 
   const originStops = nearestStops(from, 6, 2200);
   const destinationStops = nearestStops(to, 6, 2200);
@@ -855,18 +1097,28 @@ async function plan(body = {}) {
   const plans = await Promise.all(
     candidates
       .slice(0, 4)
-      .map((candidate, index) => buildPlanFromCandidate(candidate, from, to, index))
-      .map((route) => enrichPlanWithWalkingGeometry(route))
+      .map((candidate, index) =>
+        buildPlanFromCandidate(candidate, from, to, index),
+      )
+      .map((route) => enrichPlanWithWalkingGeometry(route)),
   );
 
   if (!plans.length) {
-    const fallback = await enrichPlanWithWalkingGeometry(fallbackOption(from, to, destinationTitle));
-    return { ok: true, source: 'fallback', plan: fallback, options: [fallback], routes: [fallback] };
+    const fallback = await enrichPlanWithWalkingGeometry(
+      fallbackOption(from, to, destinationTitle),
+    );
+    return {
+      ok: true,
+      source: "fallback",
+      plan: fallback,
+      options: [fallback],
+      routes: [fallback],
+    };
   }
 
   return {
     ok: true,
-    source: 'gtfs+stops.lt+ors',
+    source: "gtfs+stops.lt+ors",
     plan: plans[0],
     options: plans,
     routes: plans,
@@ -882,12 +1134,15 @@ async function plan(body = {}) {
 
 function requestText(url) {
   return new Promise((resolve, reject) => {
-    const client = url.startsWith('https:') ? https : http;
+    const client = url.startsWith("https:") ? https : http;
     const req = client.get(
       url,
       {
         timeout: 12000,
-        headers: { 'User-Agent': 'Arbebus/1.0 live-buses backend', Accept: 'text/plain,*/*' },
+        headers: {
+          "User-Agent": "Arbebus/1.0 live-buses backend",
+          Accept: "text/plain,*/*",
+        },
       },
       (res) => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -895,26 +1150,33 @@ function requestText(url) {
           reject(new Error(`GPS feed returned HTTP ${res.statusCode}`));
           return;
         }
-        res.setEncoding('utf8');
-        let body = '';
-        res.on('data', (chunk) => { body += chunk; });
-        res.on('end', () => resolve(body));
+        res.setEncoding("utf8");
+        let body = "";
+        res.on("data", (chunk) => {
+          body += chunk;
+        });
+        res.on("end", () => resolve(body));
       },
     );
-    req.on('timeout', () => req.destroy(new Error('GPS feed timeout')));
-    req.on('error', reject);
+    req.on("timeout", () => req.destroy(new Error("GPS feed timeout")));
+    req.on("error", reject);
   });
 }
 
 function normalizeCoordinate(value) {
-  const number = Number(String(value).replace(',', '.'));
+  const number = Number(String(value).replace(",", "."));
   if (!Number.isFinite(number)) return null;
   if (Math.abs(number) > 100000) return number / 1000000;
   return number;
 }
 
 function isInKlaipeda(latitude, longitude) {
-  return latitude >= KLAIPEDA_BOUNDS.minLat && latitude <= KLAIPEDA_BOUNDS.maxLat && longitude >= KLAIPEDA_BOUNDS.minLon && longitude <= KLAIPEDA_BOUNDS.maxLon;
+  return (
+    latitude >= KLAIPEDA_BOUNDS.minLat &&
+    latitude <= KLAIPEDA_BOUNDS.maxLat &&
+    longitude >= KLAIPEDA_BOUNDS.minLon &&
+    longitude <= KLAIPEDA_BOUNDS.maxLon
+  );
 }
 
 function detectCoordinates(tokens) {
@@ -922,8 +1184,20 @@ function detectCoordinates(tokens) {
     const first = normalizeCoordinate(tokens[i]);
     const second = normalizeCoordinate(tokens[i + 1]);
     if (!Number.isFinite(first) || !Number.isFinite(second)) continue;
-    if (isInKlaipeda(first, second)) return { latitude: first, longitude: second, latIndex: i, lonIndex: i + 1 };
-    if (isInKlaipeda(second, first)) return { latitude: second, longitude: first, latIndex: i + 1, lonIndex: i };
+    if (isInKlaipeda(first, second))
+      return {
+        latitude: first,
+        longitude: second,
+        latIndex: i,
+        lonIndex: i + 1,
+      };
+    if (isInKlaipeda(second, first))
+      return {
+        latitude: second,
+        longitude: first,
+        latIndex: i + 1,
+        lonIndex: i,
+      };
   }
   return null;
 }
@@ -931,37 +1205,60 @@ function detectCoordinates(tokens) {
 function detectRouteNumber(tokens, latIndex, lonIndex) {
   const candidates = tokens
     .map((token, index) => ({ token: String(token).trim(), index }))
-    .filter(({ token, index }) => index !== latIndex && index !== lonIndex && /^[0-9]{1,3}[A-Za-z]?$/.test(token));
+    .filter(
+      ({ token, index }) =>
+        index !== latIndex &&
+        index !== lonIndex &&
+        /^[0-9]{1,3}[A-Za-z]?$/.test(token),
+    );
   if (candidates.length === 0) return null;
   return candidates[0].token;
 }
 
 function detectVehicleId(tokens, fallback) {
-  const vehicleLike = tokens.find((token) => /^[A-Za-z0-9_-]{3,}$/.test(String(token).trim()));
+  const vehicleLike = tokens.find((token) =>
+    /^[A-Za-z0-9_-]{3,}$/.test(String(token).trim()),
+  );
   return vehicleLike || fallback;
 }
 
 function detectBearing(tokens, latIndex, lonIndex) {
   const nums = tokens
-    .map((token, index) => ({ value: Number(String(token).replace(',', '.')), index }))
-    .filter(({ value, index }) => Number.isFinite(value) && index !== latIndex && index !== lonIndex);
+    .map((token, index) => ({
+      value: Number(String(token).replace(",", ".")),
+      index,
+    }))
+    .filter(
+      ({ value, index }) =>
+        Number.isFinite(value) && index !== latIndex && index !== lonIndex,
+    );
   const bearing = nums.find(({ value }) => value >= 0 && value <= 360);
   return bearing ? Math.round(bearing.value) : 0;
 }
 
 function parseGpsFeed(text) {
   const fetchedAt = new Date().toISOString();
-  const lines = String(text || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   const buses = [];
   const seen = new Set();
 
   for (const line of lines) {
-    const tokens = line.split(/[;,\t| ]+/).map((token) => token.trim()).filter(Boolean);
+    const tokens = line
+      .split(/[;,\t| ]+/)
+      .map((token) => token.trim())
+      .filter(Boolean);
     if (tokens.length < 3) continue;
     const coords = detectCoordinates(tokens);
     if (!coords) continue;
-    const routeNumber = detectRouteNumber(tokens, coords.latIndex, coords.lonIndex) || 'bus';
-    const vehicleId = detectVehicleId(tokens, `${routeNumber}-${coords.latitude.toFixed(5)}-${coords.longitude.toFixed(5)}`);
+    const routeNumber =
+      detectRouteNumber(tokens, coords.latIndex, coords.lonIndex) || "bus";
+    const vehicleId = detectVehicleId(
+      tokens,
+      `${routeNumber}-${coords.latitude.toFixed(5)}-${coords.longitude.toFixed(5)}`,
+    );
     const id = `${vehicleId}-${routeNumber}`;
     if (seen.has(id)) continue;
     seen.add(id);
@@ -980,7 +1277,7 @@ function parseGpsFeed(text) {
       heading: detectBearing(tokens, coords.latIndex, coords.lonIndex),
       speedKph: null,
       raw: tokens,
-      source: 'stops.lt',
+      source: "stops.lt",
       fetchedAt,
     });
   }
@@ -989,97 +1286,177 @@ function parseGpsFeed(text) {
 
 async function liveBuses() {
   const now = Date.now();
-  if (liveCache.data && now - liveCache.fetchedAt < LIVE_CACHE_MS) return liveCache.data;
+  if (liveCache.data && now - liveCache.fetchedAt < LIVE_CACHE_MS)
+    return liveCache.data;
   const url = process.env.STOPS_LT_GPS_URL || DEFAULT_GPS_URL;
   const text = await requestText(url);
   const buses = parseGpsFeed(text);
-  const response = { ok: true, source: 'stops.lt', count: buses.length, buses, vehicles: buses, fetchedAt: new Date().toISOString() };
+  const response = {
+    ok: true,
+    source: "stops.lt",
+    count: buses.length,
+    buses,
+    vehicles: buses,
+    fetchedAt: new Date().toISOString(),
+  };
   liveCache = { fetchedAt: now, data: response };
   return response;
 }
 
 async function liveEta(query = {}) {
   const live = await liveBuses();
-  const routeId = String(query.routeId || query.routeNumber || '').replace(/^0+/, '');
-  const stopCoordinate = toCoordinate({ latitude: query.stopLat, longitude: query.stopLon });
+  const routeId = String(query.routeId || query.routeNumber || "").replace(
+    /^0+/,
+    "",
+  );
+  const stopCoordinate = toCoordinate({
+    latitude: query.stopLat,
+    longitude: query.stopLon,
+  });
   const candidates = live.buses
-    .filter((bus) => !routeId || String(bus.routeId).replace(/^0+/, '') === routeId)
+    .filter(
+      (bus) => !routeId || String(bus.routeId).replace(/^0+/, "") === routeId,
+    )
     .map((bus) => {
-      const distance = stopCoordinate ? distanceMeters(bus.coordinate, stopCoordinate) : null;
-      const etaMinutes = distance != null ? Math.max(1, Math.round(distance / BUS_AVG_SPEED_M_PER_MIN)) : 4;
+      const distance = stopCoordinate
+        ? distanceMeters(bus.coordinate, stopCoordinate)
+        : null;
+      const etaMinutes =
+        distance != null
+          ? Math.max(1, Math.round(distance / BUS_AVG_SPEED_M_PER_MIN))
+          : 4;
       return { bus, distance, etaMinutes };
     })
     .sort((a, b) => a.etaMinutes - b.etaMinutes);
-  const best = candidates[0] || { bus: live.buses[0] || null, distance: null, etaMinutes: 4 };
+  const best = candidates[0] || {
+    bus: live.buses[0] || null,
+    distance: null,
+    etaMinutes: 4,
+  };
   return {
     ok: true,
     routeId: routeId || best.bus?.routeId || null,
-    eta: { etaSeconds: best.etaMinutes * 60, etaMinutes: best.etaMinutes, distanceMeters: best.distance },
-    boardingState: best.etaMinutes <= 2 ? 'boarding_soon' : best.etaMinutes <= 6 ? 'on_the_way' : 'later',
+    eta: {
+      etaSeconds: best.etaMinutes * 60,
+      etaMinutes: best.etaMinutes,
+      distanceMeters: best.distance,
+    },
+    boardingState:
+      best.etaMinutes <= 2
+        ? "boarding_soon"
+        : best.etaMinutes <= 6
+          ? "on_the_way"
+          : "later",
     vehicle: best.bus,
-    message: best.bus ? 'Live GPS ETA calculated from stops.lt feed' : 'No live vehicle available',
+    message: best.bus
+      ? "Live GPS ETA calculated from stops.lt feed"
+      : "No live vehicle available",
   };
 }
 
 async function departures({ stopId, limit = 20 } = {}) {
   const gtfs = loadGtfs();
-  if (!stopId) return { ok: false, error: 'MISSING_STOP_ID', departures: [] };
+  if (!stopId) return { ok: false, error: "MISSING_STOP_ID", departures: [] };
   const stop = gtfs.stopsById.get(String(stopId));
   const stopTimes = gtfs.stopTimesByStopId.get(String(stopId)) || [];
   const currentSeconds = nowSeconds();
   const upcoming = stopTimes
     .map((stopTime) => {
-      const departureSeconds = secondsFromGtfsTime(stopTime.departure_time || stopTime.arrival_time);
+      const departureSeconds = secondsFromGtfsTime(
+        stopTime.departure_time || stopTime.arrival_time,
+      );
       const trip = gtfs.tripsById.get(String(stopTime.trip_id));
       const route = trip ? gtfs.routesById.get(String(trip.route_id)) : null;
       return { stopTime, trip, route, departureSeconds };
     })
-    .filter((item) => item.departureSeconds !== null && item.departureSeconds >= currentSeconds - 60)
+    .filter(
+      (item) =>
+        item.departureSeconds !== null &&
+        item.departureSeconds >= currentSeconds - 60,
+    )
     .sort((a, b) => a.departureSeconds - b.departureSeconds)
     .slice(0, Number(limit) || 20)
     .map((item) => {
-      const countdownMinutes = Math.max(0, Math.round((item.departureSeconds - currentSeconds) / 60));
+      const countdownMinutes = Math.max(
+        0,
+        Math.round((item.departureSeconds - currentSeconds) / 60),
+      );
       return {
         tripId: item.stopTime.trip_id,
         routeId: item.route?.route_id || item.trip?.route_id || null,
-        routeLabel: item.route ? routeLabel(item.route) : item.trip?.route_id || null,
-        routeColor: item.route?.route_color ? `#${String(item.route.route_color).replace('#', '')}` : null,
-        headsign: item.trip?.trip_headsign || '',
+        routeLabel: item.route
+          ? routeLabel(item.route)
+          : item.trip?.route_id || null,
+        routeColor: item.route?.route_color
+          ? `#${String(item.route.route_color).replace("#", "")}`
+          : null,
+        headsign: item.trip?.trip_headsign || "",
         arrivalTime: item.stopTime.arrival_time,
         departureTime: item.stopTime.departure_time,
         countdownMinutes,
         stopSequence: Number(item.stopTime.stop_sequence || 0),
       };
     });
-  return { ok: true, source: 'gtfs', stopId: String(stopId), stop: stopToPublic(stop), count: upcoming.length, departures: upcoming };
+  return {
+    ok: true,
+    source: "gtfs",
+    stopId: String(stopId),
+    stop: stopToPublic(stop),
+    count: upcoming.length,
+    departures: upcoming,
+  };
 }
 
 async function vehicle({ id } = {}) {
   const live = await liveBuses();
-  const found = live.buses.find((bus) => String(bus.id) === String(id) || String(bus.vehicleId) === String(id) || String(bus.vehicleLabel) === String(id)) || null;
-  if (!found) return { ok: false, error: 'VEHICLE_NOT_FOUND', id, vehicle: null };
+  const found =
+    live.buses.find(
+      (bus) =>
+        String(bus.id) === String(id) ||
+        String(bus.vehicleId) === String(id) ||
+        String(bus.vehicleLabel) === String(id),
+    ) || null;
+  if (!found)
+    return { ok: false, error: "VEHICLE_NOT_FOUND", id, vehicle: null };
   const nearest = nearestStops(found.coordinate, 1, 5000)[0] || null;
   return {
     ok: true,
-    source: 'stops.lt+gtfs',
+    source: "stops.lt+gtfs",
     vehicle: found,
     nearestStop: nearest,
-    departures: nearest ? (await departures({ stopId: nearest.id, limit: 6 })).departures : [],
+    departures: nearest
+      ? (await departures({ stopId: nearest.id, limit: 6 })).departures
+      : [],
   };
 }
 
 function shape(shapeId) {
   const gtfs = loadGtfs();
   if (shapeId && gtfs.shapesByShapeId.has(String(shapeId))) {
-    return { ok: true, source: 'gtfs', shapeId: String(shapeId), points: simplifyPoints(gtfs.shapesByShapeId.get(String(shapeId)), 350) };
+    return {
+      ok: true,
+      source: "gtfs",
+      shapeId: String(shapeId),
+      points: simplifyPoints(gtfs.shapesByShapeId.get(String(shapeId)), 350),
+    };
   }
-  return { ok: true, source: 'fallback', points: [{ latitude: 55.7033, longitude: 21.1443 }, { latitude: 55.696, longitude: 21.146 }, { latitude: 55.68962, longitude: 21.14691 }] };
+  return {
+    ok: true,
+    source: "fallback",
+    points: [
+      { latitude: 55.7033, longitude: 21.1443 },
+      { latitude: 55.696, longitude: 21.146 },
+      { latitude: 55.68962, longitude: 21.14691 },
+    ],
+  };
 }
 
 function loadStationAccessData() {
   try {
     if (!fs.existsSync(STATION_ACCESS_PATH)) return [];
-    const raw = fs.readFileSync(STATION_ACCESS_PATH, 'utf8').replace(/^\uFEFF/, '');
+    const raw = fs
+      .readFileSync(STATION_ACCESS_PATH, "utf8")
+      .replace(/^\uFEFF/, "");
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
@@ -1094,27 +1471,28 @@ function makeFallbackStationAccess(stop) {
   return [
     {
       id: `${publicStop.stopId}-main-access`,
-      type: 'entrance',
+      type: "entrance",
       title: publicStop.name,
-      description: 'Pagrindinis patekimas į stotelę pagal GTFS stotelės koordinates.',
-      code: 'A',
+      description:
+        "Pagrindinis patekimas į stotelę pagal GTFS stotelės koordinates.",
+      code: "A",
       priority: 1,
       latitude: publicStop.latitude,
       longitude: publicStop.longitude,
       coordinate: publicStop.coordinate,
-      source: 'gtfs-fallback',
+      source: "gtfs-fallback",
     },
   ];
 }
 
 async function stationAccess({ stopId } = {}) {
   const gtfs = loadGtfs();
-  const id = String(stopId || '').trim();
+  const id = String(stopId || "").trim();
 
   if (!id) {
     return {
       ok: false,
-      error: 'MISSING_STOP_ID',
+      error: "MISSING_STOP_ID",
       stationAccess: [],
       accessPoints: [],
     };
@@ -1131,7 +1509,7 @@ async function stationAccess({ stopId } = {}) {
           if (!coordinate) return null;
           return {
             id: String(point.id || `${id}-access-${index}`),
-            type: String(point.type || 'entrance'),
+            type: String(point.type || "entrance"),
             title: String(point.title || point.name || `Įėjimas ${index + 1}`),
             description: point.description || null,
             code: point.code || null,
@@ -1139,18 +1517,22 @@ async function stationAccess({ stopId } = {}) {
             latitude: coordinate.latitude,
             longitude: coordinate.longitude,
             coordinate,
-            source: 'stations/entrances.json',
+            source: "stations/entrances.json",
           };
         })
         .filter(Boolean)
     : [];
 
-  const fallbackPoints = configuredPoints.length ? [] : makeFallbackStationAccess(stop);
-  const accessPoints = [...configuredPoints, ...fallbackPoints].sort((a, b) => Number(a.priority || 999) - Number(b.priority || 999));
+  const fallbackPoints = configuredPoints.length
+    ? []
+    : makeFallbackStationAccess(stop);
+  const accessPoints = [...configuredPoints, ...fallbackPoints].sort(
+    (a, b) => Number(a.priority || 999) - Number(b.priority || 999),
+  );
 
   return {
     ok: true,
-    source: configuredPoints.length ? 'stations+gtfs' : 'gtfs-fallback',
+    source: configuredPoints.length ? "stations+gtfs" : "gtfs-fallback",
     stopId: id,
     stop: stopToPublic(stop),
     count: accessPoints.length,
