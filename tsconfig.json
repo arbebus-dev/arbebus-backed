@@ -3,5 +3,6 @@
     "baseUrl": "."
   },
   "ignoreDeprecations": "5.0",
-  "exclude": ["node_modules", "mobile/node_modules", "backend/node_modules"]
+  "exclude": ["node_modules", "mobile/node_modules", "backend/node_modules"],
+  "extends": "expo/tsconfig.base"
 }

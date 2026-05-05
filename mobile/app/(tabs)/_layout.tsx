@@ -1,10 +1,16 @@
 import { Tabs } from "expo-router";
-import React from "react";
 
-export default function TabsLayout() {
+export default function Layout() {
   return (
-    <Tabs screenOptions={{ headerShown: false, tabBarStyle: { display: "none" } }}>
-      <Tabs.Screen name="index" options={{ title: "Arbebus" }} />
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarStyle: { backgroundColor: "#03070B" },
+        tabBarActiveTintColor: "white",
+      }}
+    >
+      <Tabs.Screen name="index" options={{ title: "Keliauti" }} />
+      <Tabs.Screen name="explore" options={{ title: "Paskyra" }} />
     </Tabs>
   );
 }

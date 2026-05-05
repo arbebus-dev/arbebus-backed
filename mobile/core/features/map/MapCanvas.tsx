@@ -1,6 +1,6 @@
 import React, { forwardRef } from "react";
-import { Platform, StyleSheet, View } from "react-native";
-import MapView, { PROVIDER_GOOGLE, type Region } from "react-native-maps";
+import { StyleSheet, View } from "react-native";
+import MapView, { type Region } from "react-native-maps";
 
 const INITIAL_REGION: Region = {
   latitude: 55.7033,
@@ -21,7 +21,6 @@ const MapCanvas = forwardRef<MapView, Props>(
       <View style={styles.container}>
         <MapView
           ref={ref}
-          provider={Platform.OS === "ios" ? PROVIDER_GOOGLE : undefined}
           style={styles.map}
           initialRegion={INITIAL_REGION}
           onPress={onPress}

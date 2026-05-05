@@ -19,6 +19,8 @@ if (typeof mainSearchHandler !== "function") {
 router.get("/health", controller.health);
 router.get("/debug", controller.debug);
 router.get("/reverse", controller.reverse || mainSearchHandler);
+router.get("/details", controller.details || mainSearchHandler);
+router.get("/photo", controller.photo || mainSearchHandler);
 
 router.get("/", mainSearchHandler);
 router.post("/", mainSearchHandler);

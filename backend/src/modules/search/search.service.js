@@ -4,7 +4,7 @@ const { cacheStats } = require('./cache/searchCache');
 const { searchLocalPoi, localPoiHealth } = require('./providers/localPoi.provider');
 const { searchNominatim, reverseNominatim } = require('./providers/nominatim.provider');
 const { searchOverpass } = require('./providers/overpass.provider');
-const { searchGooglePlaces } = require('./providers/googlePlaces.provider');
+const { searchGooglePlaces, getGooglePlaceDetails, searchNearbyGooglePlaces, getGooglePhotoMediaUrl } = require('./providers/googlePlaces.provider');
 const { searchGtfsStops, gtfsHealth, loadGtfsStops } = require('./providers/gtfsStops.provider');
 
 const DEFAULT_LIMIT = 12;
@@ -127,37 +127,42 @@ async function reverse(query = {}) {
     };
   }
 
-  const nominatim = await runProvider('nominatim_reverse', async () => {
-    const result = await reverseNominatim(latitude, longitude, { zoom: query.zoom || 18 });
-    return result ? [result] : [];
-  });
+  const fallback = {
+    id: `map-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
+    type: 'address',
+    title: 'Pasirinkta vieta',
+    name: 'Pasirinkta vieta',
+    subtitle: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+    latitude,
+    longitude,
+    coordinate: { latitude, longitude },
+    source: 'map_tap',
+    score: 1,
+    priority: 0,
+    keywords: [],
+  };
 
-  let result = nominatim.results[0] || null;
+  const googleNearby = await runProvider('google_nearby', () => searchNearbyGooglePlaces(latitude, longitude, { limit: 3 }));
+  let result = googleNearby.results[0] || null;
 
-  if (!result) {
-    result = {
-      id: `map-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
-      type: 'address',
-      title: 'Pasirinkta vieta',
-      name: 'Pasirinkta vieta',
-      subtitle: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
-      latitude,
-      longitude,
-      coordinate: { latitude, longitude },
-      source: 'map_tap',
-      score: 1,
-      priority: 0,
-      keywords: [],
-    };
-  } else {
-    result = {
-      ...result,
-      latitude,
-      longitude,
-      coordinate: { latitude, longitude },
-      source: result.source || 'nominatim',
-    };
-  }
+  const nominatim = !result
+    ? await runProvider('nominatim_reverse', async () => {
+        const item = await reverseNominatim(latitude, longitude, { zoom: query.zoom || 18 });
+        return item ? [item] : [];
+      })
+    : { name: 'nominatim_reverse', ok: true, results: [], error: null };
+
+  if (!result) result = nominatim.results[0] || null;
+  if (!result) result = fallback;
+
+  result = {
+    ...fallback,
+    ...result,
+    latitude: Number(result.latitude ?? latitude),
+    longitude: Number(result.longitude ?? longitude),
+    coordinate: result.coordinate || { latitude: Number(result.latitude ?? latitude), longitude: Number(result.longitude ?? longitude) },
+    source: result.source || 'reverse',
+  };
 
   return {
     ok: true,
@@ -167,13 +172,50 @@ async function reverse(query = {}) {
     results: [result],
     meta: {
       ...healthMeta(),
-      providers: [{ name: nominatim.name, ok: nominatim.ok, count: nominatim.results.length, error: nominatim.error }],
+      providers: [
+        { name: googleNearby.name, ok: googleNearby.ok, count: googleNearby.results.length, error: googleNearby.error },
+        { name: nominatim.name, ok: nominatim.ok, count: nominatim.results.length, error: nominatim.error },
+      ],
     },
   };
 }
 
+
+async function details(query = {}) {
+  const placeId = String(query.placeId || query.id || query.googlePlaceId || '').trim();
+  if (!placeId) {
+    return { ok: false, error: 'placeId required', result: null, place: null, meta: healthMeta() };
+  }
+
+  const google = await runProvider('google_details', async () => {
+    const result = await getGooglePlaceDetails(placeId);
+    return result ? [result] : [];
+  });
+
+  const result = google.results[0] || null;
+  return {
+    ok: Boolean(result),
+    placeId,
+    result,
+    place: result,
+    results: result ? [result] : [],
+    meta: {
+      ...healthMeta(),
+      providers: [{ name: google.name, ok: google.ok, count: google.results.length, error: google.error }],
+    },
+  };
+}
+
+async function photo(query = {}) {
+  const name = String(query.name || '').trim();
+  const maxWidthPx = query.maxWidthPx || query.max_width_px || process.env.GOOGLE_PLACES_PHOTO_MAX_WIDTH || 900;
+  if (!name) return { ok: false, error: 'name required', url: null };
+  const url = await getGooglePhotoMediaUrl(name, maxWidthPx);
+  return { ok: Boolean(url), url };
+}
+
 function health() {
-  return { ok: true, routes: ['/api/search', '/api/search/debug', '/api/search/health', '/api/search/stops'], meta: healthMeta() };
+  return { ok: true, routes: ['/api/search', '/api/search/debug', '/api/search/health', '/api/search/stops', '/api/search/reverse', '/api/search/details', '/api/search/photo'], meta: healthMeta() };
 }
 
 function allStops() {
@@ -196,4 +238,4 @@ function findNearestStop(input) {
   return loadGtfsStops().map((s) => ({ ...s, distanceMeters: distance({ latitude, longitude }, s) })).sort((a, b) => a.distanceMeters - b.distanceMeters)[0] || null;
 }
 
-module.exports = { index, debug, reverse, stops, health, healthMeta, allStops, findNearestStop, normalizeText };
+module.exports = { index, debug, reverse, details, photo, stops, health, healthMeta, allStops, findNearestStop, normalizeText };
