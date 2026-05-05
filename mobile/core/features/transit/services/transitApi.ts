@@ -1,4 +1,4 @@
-import { API_ENDPOINTS } from "../../../../constants/api";
+import { API_BASE, API_ENDPOINTS } from "../../../../constants/api";
 import type {
   Coordinate,
   LiveBus,
@@ -10,21 +10,7 @@ import type {
 
 export type { LiveBus } from "../models/transitTypes";
 export type { TransitRouteOption };
-export type PlaceResult = PlaceSearchResult & {
-  placeId?: string;
-  googlePlaceId?: string;
-  category?: string | null;
-  rating?: number | null;
-  userRatingCount?: number | null;
-  openNow?: boolean | null;
-  businessStatus?: string | null;
-  phone?: string | null;
-  website?: string | null;
-  googleMapsUri?: string | null;
-  photoNames?: string[];
-  photoUrls?: string[];
-  types?: string[];
-};
+export type PlaceResult = PlaceSearchResult;
 
 export type LiveEtaResult = {
   ok: boolean;
@@ -50,10 +36,6 @@ export type WalkingRouteResult = {
 
 function apiBase() {
   return API_ENDPOINTS.transitPlan.replace(/\/transit\/plan$/, "");
-}
-
-function placePhotoUrl(photoName: string) {
-  return `${apiBase()}/search/photo?name=${encodeURIComponent(photoName)}`;
 }
 
 const API_TIMEOUT_MS = 9000;
@@ -798,6 +780,86 @@ function dedupePlaceResults(results: PlaceResult[]): PlaceResult[] {
   });
 }
 
+
+function absoluteMediaUrl(url?: string) {
+  if (!url) return undefined;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("/")) return `${API_BASE}${url}`;
+  return url;
+}
+
+function normalizePhotos(raw: any): any[] {
+  const items = raw?.photos ?? raw?.photoUrls ?? [];
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((photo: any) => {
+      if (typeof photo === "string") return { url: absoluteMediaUrl(photo) };
+      return {
+        name: photo?.name,
+        url: absoluteMediaUrl(photo?.url),
+        widthPx: photo?.widthPx,
+        heightPx: photo?.heightPx,
+      };
+    })
+    .filter((photo: any) => photo?.url || photo?.name);
+}
+
+function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
+  const coordinate = toCoordinate(item);
+  if (!coordinate) return null;
+
+  const type = normalizePlaceType(item);
+  const placeId = item?.placeId ?? item?.googlePlaceId ?? (item?.source === "google_places" ? item?.id : undefined);
+
+  return {
+    id: String(
+      item.id ??
+        placeId ??
+        item.osmId ??
+        item.stop_id ??
+        item.stopId ??
+        `${type}-${index}`,
+    ),
+    title: String(
+      item.title ??
+        item.name ??
+        item.displayName ??
+        item.stopName ??
+        item.stop_name ??
+        "Vieta",
+    ),
+    subtitle:
+      item.subtitle ??
+      item.address ??
+      item.description ??
+      item.label ??
+      item.formattedAddress ??
+      item.stop_desc ??
+      (type === "address" ? "Adresas" : type === "stop" ? "Stotelė" : "Vieta"),
+    type,
+    source: item.source,
+    distanceMeters: item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
+    latitude: coordinate.latitude,
+    longitude: coordinate.longitude,
+    coordinate,
+    placeId: placeId != null ? String(placeId) : undefined,
+    googlePlaceId: item.googlePlaceId != null ? String(item.googlePlaceId) : placeId != null ? String(placeId) : undefined,
+    category: item.category ?? (Array.isArray(item.keywords) ? item.keywords[0] : undefined),
+    rating: item.rating != null ? Number(item.rating) : undefined,
+    userRatingCount: item.userRatingCount != null ? Number(item.userRatingCount) : undefined,
+    openNow: typeof item.openNow === "boolean" ? item.openNow : undefined,
+    openNowText: item.openNowText,
+    openingHours: Array.isArray(item.openingHours) ? item.openingHours : [],
+    photos: normalizePhotos(item),
+    photoUrls: Array.isArray(item.photoUrls) ? item.photoUrls : normalizePhotos(item).map((p: any) => p.url).filter(Boolean),
+    phone: item.phone,
+    website: item.website,
+    googleMapsUri: item.googleMapsUri,
+    ...(item.score != null ? { score: Number(item.score) } : {}),
+    ...(item.priority != null ? { priority: Number(item.priority) } : {}),
+  } as PlaceResult;
+}
+
 export async function searchPlaces(query: string): Promise<PlaceResult[]> {
   const q = query.trim();
   if (q.length < 2) return [];
@@ -824,69 +886,7 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
       if (!rawResults.length) continue;
 
       const normalized = rawResults
-        .map((item: any, index: number): PlaceResult | null => {
-          const coordinate = toCoordinate(item);
-          if (!coordinate) return null;
-
-          const type = normalizePlaceType(item);
-
-          return {
-            id: String(
-              item.id ??
-                item.placeId ??
-                item.osmId ??
-                item.stop_id ??
-                item.stopId ??
-                `${type}-${index}`,
-            ),
-            title: String(
-              item.title ??
-                item.name ??
-                item.displayName ??
-                item.stopName ??
-                item.stop_name ??
-                "Vieta",
-            ),
-            subtitle:
-              item.subtitle ??
-              item.address ??
-              item.description ??
-              item.label ??
-              item.stop_desc ??
-              (type === "address"
-                ? "Adresas"
-                : type === "stop"
-                  ? "Stotelė"
-                  : "Vieta"),
-            type,
-            source: item.source,
-            placeId: item.placeId ?? item.googlePlaceId ?? (String(item.source || '').includes('google') ? item.id : undefined),
-            googlePlaceId: item.googlePlaceId ?? item.placeId ?? (String(item.source || '').includes('google') ? item.id : undefined),
-            category: item.category ?? item.types?.[0] ?? null,
-            rating: item.rating != null ? Number(item.rating) : null,
-            userRatingCount: item.userRatingCount != null ? Number(item.userRatingCount) : null,
-            openNow: typeof item.openNow === 'boolean' ? item.openNow : null,
-            businessStatus: item.businessStatus ?? null,
-            phone: item.phone ?? null,
-            website: item.website ?? null,
-            googleMapsUri: item.googleMapsUri ?? null,
-            photoNames: Array.isArray(item.photoNames) ? item.photoNames : [],
-            photoUrls: Array.isArray(item.photoNames) ? item.photoNames.map(placePhotoUrl) : [],
-            types: Array.isArray(item.types) ? item.types : [],
-            distanceMeters:
-              item.distanceMeters != null
-                ? Number(item.distanceMeters)
-                : undefined,
-            latitude: coordinate.latitude,
-            longitude: coordinate.longitude,
-            coordinate,
-            // Keep backend ranking data for debugging/sorting; TS model may ignore it.
-            ...(item.score != null ? { score: Number(item.score) } : {}),
-            ...(item.priority != null
-              ? { priority: Number(item.priority) }
-              : {}),
-          } as PlaceResult;
-        })
+        .map((item: any, index: number): PlaceResult | null => normalizePlaceResult(item, index))
         .filter(Boolean) as PlaceResult[];
 
       return dedupePlaceResults(normalized)
@@ -935,32 +935,7 @@ export async function reverseGeocodePlace(
       const coordinateFromResponse = toCoordinate(raw) ?? fallback.coordinate;
       if (!raw || !coordinateFromResponse) continue;
 
-      return {
-        id: String(raw.id ?? fallback.id),
-        title: String(
-          raw.title ?? raw.name ?? raw.displayName ?? fallback.title,
-        ),
-        subtitle:
-          raw.subtitle ?? raw.address ?? raw.description ?? fallback.subtitle,
-        type: normalizePlaceType(raw),
-        latitude: coordinateFromResponse.latitude,
-        longitude: coordinateFromResponse.longitude,
-        coordinate: coordinateFromResponse,
-        source: raw.source ?? "reverse",
-        placeId: raw.placeId ?? raw.googlePlaceId ?? (String(raw.source || '').includes('google') ? raw.id : undefined),
-        googlePlaceId: raw.googlePlaceId ?? raw.placeId ?? (String(raw.source || '').includes('google') ? raw.id : undefined),
-        category: raw.category ?? raw.types?.[0] ?? null,
-        rating: raw.rating != null ? Number(raw.rating) : null,
-        userRatingCount: raw.userRatingCount != null ? Number(raw.userRatingCount) : null,
-        openNow: typeof raw.openNow === 'boolean' ? raw.openNow : null,
-        businessStatus: raw.businessStatus ?? null,
-        phone: raw.phone ?? null,
-        website: raw.website ?? null,
-        googleMapsUri: raw.googleMapsUri ?? null,
-        photoNames: Array.isArray(raw.photoNames) ? raw.photoNames : [],
-        photoUrls: Array.isArray(raw.photoNames) ? raw.photoNames.map(placePhotoUrl) : [],
-        types: Array.isArray(raw.types) ? raw.types : [],
-      } as PlaceResult;
+      return (normalizePlaceResult({ ...raw, coordinate: coordinateFromResponse }, 0) || fallback) as PlaceResult;
     } catch {
       // Try compatible fallback endpoint.
     }
@@ -970,49 +945,29 @@ export async function reverseGeocodePlace(
 }
 
 
-export async function fetchPlaceDetails(place: PlaceResult): Promise<PlaceResult> {
-  const placeId = place.placeId ?? place.googlePlaceId ?? (String(place.source || '').includes('google') ? place.id : undefined);
-  if (!placeId) return place;
+export async function fetchPlaceDetails(placeId: string): Promise<PlaceResult | null> {
+  const id = String(placeId || "").trim();
+  if (!id) return null;
 
-  try {
-    const response = await fetchWithRetry(
-      `${apiBase()}/search/details?placeId=${encodeURIComponent(placeId)}`,
-      undefined,
-      0,
-    );
-    if (!response.ok) return place;
-    const data = await safeJson<any>(response);
-    const raw = data?.place || data?.result || data?.results?.[0];
-    if (!raw) return place;
-    const coordinate = toCoordinate(raw) ?? place.coordinate;
-    return {
-      ...place,
-      ...raw,
-      id: String(raw.id ?? place.id),
-      title: String(raw.title ?? raw.name ?? place.title),
-      subtitle: raw.subtitle ?? raw.address ?? raw.formattedAddress ?? place.subtitle,
-      type: normalizePlaceType(raw),
-      latitude: coordinate.latitude,
-      longitude: coordinate.longitude,
-      coordinate,
-      placeId: raw.placeId ?? raw.googlePlaceId ?? placeId,
-      googlePlaceId: raw.googlePlaceId ?? raw.placeId ?? placeId,
-      category: raw.category ?? raw.types?.[0] ?? place.category ?? null,
-      rating: raw.rating != null ? Number(raw.rating) : place.rating ?? null,
-      userRatingCount: raw.userRatingCount != null ? Number(raw.userRatingCount) : place.userRatingCount ?? null,
-      openNow: typeof raw.openNow === 'boolean' ? raw.openNow : place.openNow ?? null,
-      businessStatus: raw.businessStatus ?? place.businessStatus ?? null,
-      phone: raw.phone ?? place.phone ?? null,
-      website: raw.website ?? place.website ?? null,
-      googleMapsUri: raw.googleMapsUri ?? place.googleMapsUri ?? null,
-      photoNames: Array.isArray(raw.photoNames) ? raw.photoNames : place.photoNames ?? [],
-      photoUrls: Array.isArray(raw.photoNames) ? raw.photoNames.map(placePhotoUrl) : place.photoUrls ?? [],
-      types: Array.isArray(raw.types) ? raw.types : place.types ?? [],
-      source: raw.source ?? place.source,
-    } as PlaceResult;
-  } catch {
-    return place;
+  const urls = [
+    `${apiBase()}/search/details?placeId=${encodeURIComponent(id)}`,
+    `${API_ENDPOINTS.placesSearch}/details?placeId=${encodeURIComponent(id)}`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const response = await fetchWithRetry(url, undefined, 0);
+      if (!response.ok) continue;
+      const data = await safeJson<any>(response);
+      const raw = data?.place || data?.result || data?.results?.[0];
+      const normalized = normalizePlaceResult(raw, 0);
+      if (normalized) return normalized;
+    } catch {
+      // Try next compatible endpoint.
+    }
   }
+
+  return null;
 }
 
 export async function planTransitRoute(params: {

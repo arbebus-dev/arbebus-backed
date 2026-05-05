@@ -24,16 +24,36 @@ export type LiveBus = {
 
 export type Bus = LiveBus;
 
+export type PlacePhoto = {
+  name?: string;
+  url?: string;
+  widthPx?: number;
+  heightPx?: number;
+};
+
 export type PlaceSearchResult = {
   id: string;
   title: string;
   subtitle?: string;
   type?: "stop" | "poi" | "place" | "address" | "city" | "region" | string;
-  source?: "gtfs" | "seed" | "poi" | "ors" | string;
+  source?: "gtfs" | "seed" | "poi" | "ors" | "google_places" | string;
   distanceMeters?: number;
   latitude?: number;
   longitude?: number;
   coordinate: Coordinate;
+  placeId?: string;
+  googlePlaceId?: string;
+  category?: string | null;
+  rating?: number;
+  userRatingCount?: number;
+  openNow?: boolean | null;
+  openNowText?: string | null;
+  openingHours?: string[];
+  photos?: PlacePhoto[];
+  photoUrls?: string[];
+  phone?: string;
+  website?: string;
+  googleMapsUri?: string;
 };
 
 export type TransitFlowState =

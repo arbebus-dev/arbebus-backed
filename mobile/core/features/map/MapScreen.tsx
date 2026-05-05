@@ -8,8 +8,8 @@ import { useTransitPlanner } from "../transit/hooks/useTransitPlanner";
 import { useUserLocation } from "../transit/hooks/useUserLocation";
 import {
   fetchStationAccess,
-  fetchPlaceDetails,
   reverseGeocodePlace,
+  fetchPlaceDetails,
   type StationAccessPoint,
 } from "../transit/services/transitApi";
 
@@ -129,22 +129,19 @@ function averagePoint(points: MapPoint[]): MapPoint | null {
   };
 }
 
-const POPULAR_MAP_PLACES = [
-  { id: "popular-akropolis", title: "Akropolis Klaipėda", subtitle: "Prekybos centras · Taikos pr. 61", type: "shopping_mall", coordinate: { latitude: 55.6947, longitude: 21.1583 } },
-  { id: "popular-arena", title: "Švyturio Arena", subtitle: "Renginiai · Dubysos g. 10", type: "venue", coordinate: { latitude: 55.6807, longitude: 21.1576 } },
-  { id: "popular-baseinas", title: "Klaipėdos baseinas", subtitle: "Sportas · Dubysos g. 12", type: "sport", coordinate: { latitude: 55.6815, longitude: 21.1569 } },
-  { id: "popular-vetrunge", title: "Vėtrungė", subtitle: "Prekybos vieta · Klaipėda", type: "shopping", coordinate: { latitude: 55.6905, longitude: 21.1458 } },
-  { id: "popular-gg-arena", title: "GG Arena Klaipėda", subtitle: "Pramogos · Klaipėda", type: "entertainment", coordinate: { latitude: 55.6919, longitude: 21.1510 } },
-  { id: "popular-barbers", title: "Mooza Barbers & academy", subtitle: "Kirpykla · Klaipėda", type: "hair_care", coordinate: { latitude: 55.6846, longitude: 21.1399 } },
-];
 
 function placeFromMapData(input: any) {
   const latitude = Number(input?.latitude ?? input?.coordinate?.latitude);
   const longitude = Number(input?.longitude ?? input?.coordinate?.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
 
+  const placeId = input?.placeId ?? input?.googlePlaceId ?? (input?.source === "google_places" ? input?.id : undefined);
+
   return {
-    id: String(input?.id ?? input?.placeId ?? `map-${latitude.toFixed(6)}-${longitude.toFixed(6)}`),
+    ...input,
+    id: String(input?.id ?? placeId ?? `map-${latitude.toFixed(6)}-${longitude.toFixed(6)}`),
+    placeId: placeId != null ? String(placeId) : undefined,
+    googlePlaceId: input?.googlePlaceId ?? (placeId != null ? String(placeId) : undefined),
     type: String(input?.type ?? "poi"),
     title: String(input?.title ?? input?.name ?? "Pasirinkta vieta"),
     subtitle: String(input?.subtitle ?? input?.address ?? `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`),
@@ -152,19 +149,6 @@ function placeFromMapData(input: any) {
     longitude,
     coordinate: { latitude, longitude },
     source: String(input?.source ?? "map_poi"),
-    placeId: input?.placeId ?? input?.googlePlaceId ?? (String(input?.source || '').includes('google') ? input?.id : undefined),
-    googlePlaceId: input?.googlePlaceId ?? input?.placeId ?? (String(input?.source || '').includes('google') ? input?.id : undefined),
-    category: input?.category ?? input?.types?.[0] ?? null,
-    rating: input?.rating ?? null,
-    userRatingCount: input?.userRatingCount ?? null,
-    openNow: typeof input?.openNow === 'boolean' ? input.openNow : null,
-    businessStatus: input?.businessStatus ?? null,
-    phone: input?.phone ?? null,
-    website: input?.website ?? null,
-    googleMapsUri: input?.googleMapsUri ?? null,
-    photoNames: Array.isArray(input?.photoNames) ? input.photoNames : [],
-    photoUrls: Array.isArray(input?.photoUrls) ? input.photoUrls : [],
-    types: Array.isArray(input?.types) ? input.types : [],
   };
 }
 
@@ -182,7 +166,6 @@ export default function MapScreen() {
   const [stationAccessPoints, setStationAccessPoints] = useState<StationAccessPoint[]>([]);
   const [selectedMapPlace, setSelectedMapPlace] = useState<any | null>(null);
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
-  const [isLoadingPlaceDetails, setIsLoadingPlaceDetails] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -212,29 +195,6 @@ export default function MapScreen() {
   }, [selectedRoute?.originStop?.id, selectedRoute?.originStop?.stopId, selectedRoute?.destinationStop?.id, selectedRoute?.destinationStop?.stopId]);
 
   const selectedRouteLabel = selectedRoute?.routeLabel || null;
-
-  useEffect(() => {
-    let cancelled = false;
-    const placeId = selectedMapPlace?.placeId || selectedMapPlace?.googlePlaceId || (String(selectedMapPlace?.source || '').includes('google') ? selectedMapPlace?.id : null);
-    if (!selectedMapPlace || !placeId || selectedMapPlace?.photoUrls?.length || selectedMapPlace?.rating != null) return;
-
-    setIsLoadingPlaceDetails(true);
-    fetchPlaceDetails({ ...selectedMapPlace, placeId } as any)
-      .then((details) => {
-        if (!cancelled && details) {
-          setSelectedMapPlace((current: any) => current ? { ...current, ...details, coordinate: details.coordinate || current.coordinate } : details);
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setIsLoadingPlaceDetails(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedMapPlace?.id, selectedMapPlace?.placeId, selectedMapPlace?.googlePlaceId]);
-
 
   const selectedRouteNumber = useMemo(() => {
     return normalizeRouteNumber(
@@ -391,7 +351,8 @@ export default function MapScreen() {
     Keyboard.dismiss();
     setSelectedMapPlace(provisional);
 
-    if (!shouldReverse) {
+    const placeId = provisional.placeId || provisional.googlePlaceId;
+    if (!shouldReverse && !placeId) {
       setIsReverseGeocoding(false);
       return;
     }
@@ -400,8 +361,8 @@ export default function MapScreen() {
 
     try {
       const place = await Promise.race([
-        reverseGeocodePlace(provisional.coordinate),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1800)),
+        placeId ? fetchPlaceDetails(placeId) : reverseGeocodePlace(provisional.coordinate),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2200)),
       ]);
 
       if (place) {
@@ -411,25 +372,16 @@ export default function MapScreen() {
           title: place.title || provisional.title,
           subtitle: place.subtitle || provisional.subtitle,
           coordinate: place.coordinate || provisional.coordinate,
+          latitude: place.latitude ?? provisional.latitude,
+          longitude: place.longitude ?? provisional.longitude,
+          placeId: place.placeId || place.googlePlaceId || placeId,
+          googlePlaceId: place.googlePlaceId || place.placeId || placeId,
         });
       }
     } catch {
       setSelectedMapPlace(provisional);
     } finally {
       setIsReverseGeocoding(false);
-    }
-
-    const currentPlaceId = provisional.placeId || provisional.googlePlaceId || provisional.id;
-    if (currentPlaceId && String(provisional.source || '').includes('google')) {
-      setIsLoadingPlaceDetails(true);
-      try {
-        const details = await fetchPlaceDetails({ ...provisional, placeId: currentPlaceId } as any);
-        setSelectedMapPlace((current: any) => current ? { ...current, ...details, coordinate: details.coordinate || current.coordinate } : details);
-      } catch {
-        // Preview remains usable without details.
-      } finally {
-        setIsLoadingPlaceDetails(false);
-      }
     }
   };
 
@@ -440,14 +392,16 @@ export default function MapScreen() {
 
   const handlePoiClick = (event: any) => {
     const native = event?.nativeEvent || {};
-    const coordinate = native.coordinate || { latitude: native.latitude, longitude: native.longitude };
+    const coordinate = native.coordinate || native.position || { latitude: native.latitude, longitude: native.longitude };
     void showPlacePreview({
       id: native.placeId || native.id,
+      placeId: native.placeId,
+      googlePlaceId: native.placeId,
       title: native.name || native.title || "Pasirinkta vieta",
       subtitle: native.address || native.subtitle || "Žemėlapio vieta",
       type: "poi",
       coordinate,
-      source: "map_poi",
+      source: native.placeId ? "google_places" : "map_poi",
     }, true);
   };
 
@@ -490,24 +444,6 @@ export default function MapScreen() {
           selectedVehicleId={selectedVehicleId}
         />
 
-        {POPULAR_MAP_PLACES.map((place) => (
-          <Marker
-            key={place.id}
-            coordinate={place.coordinate}
-            anchor={{ x: 0.5, y: 0.5 }}
-            tracksViewChanges={false}
-            zIndex={120}
-            onPress={(event) => {
-              event.stopPropagation?.();
-              void showPlacePreview(place, false);
-            }}
-          >
-            <View style={styles.popularPlaceMarker}>
-              <MaterialCommunityIcons name={place.type === "hair_care" ? "content-cut" : place.type === "shopping_mall" || place.type === "shopping" ? "shopping" : "map-marker"} size={11} color="#0B1220" />
-            </View>
-          </Marker>
-        ))}
-
         {selectedMapPlace?.coordinate ? (
           <Marker
             coordinate={selectedMapPlace.coordinate}
@@ -539,7 +475,7 @@ export default function MapScreen() {
         selectedOrigin={planner.selectedOrigin}
         selectedDestination={planner.selectedDestination}
         selectedMapPlace={selectedMapPlace}
-        isReverseGeocoding={isReverseGeocoding || isLoadingPlaceDetails}
+        isReverseGeocoding={isReverseGeocoding}
         error={planner.error}
         isOffline={planner.isOffline}
         offlineMessage={planner.offlineMessage}
@@ -628,15 +564,5 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.16,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 5 },
-  },
-  popularPlaceMarker: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,207,77,0.92)",
-    borderWidth: 1.5,
-    borderColor: "rgba(20,27,37,0.32)",
   },
 });

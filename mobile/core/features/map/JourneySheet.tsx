@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   Animated,
   Image,
-  Linking,
   Dimensions,
   Keyboard,
   PanResponder,
@@ -467,28 +466,18 @@ function iconForPlaceType(type?: string) {
   return 'map-marker';
 }
 
-function formatCategory(place: PlaceSearchResult) {
-  const category = String((place as any).category || place.type || "vieta");
-  return category.replace(/_/g, " ");
+function normalizeDisplayCategory(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "Vieta";
+  return raw
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
 function PlacePreviewCard({ props }: { props: Props }) {
   const { t } = useLanguage();
-  const place = props.selectedMapPlace as (PlaceSearchResult & {
-    rating?: number | null;
-    userRatingCount?: number | null;
-    openNow?: boolean | null;
-    photoUrls?: string[];
-    category?: string | null;
-    phone?: string | null;
-    website?: string | null;
-    googleMapsUri?: string | null;
-  }) | null;
+  const place = props.selectedMapPlace;
   if (!place) return null;
-
-  const photos = Array.isArray(place.photoUrls) ? place.photoUrls.slice(0, 5) : [];
-  const hasRating = typeof place.rating === "number" && Number.isFinite(place.rating);
-  const openLabel = place.openNow === true ? t.sheet.openNow : place.openNow === false ? t.sheet.closedNow : null;
 
   const useAsOrigin = () => {
     void Haptics.selectionAsync();
@@ -500,17 +489,34 @@ function PlacePreviewCard({ props }: { props: Props }) {
     props.onUseMapPlaceAsDestination?.(place);
   };
 
+  const photos = [
+    ...(Array.isArray((place as any).photos) ? (place as any).photos.map((p: any) => p?.url || p).filter(Boolean) : []),
+    ...(Array.isArray((place as any).photoUrls) ? (place as any).photoUrls.filter(Boolean) : []),
+  ].filter(Boolean).slice(0, 6);
+  const rating = Number((place as any).rating);
+  const hasRating = Number.isFinite(rating) && rating > 0;
+  const userRatingCount = Number((place as any).userRatingCount || 0);
+  const openNow = (place as any).openNow;
+  const openText = (place as any).openNowText || (openNow === true ? "Atidaryta dabar" : openNow === false ? "Uždaryta dabar" : null);
+  const category = normalizeDisplayCategory((place as any).category || place.type);
+  const hours = Array.isArray((place as any).openingHours) ? (place as any).openingHours.slice(0, 2) : [];
+
   return (
     <View style={styles.placePreviewCardPro}>
       {photos.length ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.placePhotoRail}>
-          {photos.map((uri, index) => (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.placePhotoStrip}
+          contentContainerStyle={styles.placePhotoContent}
+        >
+          {photos.map((uri: string, index: number) => (
             <Image key={`${uri}-${index}`} source={{ uri }} style={styles.placePhoto} resizeMode="cover" />
           ))}
         </ScrollView>
       ) : null}
 
-      <View style={styles.placePreviewTop}>
+      <View style={styles.placePreviewTopPro}>
         <View style={styles.placePreviewIcon}>
           <MaterialCommunityIcons name={iconForPlaceType(place.type) as any} size={18} color={COLORS.greenDark} />
         </View>
@@ -519,30 +525,39 @@ function PlacePreviewCard({ props }: { props: Props }) {
           <Text style={styles.placePreviewTitle} numberOfLines={2}>{place.title}</Text>
           <Text style={styles.placePreviewSubtitle} numberOfLines={2}>{place.subtitle || placeSubtitle(place)}</Text>
         </View>
-        <Pressable onPress={props.onClearMapPlace} hitSlop={12} style={styles.placePreviewClose}>
-          <Ionicons name="close" size={14} color="#657088" />
+        <Pressable onPress={props.onClearMapPlace} hitSlop={12} style={styles.placePreviewClosePro}>
+          <Ionicons name="close" size={16} color="#657088" />
         </Pressable>
       </View>
 
-      <View style={styles.placeMetaRowWrap}>
-        <View style={styles.placeMetaPill}><Text style={styles.placeMetaText}>{formatCategory(place)}</Text></View>
+      {props.isReverseGeocoding ? (
+        <View style={styles.placeLoadingRowPro}>
+          <ActivityIndicator size="small" color={COLORS.green} />
+          <Text style={styles.placeLoadingText}>{t.sheet.locatingPlace}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.placeMetaGrid}>
+        <View style={styles.placeMetaPill}><Text style={styles.placeMetaText}>{category}</Text></View>
         {hasRating ? (
-          <View style={styles.placeMetaPillGold}>
-            <Ionicons name="star" size={12} color="#8A5A00" />
-            <Text style={styles.placeMetaTextGold}>{place.rating?.toFixed(1)}{place.userRatingCount ? ` · ${place.userRatingCount}` : ""}</Text>
-          </View>
-        ) : null}
-        {openLabel ? (
-          <View style={[styles.placeMetaPill, place.openNow ? styles.placeMetaOpen : styles.placeMetaClosed]}>
-            <Text style={[styles.placeMetaText, place.openNow ? styles.placeMetaOpenText : styles.placeMetaClosedText]}>{openLabel}</Text>
-          </View>
-        ) : null}
-        {props.isReverseGeocoding ? (
           <View style={styles.placeMetaPill}>
-            <ActivityIndicator size="small" color={COLORS.green} />
+            <Text style={styles.placeMetaText}>★ {rating.toFixed(1)}{userRatingCount ? ` (${userRatingCount})` : ""}</Text>
+          </View>
+        ) : null}
+        {openText ? (
+          <View style={[styles.placeMetaPill, openNow === true && styles.placeMetaPillOpen, openNow === false && styles.placeMetaPillClosed]}>
+            <Text style={[styles.placeMetaText, openNow === true && styles.placeMetaTextOpen, openNow === false && styles.placeMetaTextClosed]}>{openText}</Text>
           </View>
         ) : null}
       </View>
+
+      {hours.length ? (
+        <View style={styles.placeHoursBox}>
+          {hours.map((line: string) => (
+            <Text key={line} style={styles.placeHoursText} numberOfLines={1}>{line}</Text>
+          ))}
+        </View>
+      ) : null}
 
       <View style={styles.placePreviewActions}>
         <Pressable style={styles.placeActionButtonSecondary} onPress={useAsOrigin}>
@@ -556,14 +571,6 @@ function PlacePreviewCard({ props }: { props: Props }) {
         <MaterialCommunityIcons name="navigation-variant" size={16} color={COLORS.greenDark} />
         <Text style={styles.placeRouteButtonText}>{t.sheet.showRoute}</Text>
       </Pressable>
-
-      {(place.phone || place.website || place.googleMapsUri) ? (
-        <View style={styles.placeLinkRow}>
-          {place.phone ? <Pressable style={styles.placeLinkButton} onPress={() => Linking.openURL(`tel:${place.phone}`)}><Ionicons name="call" size={14} color={COLORS.textDark} /><Text style={styles.placeLinkText}>{t.sheet.call}</Text></Pressable> : null}
-          {place.website ? <Pressable style={styles.placeLinkButton} onPress={() => Linking.openURL(String(place.website))}><Ionicons name="globe" size={14} color={COLORS.textDark} /><Text style={styles.placeLinkText}>{t.sheet.website}</Text></Pressable> : null}
-          {place.googleMapsUri ? <Pressable style={styles.placeLinkButton} onPress={() => Linking.openURL(String(place.googleMapsUri))}><Ionicons name="map" size={14} color={COLORS.textDark} /><Text style={styles.placeLinkText}>Google</Text></Pressable> : null}
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -936,6 +943,62 @@ const styles = StyleSheet.create({
   appleStatusChipWarning: { minHeight: 28, borderRadius: 14, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,193,7,0.18)" },
   appleStatusText: { color: COLORS.greenDark, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
   appleStatusTextWarning: { color: "#8A5A00", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
+
+  placePreviewCardPro: {
+    borderRadius: 26,
+    backgroundColor: "rgba(255,255,255,0.88)",
+    borderWidth: 1,
+    borderColor: "rgba(20,27,37,0.07)",
+    padding: 14,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 9 },
+  },
+  placePhotoStrip: { marginHorizontal: -4, marginBottom: 12 },
+  placePhotoContent: { paddingHorizontal: 4, gap: 8 },
+  placePhoto: { width: 148, height: 92, borderRadius: 18, backgroundColor: "rgba(20,27,37,0.08)" },
+  placePreviewTopPro: { flexDirection: "row", alignItems: "center", gap: 11 },
+  placePreviewClosePro: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(18,25,36,0.08)",
+  },
+  placeLoadingRowPro: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 12,
+  },
+  placeMetaGrid: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12,
+  },
+  placeMetaPillOpen: { backgroundColor: "rgba(52,245,179,0.18)" },
+  placeMetaPillClosed: { backgroundColor: "rgba(255,99,99,0.14)" },
+  placeMetaTextOpen: { color: COLORS.greenDark },
+  placeMetaTextClosed: { color: "#9A1C1C" },
+  placeHoursBox: {
+    marginTop: 10,
+    borderRadius: 16,
+    backgroundColor: "rgba(20,27,37,0.05)",
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    gap: 3,
+  },
+  placeHoursText: {
+    color: "#667083",
+    fontSize: T.tiny,
+    lineHeight: LINE_HEIGHT.tiny,
+    fontWeight: "800",
+  },
   placePreviewCard: {
     borderRadius: 24,
     backgroundColor: "rgba(255,255,255,0.82)",
@@ -1138,83 +1201,4 @@ const styles = StyleSheet.create({
   tripInputLabel: { color: "#667083", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 2 },
   tripInputValue: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "900" },
   tripDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "rgba(45,55,72,0.16)", marginLeft: 54 },
-
-  placePreviewCardPro: {
-    borderRadius: 26,
-    padding: 12,
-    backgroundColor: "rgba(255,255,255,0.78)",
-    borderWidth: 1,
-    borderColor: "rgba(20,27,37,0.07)",
-    marginBottom: 12,
-    overflow: "hidden",
-    shadowColor: "#0B1220",
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-  },
-  placePhotoRail: {
-    gap: 8,
-    paddingBottom: 10,
-  },
-  placePhoto: {
-    width: 142,
-    height: 92,
-    borderRadius: 18,
-    backgroundColor: "rgba(20,27,37,0.08)",
-  },
-  placeMetaRowWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: 7,
-    marginTop: 12,
-  },
-  placeMetaPillGold: {
-    minHeight: 24,
-    borderRadius: 12,
-    paddingHorizontal: 9,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(255,193,7,0.22)",
-  },
-  placeMetaTextGold: {
-    color: "#8A5A00",
-    fontSize: T.tiny,
-    lineHeight: LINE_HEIGHT.tiny,
-    fontWeight: "900",
-  },
-  placeMetaOpen: {
-    backgroundColor: "rgba(32,201,151,0.14)",
-  },
-  placeMetaClosed: {
-    backgroundColor: "rgba(255,99,99,0.13)",
-  },
-  placeMetaOpenText: {
-    color: "#087F5B",
-  },
-  placeMetaClosedText: {
-    color: "#B42318",
-  },
-  placeLinkRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 10,
-  },
-  placeLinkButton: {
-    minHeight: 34,
-    borderRadius: 17,
-    paddingHorizontal: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "rgba(20,27,37,0.07)",
-  },
-  placeLinkText: {
-    color: COLORS.textDark,
-    fontSize: T.caption,
-    lineHeight: LINE_HEIGHT.caption,
-    fontWeight: "900",
-  },
 });
