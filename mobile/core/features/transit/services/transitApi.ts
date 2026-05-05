@@ -276,11 +276,10 @@ function normalizeStops(rawStops: any): any[] {
 
       return normalizeStop(stop);
     })
-    .filter(Boolean)
-    .filter(
-      (stop) =>
-        Number.isFinite(Number(stop.latitude)) &&
-        Number.isFinite(Number(stop.longitude)),
+    .filter((stop): stop is NonNullable<typeof stop> => Boolean(stop))
+    .filter((stop) =>
+      Number.isFinite(Number(stop.latitude)) &&
+      Number.isFinite(Number(stop.longitude)),
     );
 }
 

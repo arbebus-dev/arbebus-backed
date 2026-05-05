@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Modal,
   Pressable,
@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   View,
+  type DimensionValue,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -26,8 +27,30 @@ type Props = {
   onConfirm: (selection: TravelTimeSelection) => void;
 };
 
-const WEEK_DAYS_LT = ["Sekmadienį", "Pirmadienį", "Antradienį", "Trečiadienį", "Ketvirtadienį", "Penktadienį", "Šeštadienį"];
-const MONTHS_LT = ["Sau", "Vas", "Kov", "Bal", "Geg", "Bir", "Lie", "Rgp", "Rgs", "Spa", "Lap", "Gru"];
+const WEEK_DAYS_LT = [
+  "Sekmadienį",
+  "Pirmadienį",
+  "Antradienį",
+  "Trečiadienį",
+  "Ketvirtadienį",
+  "Penktadienį",
+  "Šeštadienį",
+];
+
+const MONTHS_LT = [
+  "Sau",
+  "Vas",
+  "Kov",
+  "Bal",
+  "Geg",
+  "Bir",
+  "Lie",
+  "Rgp",
+  "Rgs",
+  "Spa",
+  "Lap",
+  "Gru",
+];
 
 function startOfDay(date: Date) {
   const next = new Date(date);
@@ -52,8 +75,7 @@ function dateLabel(date: Date, today: Date) {
 }
 
 function clampMinute(minute: number) {
-  const step = 5;
-  return Math.round(minute / step) * step;
+  return Math.round(minute / 5) * 5;
 }
 
 function makeDate(day: Date, hour: number, minute: number) {
@@ -61,6 +83,10 @@ function makeDate(day: Date, hour: number, minute: number) {
   next.setHours(hour, minute, 0, 0);
   return next;
 }
+
+/* ===========================
+   ✅ FIXED WheelColumn
+   =========================== */
 
 function WheelColumn<T extends string | number>({
   values,
@@ -75,9 +101,19 @@ function WheelColumn<T extends string | number>({
   onSelect: (value: T) => void;
   width?: number | string;
 }) {
+  const resolvedWidth: DimensionValue | undefined =
+    typeof width === "string"
+      ? (width as DimensionValue)
+      : typeof width === "number"
+        ? `${width * 100}%`
+        : undefined;
+
   return (
     <ScrollView
-      style={[styles.wheelColumn, width ? { width } : null]}
+      style={[
+        styles.wheelColumn,
+        resolvedWidth ? { width: resolvedWidth } : null,
+      ]}
       contentContainerStyle={styles.wheelColumnContent}
       showsVerticalScrollIndicator={false}
       snapToInterval={54}
@@ -85,16 +121,20 @@ function WheelColumn<T extends string | number>({
     >
       {values.map((value) => {
         const active = String(value) === String(selected);
+
         return (
           <Pressable
             key={String(value)}
-            style={[styles.wheelItem, active && styles.wheelItemActive]}
+            style={styles.wheelItem}
             onPress={() => {
               void Haptics.selectionAsync();
               onSelect(value);
             }}
           >
-            <Text style={[styles.wheelText, active && styles.wheelTextActive]} numberOfLines={1}>
+            <Text
+              style={[styles.wheelText, active && styles.wheelTextActive]}
+              numberOfLines={1}
+            >
               {renderLabel(value)}
             </Text>
           </Pressable>
@@ -103,6 +143,10 @@ function WheelColumn<T extends string | number>({
     </ScrollView>
   );
 }
+
+/* ===========================
+   MAIN
+   =========================== */
 
 export default function TravelTimeModal({
   visible,
@@ -113,16 +157,25 @@ export default function TravelTimeModal({
 }: Props) {
   const now = useMemo(() => new Date(), [visible]);
   const startDate = initialDate || now;
+
   const [mode, setMode] = useState<TravelTimeMode>(initialMode);
   const [dayIndex, setDayIndex] = useState(0);
   const [hour, setHour] = useState(startDate.getHours());
   const [minute, setMinute] = useState(clampMinute(startDate.getMinutes()));
 
-  const days = useMemo(() => Array.from({ length: 14 }, (_, index) => addDays(now, index)), [now]);
-  const hours = useMemo(() => Array.from({ length: 24 }, (_, index) => index), []);
-  const minutes = useMemo(() => Array.from({ length: 12 }, (_, index) => index * 5), []);
+  const days = useMemo(
+    () => Array.from({ length: 14 }, (_, i) => addDays(now, i)),
+    [now],
+  );
 
-  const selectedDate = mode === "now" ? now : makeDate(days[dayIndex] || now, hour, minute);
+  const hours = useMemo(() => Array.from({ length: 24 }, (_, i) => i), []);
+  const minutes = useMemo(
+    () => Array.from({ length: 12 }, (_, i) => i * 5),
+    [],
+  );
+
+  const selectedDate =
+    mode === "now" ? now : makeDate(days[dayIndex] || now, hour, minute);
 
   const setNextMode = (next: TravelTimeMode) => {
     void Haptics.selectionAsync();
@@ -135,73 +188,86 @@ export default function TravelTimeModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade">
       <View style={styles.overlay}>
-        <SafeAreaView style={styles.safeArea}>
+        <SafeAreaView>
           <View style={styles.card}>
+            {/* HEADER */}
             <View style={styles.header}>
-              <Pressable style={styles.circleButton} onPress={onClose} hitSlop={10}>
-                <Ionicons name="close" size={28} color="#FFFFFF" />
+              <Pressable onPress={onClose} style={styles.circleButton}>
+                <Ionicons name="close" size={28} color="#fff" />
               </Pressable>
+
               <Text style={styles.title}>Kada vykti</Text>
-              <Pressable style={[styles.circleButton, styles.confirmButton]} onPress={confirm} hitSlop={10}>
-                <Ionicons name="checkmark" size={31} color="#FFFFFF" />
+
+              <Pressable
+                onPress={confirm}
+                style={[styles.circleButton, styles.confirm]}
+              >
+                <Ionicons name="checkmark" size={30} color="#000" />
               </Pressable>
             </View>
 
+            {/* SEGMENTS */}
             <View style={styles.segmented}>
-              <Pressable style={[styles.segment, mode === "now" && styles.segmentActive]} onPress={() => setNextMode("now")}>
-                <Text style={[styles.segmentText, mode === "now" && styles.segmentTextActive]}>Išvykti dabar</Text>
-              </Pressable>
-              <Pressable style={[styles.segment, mode === "depart" && styles.segmentActive]} onPress={() => setNextMode("depart")}>
-                <Text style={[styles.segmentText, mode === "depart" && styles.segmentTextActive]}>Išvykti</Text>
-              </Pressable>
-              <Pressable style={[styles.segment, mode === "arrive" && styles.segmentActive]} onPress={() => setNextMode("arrive")}>
-                <Text style={[styles.segmentText, mode === "arrive" && styles.segmentTextActive]}>Atvykti iki</Text>
-              </Pressable>
+              {["now", "depart", "arrive"].map((m) => (
+                <Pressable
+                  key={m}
+                  onPress={() => setNextMode(m as TravelTimeMode)}
+                  style={[styles.segment, mode === m && styles.segmentActive]}
+                >
+                  <Text
+                    style={[
+                      styles.segmentText,
+                      mode === m && styles.segmentTextActive,
+                    ]}
+                  >
+                    {m === "now"
+                      ? "Išvykti dabar"
+                      : m === "depart"
+                        ? "Išvykti"
+                        : "Atvykti iki"}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
 
+            {/* PICKER */}
             <View style={styles.pickerWrap}>
-              <View style={styles.selectionBand} pointerEvents="none" />
+              <View style={styles.selectionBand} />
+
               {mode === "now" ? (
                 <View style={styles.nowPanel}>
                   <Text style={styles.nowTitle}>Dabar</Text>
-                  <Text style={styles.nowSubtitle}>Naudosime artimiausius realius autobusų laikus.</Text>
                 </View>
               ) : (
                 <View style={styles.wheels}>
                   <WheelColumn
-                    values={days.map((_, index) => index)}
+                    values={days.map((_, i) => i)}
                     selected={dayIndex}
-                    onSelect={(value) => setDayIndex(Number(value))}
-                    renderLabel={(value) => dateLabel(days[Number(value)] || now, now)}
+                    onSelect={(v) => setDayIndex(Number(v))}
+                    renderLabel={(v) => dateLabel(days[Number(v)], now)}
                     width="45%"
                   />
+
                   <WheelColumn
                     values={hours}
                     selected={hour}
-                    onSelect={(value) => setHour(Number(value))}
-                    renderLabel={(value) => String(value).padStart(2, "0")}
+                    onSelect={(v) => setHour(Number(v))}
+                    renderLabel={(v) => String(v).padStart(2, "0")}
                     width="26%"
                   />
+
                   <WheelColumn
                     values={minutes}
                     selected={minute}
-                    onSelect={(value) => setMinute(Number(value))}
-                    renderLabel={(value) => String(value).padStart(2, "0")}
+                    onSelect={(v) => setMinute(Number(v))}
+                    renderLabel={(v) => String(v).padStart(2, "0")}
                     width="26%"
                   />
                 </View>
               )}
             </View>
-
-            <Text style={styles.footerText}>
-              {mode === "now"
-                ? "Maršrutai bus skaičiuojami nuo dabartinio laiko."
-                : mode === "depart"
-                  ? `Išvykimas: ${dateLabel(selectedDate, now)} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
-                  : `Atvykimas iki: ${dateLabel(selectedDate, now)} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`}
-            </Text>
           </View>
         </SafeAreaView>
       </View>
@@ -209,44 +275,110 @@ export default function TravelTimeModal({
   );
 }
 
+/* ===========================
+   STYLES
+   =========================== */
+
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.46)",
+    backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "center",
-    paddingHorizontal: 20,
+    padding: 20,
   },
-  safeArea: { width: "100%" },
   card: {
-    minHeight: 570,
-    borderRadius: 28,
-    padding: 18,
-    backgroundColor: "#171A20",
-    shadowColor: "#000",
-    shadowOpacity: 0.35,
-    shadowRadius: 28,
-    shadowOffset: { width: 0, height: 18 },
+    backgroundColor: "#07111F",
+    borderRadius: 24,
+    padding: 16,
   },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
-  title: { color: "#FFFFFF", fontSize: 22, fontWeight: "900", letterSpacing: -0.2 },
-  circleButton: { width: 58, height: 58, borderRadius: 29, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.10)" },
-  confirmButton: { backgroundColor: "#2F80FF" },
-  segmented: { flexDirection: "row", padding: 4, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.13)", marginBottom: 18 },
-  segment: { flex: 1, minHeight: 45, borderRadius: 15, alignItems: "center", justifyContent: "center" },
-  segmentActive: { backgroundColor: "rgba(255,255,255,0.25)" },
-  segmentText: { color: "rgba(255,255,255,0.70)", fontSize: 14, fontWeight: "900" },
-  segmentTextActive: { color: "#FFFFFF" },
-  pickerWrap: { height: 360, borderRadius: 24, overflow: "hidden", justifyContent: "center" },
-  selectionBand: { position: "absolute", left: 10, right: 10, top: 151, height: 58, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.13)", zIndex: 1 },
-  wheels: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", zIndex: 2 },
-  wheelColumn: { height: 350 },
-  wheelColumnContent: { paddingVertical: 146 },
-  wheelItem: { height: 54, justifyContent: "center", paddingHorizontal: 4 },
-  wheelItemActive: {},
-  wheelText: { color: "rgba(255,255,255,0.27)", fontSize: 24, fontWeight: "900", textAlign: "center" },
-  wheelTextActive: { color: "#FFFFFF", fontSize: 29 },
-  nowPanel: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 22, zIndex: 2 },
-  nowTitle: { color: "#FFFFFF", fontSize: 44, fontWeight: "900", letterSpacing: -1 },
-  nowSubtitle: { color: "rgba(255,255,255,0.56)", fontSize: 16, fontWeight: "800", lineHeight: 22, textAlign: "center", marginTop: 10 },
-  footerText: { color: "rgba(255,255,255,0.56)", fontSize: 13, fontWeight: "800", lineHeight: 18, textAlign: "center", marginTop: 14 },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  title: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  circleButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirm: {
+    backgroundColor: "#37F5AE",
+  },
+  segmented: {
+    flexDirection: "row",
+    marginTop: 12,
+    backgroundColor: "#111",
+    borderRadius: 14,
+    padding: 4,
+  },
+  segment: {
+    flex: 1,
+    padding: 10,
+    alignItems: "center",
+  },
+  segmentActive: {
+    backgroundColor: "#37F5AE",
+    borderRadius: 10,
+  },
+  segmentText: {
+    color: "#aaa",
+    fontWeight: "700",
+  },
+  segmentTextActive: {
+    color: "#000",
+  },
+  pickerWrap: {
+    height: 300,
+    marginTop: 10,
+  },
+  wheels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  wheelColumn: {
+    height: 300,
+  },
+  wheelColumnContent: {
+    paddingVertical: 120,
+  },
+  wheelItem: {
+    height: 50,
+    justifyContent: "center",
+  },
+  wheelText: {
+    color: "#888",
+    textAlign: "center",
+    fontSize: 18,
+  },
+  wheelTextActive: {
+    color: "#fff",
+    fontSize: 22,
+  },
+  selectionBand: {
+    position: "absolute",
+    top: 120,
+    left: 0,
+    right: 0,
+    height: 60,
+    backgroundColor: "rgba(55,245,174,0.2)",
+    borderRadius: 12,
+  },
+  nowPanel: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  nowTitle: {
+    color: "#fff",
+    fontSize: 28,
+    fontWeight: "900",
+  },
 });

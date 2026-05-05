@@ -34,6 +34,7 @@ export type PlacePhoto = {
 export type PlaceSearchResult = {
   id: string;
   title: string;
+  name?: string;
   subtitle?: string;
   type?: "stop" | "poi" | "place" | "address" | "city" | "region" | string;
   source?: "gtfs" | "seed" | "poi" | "ors" | "google_places" | string;
@@ -84,6 +85,7 @@ export type TransitStepType =
 
 export type TransitStopPoint = {
   id?: string;
+  stopId?: string;
   title?: string;
   name?: string;
   stopName?: string;

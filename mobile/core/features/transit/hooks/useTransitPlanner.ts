@@ -738,7 +738,7 @@ async function enrichRouteWithRealWalkingGeometry(
   if (originStop && distanceMeters(origin, originStop) > 20) {
     const walkToStop = await fetchWalkingPoints(origin, originStop);
 
-    if (walkToStop?.points?.length >= 2) {
+    if (walkToStop && (walkToStop.points?.length ?? 0) >= 2) {
       extraWalkMinutes += walkToStop.durationMinutes;
 
       const firstWalkIndex = steps.findIndex((step, index) => {
@@ -773,7 +773,7 @@ async function enrichRouteWithRealWalkingGeometry(
   if (destinationStop && distanceMeters(destinationStop, destination.coordinate) > 20) {
     const walkFromStop = await fetchWalkingPoints(destinationStop, destination.coordinate);
 
-    if (walkFromStop?.points?.length >= 2) {
+    if (walkFromStop && (walkFromStop.points?.length ?? 0) >= 2) {
       extraWalkMinutes += walkFromStop.durationMinutes;
 
       const busIndex = findFirstBusStepIndex(steps);
@@ -1110,7 +1110,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
   const selectOrigin = useCallback((rawOrigin: PlaceSearchResult) => {
     const origin = normalizePlace(rawOrigin) ?? rawOrigin;
     setSelectedOrigin(origin);
-    setQuery(origin.title || origin.name || "");
+    setQuery(origin.title || (origin as any).name || "");
     setSearchResults([]);
     setError(null);
   }, []);

@@ -1,42 +1,65 @@
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
-import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import React from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { useLanguage } from "@/core/i18n/LanguageContext";
-
-type AccountMenuKey = "profile" | "payment" | "settings" | "feedback" | "legal";
-
-type Props = {
-  onSelect: (key: AccountMenuKey) => void;
+type Item = {
+  id: string;
+  title: string;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  onPress: () => void;
 };
 
-export default function AccountMenu({ onSelect }: Props) {
-  const { t } = useLanguage();
-  const items: Array<{ key: AccountMenuKey; icon: any; title: string }> = [
-    { key: "profile", icon: "account-outline", title: t.account.profile },
-    { key: "payment", icon: "credit-card-outline", title: t.account.payment },
-    { key: "settings", icon: "cog-outline", title: t.account.settings },
-    { key: "feedback", icon: "message-text-outline", title: t.account.feedback },
-    { key: "legal", icon: "file-document-check-outline", title: t.account.legal },
+type Props = {
+  onOpenProfile: () => void;
+  onOpenPayment: () => void;
+  onOpenSettings: () => void;
+  onOpenFeedback: () => void;
+  onOpenLegal: () => void;
+};
+
+const COLORS = {
+  bg: '#050A12',
+  card: 'rgba(8,18,32,0.94)',
+  card2: 'rgba(16,32,51,0.88)',
+  border: 'rgba(55,245,174,0.22)',
+  accent: '#37F5AE',
+  text: '#F8FBFF',
+  muted: '#9CA8B8',
+  chevron: 'rgba(248,251,255,0.42)',
+};
+
+export default function AccountMenu({
+  onOpenProfile,
+  onOpenPayment,
+  onOpenSettings,
+  onOpenFeedback,
+  onOpenLegal,
+}: Props) {
+  const items: Item[] = [
+    { id: 'profile', title: 'Profilis', icon: 'account-outline', onPress: onOpenProfile },
+    { id: 'payment', title: 'Mokėjimo būdai', icon: 'credit-card-outline', onPress: onOpenPayment },
+    { id: 'settings', title: 'Nustatymai', icon: 'cog-outline', onPress: onOpenSettings },
+    { id: 'feedback', title: 'Padėk mums tobulėti', icon: 'message-text-outline', onPress: onOpenFeedback },
+    { id: 'legal', title: 'Teisinė informacija', icon: 'file-document-check-outline', onPress: onOpenLegal },
   ];
 
   return (
-    <View style={styles.menu}>
-      {items.map((item) => (
+    <View style={styles.card}>
+      {items.map((item, index) => (
         <Pressable
-          key={item.key}
-          style={styles.row}
+          key={item.id}
+          style={[styles.row, index !== items.length - 1 && styles.rowBorder]}
           onPress={() => {
             void Haptics.selectionAsync();
-            onSelect(item.key);
+            item.onPress();
           }}
         >
-          <View style={styles.iconWrap}>
-            <MaterialCommunityIcons name={item.icon} size={27} color="#111827" />
+          <View style={styles.iconBox}>
+            <MaterialCommunityIcons name={item.icon} size={23} color={COLORS.accent} />
           </View>
           <Text style={styles.title}>{item.title}</Text>
-          <Ionicons name="chevron-forward" size={24} color="rgba(17,24,39,0.28)" />
+          <Ionicons name="chevron-forward" size={21} color={COLORS.chevron} />
         </Pressable>
       ))}
     </View>
@@ -44,25 +67,44 @@ export default function AccountMenu({ onSelect }: Props) {
 }
 
 const styles = StyleSheet.create({
-  menu: {
-    gap: 24,
+  card: {
+    borderRadius: 28,
+    backgroundColor: COLORS.card,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    overflow: 'hidden',
+    shadowColor: '#37F5AE',
+    shadowOpacity: 0.10,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 14 },
   },
   row: {
-    minHeight: 58,
-    flexDirection: "row",
-    alignItems: "center",
+    minHeight: 76,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 15,
   },
-  iconWrap: {
-    width: 52,
-    alignItems: "flex-start",
-    justifyContent: "center",
+  rowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  iconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(55,245,174,0.13)',
+    borderWidth: 1,
+    borderColor: 'rgba(55,245,174,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
     flex: 1,
-    color: "#111827",
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: "800",
-    letterSpacing: -0.35,
+    color: COLORS.text,
+    fontSize: 22,
+    lineHeight: 27,
+    fontWeight: '800',
+    letterSpacing: -0.45,
   },
 });

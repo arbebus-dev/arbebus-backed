@@ -234,11 +234,11 @@ function Header({
     <View style={styles.headerRow}>
       {onBack ? (
         <Pressable onPress={onBack} style={styles.roundControl} hitSlop={12}>
-          <Ionicons name="chevron-back" size={17} color={COLORS.textDark} />
+          <Ionicons name="chevron-back" size={17} color={COLORS.text} />
         </Pressable>
       ) : null}
       <View style={styles.headerIcon}>
-        <MaterialCommunityIcons name={icon || "directions-fork"} size={17} color={COLORS.greenDark} />
+        <MaterialCommunityIcons name={icon || "directions-fork"} size={17} color={COLORS.green} />
       </View>
       <View style={styles.headerTextBlock}>
         <Text style={styles.kicker}>ARBE NAVIGATION</Text>
@@ -249,7 +249,7 @@ function Header({
         <View style={styles.headerBadge}><Text style={styles.headerBadgeText}>{badge}</Text></View>
       ) : null}
       <Pressable onPress={onClose} style={styles.roundControl} hitSlop={12}>
-        <Ionicons name="close" size={16} color={COLORS.textDark} />
+        <Ionicons name="close" size={16} color={COLORS.text} />
       </Pressable>
     </View>
   );
@@ -259,7 +259,7 @@ function SearchInput(props: Pick<Props, "query" | "isSearching" | "onChangeQuery
   const { t } = useLanguage();
   return (
     <View style={styles.searchInputRow}>
-      <Ionicons name="search" size={16} color="#657088" />
+      <Ionicons name="search" size={16} color="rgba(248,251,255,0.58)" />
       <TextInput
         value={props.query}
         onChangeText={props.onChangeQuery}
@@ -268,7 +268,7 @@ function SearchInput(props: Pick<Props, "query" | "isSearching" | "onChangeQuery
           props.onSubmitSearch();
         }}
         placeholder={t.common.searchPlaceholder}
-        placeholderTextColor="#75809A"
+        placeholderTextColor="rgba(248,251,255,0.42)"
         returnKeyType="search"
         autoCorrect={false}
         autoCapitalize="none"
@@ -277,7 +277,7 @@ function SearchInput(props: Pick<Props, "query" | "isSearching" | "onChangeQuery
       {props.isSearching ? <ActivityIndicator size="small" color={COLORS.green} /> : null}
       {props.query.trim().length ? (
         <Pressable onPress={props.onReset} hitSlop={12} style={styles.searchClearButton}>
-          <Ionicons name="close" size={13} color="#657088" />
+          <Ionicons name="close" size={13} color="rgba(248,251,255,0.58)" />
         </Pressable>
       ) : null}
     </View>
@@ -327,13 +327,13 @@ function QuickMenuRow({
       }}
     >
       <View style={styles.quickMenuIcon}>
-        <MaterialCommunityIcons name={icon} size={17} color={COLORS.greenDark} />
+        <MaterialCommunityIcons name={icon} size={17} color={COLORS.green} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.quickMenuTitle} numberOfLines={1}>{title}</Text>
         {subtitle ? <Text style={styles.quickMenuSubtitle} numberOfLines={1}>{subtitle}</Text> : null}
       </View>
-      <Ionicons name="chevron-forward" size={15} color="rgba(20,27,37,0.35)" />
+      <Ionicons name="chevron-forward" size={15} color="rgba(248,251,255,0.42)" />
     </Pressable>
   );
 }
@@ -355,7 +355,7 @@ function SuggestionChip({
         onPress();
       }}
     >
-      <MaterialCommunityIcons name={icon} size={15} color={COLORS.greenDark} />
+      <MaterialCommunityIcons name={icon} size={15} color={COLORS.green} />
       <Text style={styles.suggestionChipText}>{label}</Text>
     </Pressable>
   );
@@ -375,7 +375,7 @@ function TripInputRow({
   return (
     <View style={styles.tripInputRow}>
       <View style={styles.tripInputIcon}>
-        <MaterialCommunityIcons name={icon} size={15} color={COLORS.greenDark} />
+        <MaterialCommunityIcons name={icon} size={15} color={COLORS.green} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.tripInputLabel}>{label}</Text>
@@ -404,7 +404,7 @@ function InlineInput({
 }) {
   return (
     <View style={styles.inlineInputRow}>
-      <Ionicons name="search" size={16} color="#657088" />
+      <Ionicons name="search" size={16} color="rgba(248,251,255,0.58)" />
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -414,7 +414,7 @@ function InlineInput({
           onSubmit?.();
         }}
         placeholder={placeholder}
-        placeholderTextColor="#75809A"
+        placeholderTextColor="rgba(248,251,255,0.42)"
         returnKeyType="search"
         autoCorrect={false}
         autoCapitalize="none"
@@ -423,7 +423,7 @@ function InlineInput({
       {isLoading ? <ActivityIndicator size="small" color={COLORS.green} /> : null}
       {value.trim().length ? (
         <Pressable onPress={onClear} hitSlop={12} style={styles.searchClearButton}>
-          <Ionicons name="close" size={13} color="#657088" />
+          <Ionicons name="close" size={13} color="rgba(248,251,255,0.58)" />
         </Pressable>
       ) : null}
     </View>
@@ -458,7 +458,7 @@ function TripSearchForm({
       <TripInputRow icon="crosshairs-gps" label={t.sheet.from}>
         <InlineInput
           value={fromValue}
-          placeholder={t.sheet.fromPlaceholder || t.sheet.from}
+          placeholder={(t.sheet as any).fromPlaceholder || (t.sheet as any).from}
           onFocus={() => beginEdit("from")}
           onChangeText={(text) => {
             setActiveField("from");
@@ -477,7 +477,7 @@ function TripSearchForm({
       <TripInputRow icon="map-marker" label={t.sheet.to}>
         <InlineInput
           value={toValue}
-          placeholder={t.sheet.toPlaceholder || t.common.searchPlaceholder}
+          placeholder={(t.sheet as any).toPlaceholder || (t.common as any).searchPlaceholder}
           onFocus={() => beginEdit("to")}
           onChangeText={(text) => {
             setActiveField("to");
@@ -578,7 +578,7 @@ function PlacePreviewCard({ props }: { props: Props }) {
 
       <View style={styles.placePreviewTopPro}>
         <View style={styles.placePreviewIcon}>
-          <MaterialCommunityIcons name={iconForPlaceType(place.type) as any} size={18} color={COLORS.greenDark} />
+          <MaterialCommunityIcons name={iconForPlaceType(place.type) as any} size={18} color={COLORS.green} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.placePreviewKicker}>{t.sheet.selectedPlace}</Text>
@@ -586,7 +586,7 @@ function PlacePreviewCard({ props }: { props: Props }) {
           <Text style={styles.placePreviewSubtitle} numberOfLines={2}>{place.subtitle || placeSubtitle(place)}</Text>
         </View>
         <Pressable onPress={props.onClearMapPlace} hitSlop={12} style={styles.placePreviewClosePro}>
-          <Ionicons name="close" size={16} color="#657088" />
+          <Ionicons name="close" size={16} color="rgba(248,251,255,0.58)" />
         </Pressable>
       </View>
 
@@ -628,7 +628,7 @@ function PlacePreviewCard({ props }: { props: Props }) {
         </Pressable>
       </View>
       <Pressable style={styles.placeRouteButton} onPress={useAsDestination}>
-        <MaterialCommunityIcons name="navigation-variant" size={16} color={COLORS.greenDark} />
+        <MaterialCommunityIcons name="navigation-variant" size={16} color={COLORS.green} />
         <Text style={styles.placeRouteButtonText}>{t.sheet.showRoute}</Text>
       </Pressable>
     </View>
@@ -716,7 +716,7 @@ function SearchState(props: Props & { panHandlers?: any }) {
         {showEmpty ? (
           <View style={styles.emptyBlockCompact}>
             <Text style={styles.emptyTitle}>{t.sheet.noResultsTitle}</Text>
-            <Text style={styles.emptyText}>{activeField === "from" ? (t.sheet.fromPlaceholder || t.sheet.noResultsText) : t.sheet.noResultsText}</Text>
+            <Text style={styles.emptyText}>{activeField === "from" ? ((t.sheet as any).fromPlaceholder || (t.sheet as any).noResultsText) : (t.sheet as any).noResultsText}</Text>
           </View>
         ) : null}
 
@@ -871,7 +871,7 @@ function RouteDetailsState(props: Props) {
       </ScrollView>
       <View style={styles.stickyCtaWrap}>
         <Pressable style={styles.primaryButton} onPress={props.onStartJourney}>
-          <Ionicons name="navigate" size={14} color={COLORS.greenDark} />
+          <Ionicons name="navigate" size={14} color={COLORS.green} />
           <Text style={styles.primaryButtonText}>Start navigation</Text>
         </Pressable>
       </View>
@@ -900,7 +900,7 @@ function NavigationState(props: Props) {
       <View style={styles.stickyCtaWrap}>
         <Pressable style={styles.primaryButton} onPress={props.flowState === "completed" ? props.onReset : props.onNextStep}>
           <Text style={styles.primaryButtonText}>{vm.primaryCta}</Text>
-          <Ionicons name="arrow-forward" size={15} color={COLORS.greenDark} />
+          <Ionicons name="arrow-forward" size={15} color={COLORS.green} />
         </Pressable>
       </View>
     </View>
@@ -974,7 +974,7 @@ export default function JourneySheet(props: Props) {
       style={[styles.sheetShell, { height: SHEET_HEIGHT, transform: [{ translateY }] }]}
       pointerEvents="box-none"
     >
-      <BlurView intensity={86} tint="light" style={styles.blurSurface}>
+      <BlurView intensity={88} tint="dark" style={styles.blurSurface}>
         <View {...panResponder.panHandlers} style={styles.dragArea}>
           <View style={styles.grabber} />
         </View>
@@ -994,48 +994,48 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
     overflow: "hidden",
     zIndex: 30,
     elevation: 30,
     shadowColor: "#000",
-    shadowOpacity: 0.16,
-    shadowRadius: 20,
+    shadowOpacity: 0.24,
+    shadowRadius: 26,
     shadowOffset: { width: 0, height: -6 },
-    backgroundColor: "rgba(247,250,247,0.92)",
+    backgroundColor: "rgba(5,10,18,0.96)",
   },
-  blurSurface: { flex: 1, backgroundColor: "rgba(247,250,247,0.74)" },
+  blurSurface: { flex: 1, backgroundColor: "rgba(5,10,18,0.84)" },
   dragArea: { height: 24, alignItems: "center", justifyContent: "center" },
-  grabber: { width: 56, height: 5, borderRadius: 99, backgroundColor: "rgba(25,35,50,0.20)" },
+  grabber: { width: 58, height: 5, borderRadius: 99, backgroundColor: "rgba(55,245,174,0.38)" },
   stateRoot: { flex: 1 },
   fixedHeader: { paddingHorizontal: 18, paddingBottom: 10 },
   fixedHeaderCompact: { paddingHorizontal: 18, paddingBottom: 10, alignItems: "center", justifyContent: "center" },
   scrollArea: { flex: 1 },
   headerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
-  roundControl: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,27,37,0.08)" },
+  roundControl: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.08)" },
   headerIcon: { width: 38, height: 38, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: COLORS.green },
   headerTextBlock: { flex: 1 },
-  kicker: { color: "#17A67E", fontSize: T.tiny, lineHeight: LINE_HEIGHT.tiny, letterSpacing: 1.4, fontWeight: "900" },
-  sheetTitle: { color: COLORS.textDark, fontSize: T.title, lineHeight: LINE_HEIGHT.title, fontWeight: "900", marginTop: 1 },
-  sheetSubtitle: { color: "#596477", fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700", marginTop: 1 },
+  kicker: { color: COLORS.green, fontSize: T.tiny, lineHeight: LINE_HEIGHT.tiny, letterSpacing: 1.4, fontWeight: "900" },
+  sheetTitle: { color: COLORS.text, fontSize: T.title, lineHeight: LINE_HEIGHT.title, fontWeight: "900", marginTop: 1 },
+  sheetSubtitle: { color: COLORS.muted, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700", marginTop: 1 },
   headerBadge: { minWidth: 34, height: 28, paddingHorizontal: 8, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(18,25,36,0.10)" },
-  headerBadgeText: { color: COLORS.textDark, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
-  modeSelector: { height: 42, borderRadius: 17, backgroundColor: "rgba(16,22,32,0.07)", padding: 4, flexDirection: "row", justifyContent: "space-between", marginBottom: 10 },
+  headerBadgeText: { color: COLORS.text, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
+  modeSelector: { height: 42, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.07)", padding: 4, flexDirection: "row", justifyContent: "space-between", marginBottom: 10 },
   modeItem: { flex: 1, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  modeItemActive: { backgroundColor: "white", shadowColor: "#000", shadowOpacity: 0.10, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
-  endpointBox: { borderRadius: 18, backgroundColor: "rgba(255,255,255,0.70)", paddingHorizontal: 13, paddingVertical: 10 },
+  modeItemActive: { backgroundColor: "rgba(55,245,174,0.15)", shadowColor: "#000", shadowOpacity: 0.10, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
+  endpointBox: { borderRadius: 18, backgroundColor: "rgba(8,18,32,0.92)", paddingHorizontal: 13, paddingVertical: 10 },
   endpointRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 31 },
-  locationDotBlue: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.blue },
-  endpointText: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700" },
-  endpointDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "rgba(45,55,72,0.18)", marginLeft: 20, marginVertical: 4 },
+  locationDotBlue: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.green },
+  endpointText: { color: COLORS.text, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700" },
+  endpointDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "rgba(255,255,255,0.10)", marginLeft: 20, marginVertical: 4 },
   searchInputRow: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 10 },
-  searchInput: { flex: 1, color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700", paddingVertical: 0 },
+  searchInput: { flex: 1, color: COLORS.text, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700", paddingVertical: 0 },
   searchClearButton: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(18,25,36,0.08)" },
   searchScrollContent: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 110 },
   appleTopRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
-  appleSearchPill: { flex: 1, minHeight: 48, borderRadius: 24, paddingHorizontal: 14, justifyContent: "center", backgroundColor: "rgba(255,255,255,0.78)", borderWidth: 1, borderColor: "rgba(20,27,37,0.06)", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
-  profileAvatar: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.86)", borderWidth: 1, borderColor: "rgba(20,27,37,0.07)", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  appleSearchPill: { flex: 1, minHeight: 48, borderRadius: 24, paddingHorizontal: 14, justifyContent: "center", backgroundColor: "rgba(8,18,32,0.94)", borderWidth: 1, borderColor: "rgba(55,245,174,0.18)", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  profileAvatar: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(8,18,32,0.94)", borderWidth: 1, borderColor: "rgba(55,245,174,0.18)", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
   appleStatusRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 2 },
   appleStatusChip: { minHeight: 28, borderRadius: 14, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(53,242,180,0.14)" },
   appleStatusChipWarning: { minHeight: 28, borderRadius: 14, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,193,7,0.18)" },
@@ -1044,9 +1044,9 @@ const styles = StyleSheet.create({
 
   placePreviewCardPro: {
     borderRadius: 26,
-    backgroundColor: "rgba(255,255,255,0.88)",
+    backgroundColor: "rgba(8,18,32,0.95)",
     borderWidth: 1,
-    borderColor: "rgba(20,27,37,0.07)",
+    borderColor: "rgba(55,245,174,0.18)",
     padding: 14,
     marginBottom: 12,
     shadowColor: "#000",
@@ -1056,7 +1056,7 @@ const styles = StyleSheet.create({
   },
   placePhotoStrip: { marginHorizontal: -4, marginBottom: 12 },
   placePhotoContent: { paddingHorizontal: 4, gap: 8 },
-  placePhoto: { width: 148, height: 92, borderRadius: 18, backgroundColor: "rgba(20,27,37,0.08)" },
+  placePhoto: { width: 148, height: 92, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.08)" },
   placePreviewTopPro: { flexDirection: "row", alignItems: "center", gap: 11 },
   placePreviewClosePro: {
     width: 34,
@@ -1086,22 +1086,22 @@ const styles = StyleSheet.create({
   placeHoursBox: {
     marginTop: 10,
     borderRadius: 16,
-    backgroundColor: "rgba(20,27,37,0.05)",
+    backgroundColor: "rgba(255,255,255,0.06)",
     paddingHorizontal: 12,
     paddingVertical: 9,
     gap: 3,
   },
   placeHoursText: {
-    color: "#667083",
+    color: COLORS.muted,
     fontSize: T.tiny,
     lineHeight: LINE_HEIGHT.tiny,
     fontWeight: "800",
   },
   placePreviewCard: {
     borderRadius: 24,
-    backgroundColor: "rgba(255,255,255,0.82)",
+    backgroundColor: "rgba(8,18,32,0.94)",
     borderWidth: 1,
-    borderColor: "rgba(20,27,37,0.07)",
+    borderColor: "rgba(55,245,174,0.18)",
     padding: 14,
     marginBottom: 12,
     shadowColor: "#000",
@@ -1119,7 +1119,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(52,245,179,0.18)",
   },
   placePreviewKicker: {
-    color: "#667083",
+    color: COLORS.muted,
     fontSize: T.tiny,
     lineHeight: LINE_HEIGHT.tiny,
     fontWeight: "900",
@@ -1127,14 +1127,14 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   placePreviewTitle: {
-    color: COLORS.textDark,
+    color: COLORS.text,
     fontSize: T.section,
     lineHeight: LINE_HEIGHT.section,
     fontWeight: "900",
     marginTop: 2,
   },
   placePreviewSubtitle: {
-    color: "#667083",
+    color: COLORS.muted,
     fontSize: T.caption,
     lineHeight: LINE_HEIGHT.caption,
     fontWeight: "700",
@@ -1156,7 +1156,7 @@ const styles = StyleSheet.create({
     paddingLeft: 53,
   },
   placeLoadingText: {
-    color: "#667083",
+    color: COLORS.muted,
     fontSize: T.caption,
     lineHeight: LINE_HEIGHT.caption,
     fontWeight: "800",
@@ -1173,10 +1173,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 9,
     justifyContent: "center",
-    backgroundColor: "rgba(20,27,37,0.06)",
+    backgroundColor: "rgba(255,255,255,0.07)",
   },
   placeMetaText: {
-    color: "#667083",
+    color: COLORS.muted,
     fontSize: T.tiny,
     lineHeight: LINE_HEIGHT.tiny,
     fontWeight: "900",
@@ -1189,7 +1189,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(20,27,37,0.07)",
+    backgroundColor: "rgba(255,255,255,0.08)",
   },
   placeActionButtonPrimary: {
     flex: 1,
@@ -1220,7 +1220,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   placeActionText: {
-    color: COLORS.textDark,
+    color: COLORS.text,
     fontSize: T.caption,
     lineHeight: LINE_HEIGHT.caption,
     fontWeight: "900",
@@ -1232,72 +1232,72 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   appleMenuRoot: { paddingBottom: 18 },
-  menuSectionTitle: { color: "#667083", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 8, marginLeft: 4 },
-  menuSectionTitleInside: { color: "#667083", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 6, paddingHorizontal: 4 },
+  menuSectionTitle: { color: COLORS.muted, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 8, marginLeft: 4 },
+  menuSectionTitleInside: { color: COLORS.muted, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 6, paddingHorizontal: 4 },
   suggestionGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
-  suggestionChip: { minHeight: 38, borderRadius: 19, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "rgba(255,255,255,0.72)", borderWidth: 1, borderColor: "rgba(20,27,37,0.06)" },
-  suggestionChipText: { color: COLORS.textDark, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
-  menuCard: { borderRadius: 22, padding: 10, backgroundColor: "rgba(255,255,255,0.66)", borderWidth: 1, borderColor: "rgba(20,27,37,0.06)", marginBottom: 12 },
+  suggestionChip: { minHeight: 38, borderRadius: 19, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "rgba(8,18,32,0.92)", borderWidth: 1, borderColor: "rgba(55,245,174,0.18)" },
+  suggestionChipText: { color: COLORS.text, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
+  menuCard: { borderRadius: 22, padding: 10, backgroundColor: "rgba(8,18,32,0.88)", borderWidth: 1, borderColor: "rgba(55,245,174,0.18)", marginBottom: 12 },
   quickMenuRow: { minHeight: 54, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 10 },
   quickMenuIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(53,242,180,0.18)" },
-  quickMenuTitle: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "900" },
-  quickMenuSubtitle: { color: "#6A7488", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 1 },
+  quickMenuTitle: { color: COLORS.text, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "900" },
+  quickMenuSubtitle: { color: COLORS.muted, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 1 },
   emptyBlock: { paddingTop: 24 },
-  emptyBlockCompact: { borderRadius: 18, backgroundColor: "rgba(255,255,255,0.56)", paddingHorizontal: 14, paddingVertical: 12, marginBottom: 10 },
-  emptyTitle: { color: COLORS.textDark, fontSize: T.section, lineHeight: LINE_HEIGHT.section, fontWeight: "900" },
-  emptyText: { color: "#667083", fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700", marginTop: 4 },
-  searchResultRow: { minHeight: 52, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "rgba(255,255,255,0.62)", marginBottom: 8 },
+  emptyBlockCompact: { borderRadius: 18, backgroundColor: "rgba(8,18,32,0.86)", paddingHorizontal: 14, paddingVertical: 12, marginBottom: 10 },
+  emptyTitle: { color: COLORS.text, fontSize: T.section, lineHeight: LINE_HEIGHT.section, fontWeight: "900" },
+  emptyText: { color: COLORS.muted, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700", marginTop: 4 },
+  searchResultRow: { minHeight: 52, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "rgba(8,18,32,0.88)", marginBottom: 8 },
   resultIcon: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(53,242,180,0.18)" },
-  resultTitle: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "800" },
-  resultSubtitle: { color: "#6A7488", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "600", marginTop: 1 },
+  resultTitle: { color: COLORS.text, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "800" },
+  resultSubtitle: { color: COLORS.muted, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "600", marginTop: 1 },
   inlineError: { color: "#B00020", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginBottom: 8 },
-  loadingBox: { marginHorizontal: 18, borderRadius: 18, minHeight: 96, alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: "rgba(255,255,255,0.64)" },
-  loadingText: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700" },
+  loadingBox: { marginHorizontal: 18, borderRadius: 18, minHeight: 96, alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: "rgba(8,18,32,0.88)" },
+  loadingText: { color: COLORS.text, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700" },
   toolbarRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
-  blueChip: { backgroundColor: COLORS.blue, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7 },
-  blueChipText: { color: "white", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "800" },
-  grayChip: { backgroundColor: "rgba(17,24,39,0.08)", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7 },
-  grayChipText: { color: COLORS.textDark, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "800" },
+  blueChip: { backgroundColor: COLORS.green, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7 },
+  blueChipText: { color: COLORS.greenDark, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "800" },
+  grayChip: { backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7 },
+  grayChipText: { color: COLORS.text, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "800" },
   routesContent: { paddingHorizontal: 18, paddingBottom: 115, paddingTop: 2 },
-  routeCard: { borderRadius: 18, backgroundColor: "rgba(255,255,255,0.70)", padding: 13, marginBottom: 10, borderWidth: 1, borderColor: "rgba(35,47,70,0.07)" },
-  routeCardSelected: { borderColor: COLORS.green, backgroundColor: "rgba(53,242,180,0.12)" },
+  routeCard: { borderRadius: 18, backgroundColor: "rgba(8,18,32,0.92)", padding: 13, marginBottom: 10, borderWidth: 1, borderColor: "rgba(55,245,174,0.18)" },
+  routeCardSelected: { borderColor: COLORS.green, backgroundColor: "rgba(55,245,174,0.14)" },
   routeCardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 },
-  routeDuration: { color: COLORS.textDark, fontSize: T.section, lineHeight: LINE_HEIGHT.section, fontWeight: "900" },
-  routeSubtitle: { color: "#5E687A", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 2 },
+  routeDuration: { color: COLORS.text, fontSize: T.section, lineHeight: LINE_HEIGHT.section, fontWeight: "900" },
+  routeSubtitle: { color: COLORS.muted, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 2 },
   routeTimeBox: { flexDirection: "row", alignItems: "center", gap: 4 },
-  routeTimeText: { color: COLORS.textDark, fontSize: T.route, lineHeight: LINE_HEIGHT.route, fontWeight: "900" },
+  routeTimeText: { color: COLORS.text, fontSize: T.route, lineHeight: LINE_HEIGHT.route, fontWeight: "900" },
   pillRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 },
-  busBadge: { minWidth: 30, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: COLORS.blue, paddingHorizontal: 7 },
-  busBadgeText: { color: "white", fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "900" },
-  neutralBadge: { minHeight: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,27,37,0.08)", paddingHorizontal: 8 },
-  neutralBadgeText: { color: COLORS.textDark, fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "800" },
+  busBadge: { minWidth: 30, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: COLORS.green, paddingHorizontal: 7 },
+  busBadgeText: { color: COLORS.greenDark, fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "900" },
+  neutralBadge: { minHeight: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.08)", paddingHorizontal: 8 },
+  neutralBadgeText: { color: COLORS.text, fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "800" },
   detailSummaryCard: { borderRadius: 18, backgroundColor: "rgba(255,255,255,0.68)", padding: 13, marginBottom: 8 },
-  detailDuration: { color: COLORS.textDark, fontSize: T.section, lineHeight: LINE_HEIGHT.section, fontWeight: "900" },
-  detailSubtitle: { color: "#5E687A", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 2, marginBottom: 10 },
+  detailDuration: { color: COLORS.text, fontSize: T.section, lineHeight: LINE_HEIGHT.section, fontWeight: "900" },
+  detailSubtitle: { color: COLORS.muted, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 2, marginBottom: 10 },
   routeStatsGrid: { flexDirection: "row", gap: 8, marginTop: 10 },
-  routeStatPill: { flex: 1, borderRadius: 14, paddingVertical: 8, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,27,37,0.06)" },
-  routeStatValue: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "900" },
-  routeStatLabel: { color: "#667083", fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "800", marginTop: 1 },
+  routeStatPill: { flex: 1, borderRadius: 14, paddingVertical: 8, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.07)" },
+  routeStatValue: { color: COLORS.text, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "900" },
+  routeStatLabel: { color: COLORS.muted, fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "800", marginTop: 1 },
   stepsContent: { paddingHorizontal: 18, paddingBottom: 132, paddingTop: 2 },
   navStepsContent: { paddingHorizontal: 18, paddingBottom: 132, paddingTop: 4 },
-  stepRow: { minHeight: 49, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, paddingHorizontal: 9, paddingVertical: 7, backgroundColor: "rgba(255,255,255,0.48)", marginBottom: 7 },
-  stepRowBlock: { borderRadius: 16, paddingHorizontal: 9, paddingVertical: 8, backgroundColor: "rgba(255,255,255,0.52)", marginBottom: 8, borderWidth: 1, borderColor: "rgba(35,47,70,0.06)" },
+  stepRow: { minHeight: 49, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, paddingHorizontal: 9, paddingVertical: 7, backgroundColor: "rgba(8,18,32,0.76)", marginBottom: 7 },
+  stepRowBlock: { borderRadius: 16, paddingHorizontal: 9, paddingVertical: 8, backgroundColor: "rgba(8,18,32,0.82)", marginBottom: 8, borderWidth: 1, borderColor: "rgba(55,245,174,0.16)" },
   stepRowBlockActive: { borderColor: "rgba(53,242,180,0.44)", backgroundColor: "rgba(53,242,180,0.10)" },
   stepRowTop: { flexDirection: "row", alignItems: "center", gap: 10 },
   stepRail: { width: 12, alignItems: "center" },
   stepLineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "rgba(80,90,110,0.42)" },
   stepLineDotActive: { backgroundColor: COLORS.green },
   stepIconMini: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(53,242,180,0.18)" },
-  stepTitle: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "800" },
-  stepSubtitle: { color: "#626D82", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 1 },
-  stepMetaText: { color: "#75809A", fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "800", marginTop: 3 },
+  stepTitle: { color: COLORS.text, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "800" },
+  stepSubtitle: { color: COLORS.muted, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 1 },
+  stepMetaText: { color: COLORS.dim, fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "800", marginTop: 3 },
   stepBadge: { color: COLORS.greenDark, fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "900", minWidth: 36, textAlign: "right" },
-  stopTimelineBox: { marginLeft: 50, marginTop: 8, borderRadius: 14, backgroundColor: "rgba(20,27,37,0.045)", paddingHorizontal: 10, paddingVertical: 8 },
+  stopTimelineBox: { marginLeft: 50, marginTop: 8, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.05)", paddingHorizontal: 10, paddingVertical: 8 },
   stopTimelineRow: { minHeight: 22, flexDirection: "row", alignItems: "center", gap: 8 },
-  stopTimelineTime: { width: 42, color: "#566174", fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "900" },
+  stopTimelineTime: { width: 42, color: COLORS.dim, fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "900" },
   stopTimelineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.green },
-  stopTimelineName: { flex: 1, color: COLORS.textDark, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "800" },
-  stopTimelineMore: { marginTop: 4, color: "#667083", fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "800" },
+  stopTimelineName: { flex: 1, color: COLORS.text, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "800" },
+  stopTimelineMore: { marginTop: 4, color: COLORS.muted, fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "800" },
   progressTrack: { height: 4, borderRadius: 2, backgroundColor: "rgba(20,27,37,0.12)", overflow: "hidden", marginBottom: 6 },
   progressFill: { height: 4, borderRadius: 2, backgroundColor: COLORS.green },
   stickyCtaWrap: { position: "absolute", left: 18, right: 18, bottom: 22 },
@@ -1305,12 +1305,14 @@ const styles = StyleSheet.create({
   primaryButtonText: { color: COLORS.greenDark, fontSize: T.cta, lineHeight: LINE_HEIGHT.cta, fontWeight: "900" },
   appleTitleRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 6 },
   appleSheetKicker: { color: COLORS.green, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 2.4, marginBottom: 2 },
-  appleSheetTitle: { color: COLORS.textDark, fontSize: 28, lineHeight: 34, fontWeight: "900" },
-  appleSheetTitleCentered: { color: COLORS.textDark, fontSize: 20, lineHeight: 24, fontWeight: "900", textAlign: "center", letterSpacing: -0.2 },
-  tripFormCard: { borderRadius: 24, padding: 12, backgroundColor: "rgba(255,255,255,0.72)", borderWidth: 1, borderColor: "rgba(20,27,37,0.06)", marginBottom: 12, marginTop: 2 },
+  appleSheetTitle: { color: COLORS.text, fontSize: 28, lineHeight: 34, fontWeight: "900" },
+  appleSheetTitleCentered: { color: COLORS.text, fontSize: 22, lineHeight: 27, fontWeight: "900", textAlign: "center", letterSpacing: -0.25 },
+  tripFormCard: { borderRadius: 24, padding: 12, backgroundColor: "rgba(8,18,32,0.94)", borderWidth: 1, borderColor: "rgba(55,245,174,0.24)", marginBottom: 12, marginTop: 2 },
   tripInputRow: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 8, paddingVertical: 6 },
   tripInputIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(53,242,180,0.16)" },
-  tripInputLabel: { color: "#667083", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 2 },
-  tripInputValue: { color: COLORS.textDark, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "900" },
-  tripDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "rgba(45,55,72,0.16)", marginLeft: 54 },
+  tripInputLabel: { color: COLORS.muted, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 2 },
+  tripInputValue: { color: COLORS.text, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "900" },
+  inlineInputRow: { minHeight: 38, borderRadius: 18, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.10)" },
+  inlineInput: { flex: 1, minHeight: 38, paddingVertical: 0, color: COLORS.text, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "800" },
+  tripDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "rgba(255,255,255,0.10)", marginLeft: 54 },
 });
