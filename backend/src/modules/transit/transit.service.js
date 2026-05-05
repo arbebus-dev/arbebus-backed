@@ -139,6 +139,13 @@ function nowSeconds() {
   return now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
 }
 
+function secondsFromRequestedTime(value, fallback = nowSeconds()) {
+  if (!value) return fallback;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  return date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
+}
+
 function distanceMeters(a, b) {
   const R = 6371000;
   const dLat = ((b.latitude - a.latitude) * Math.PI) / 180;
@@ -512,9 +519,10 @@ function findTripSegment(routeId, fromStopId, toStopId, afterSeconds = nowSecond
   return best;
 }
 
-function candidateDirectRoutes(originStops, destinationStops) {
+function candidateDirectRoutes(originStops, destinationStops, options = {}) {
   const gtfs = loadGtfs();
-  const after = nowSeconds() - 120;
+  const after = Number.isFinite(Number(options.afterSeconds)) ? Number(options.afterSeconds) : nowSeconds() - 120;
+  const arriveBy = Number.isFinite(Number(options.arriveBySeconds)) ? Number(options.arriveBySeconds) : null;
   const options = [];
 
   for (const origin of originStops) {
@@ -526,6 +534,7 @@ function candidateDirectRoutes(originStops, destinationStops) {
       for (const routeId of sharedRoutes) {
         const segment = findTripSegment(routeId, origin.id, destination.id, after);
         if (!segment) continue;
+        if (arriveBy != null && Number(segment.arrivalSeconds) > arriveBy) continue;
         const walkingMeters = Number(origin.distanceMeters || 0) + Number(destination.distanceMeters || 0);
         const walkingMinutes = Math.max(1, Math.round(walkingMeters / WALK_SPEED_M_PER_MIN));
         const totalMinutes = walkingMinutes + segment.durationMinutes;
@@ -537,9 +546,10 @@ function candidateDirectRoutes(originStops, destinationStops) {
   return options.sort((a, b) => a.totalMinutes - b.totalMinutes).slice(0, 4);
 }
 
-function candidateTransferRoutes(originStops, destinationStops) {
+function candidateTransferRoutes(originStops, destinationStops, options = {}) {
   const gtfs = loadGtfs();
-  const after = nowSeconds() - 120;
+  const after = Number.isFinite(Number(options.afterSeconds)) ? Number(options.afterSeconds) : nowSeconds() - 120;
+  const arriveBy = Number.isFinite(Number(options.arriveBySeconds)) ? Number(options.arriveBySeconds) : null;
   const options = [];
 
   for (const origin of originStops.slice(0, 4)) {
@@ -567,6 +577,7 @@ function candidateTransferRoutes(originStops, destinationStops) {
             if (!leg1) continue;
             const leg2 = findTripSegment(secondRouteId, transferStopId, destination.id, leg1.arrivalSeconds + 120);
             if (!leg2) continue;
+            if (arriveBy != null && Number(leg2.arrivalSeconds) > arriveBy) continue;
             const transferStop = stopToPublic(gtfs.stopsById.get(String(transferStopId)));
             if (!transferStop) continue;
             const walkingMeters = Number(origin.distanceMeters || 0) + Number(destination.distanceMeters || 0);
@@ -828,12 +839,17 @@ async function plan(body = {}) {
   const from = toCoordinate(body.origin) || toCoordinate(body.from) || { latitude: 55.7033, longitude: 21.1443 };
   const to = toCoordinate(body.destination) || toCoordinate(body.to) || toCoordinate(body.selectedDestination) || { latitude: 55.68962, longitude: 21.14691 };
   const destinationTitle = body.selectedDestination?.title || body.destination?.title || body.to?.title || 'Tikslas';
+  const timeMode = ['now', 'depart', 'arrive'].includes(String(body.timeMode)) ? String(body.timeMode) : 'now';
+  const requestedSeconds = secondsFromRequestedTime(body.travelAt, nowSeconds());
+  const planTimeOptions = timeMode === 'arrive'
+    ? { afterSeconds: Math.max(0, requestedSeconds - 4 * 3600), arriveBySeconds: requestedSeconds }
+    : { afterSeconds: timeMode === 'depart' ? requestedSeconds : nowSeconds() - 120 };
 
   const originStops = nearestStops(from, 6, 2200);
   const destinationStops = nearestStops(to, 6, 2200);
   let candidates = [
-    ...candidateDirectRoutes(originStops, destinationStops),
-    ...candidateTransferRoutes(originStops, destinationStops),
+    ...candidateDirectRoutes(originStops, destinationStops, planTimeOptions),
+    ...candidateTransferRoutes(originStops, destinationStops, planTimeOptions),
   ].sort((a, b) => a.totalMinutes - b.totalMinutes);
 
   const plans = await Promise.all(
@@ -858,6 +874,8 @@ async function plan(body = {}) {
       originStops: originStops.length,
       destinationStops: destinationStops.length,
       candidates: candidates.length,
+      timeMode,
+      travelAt: body.travelAt || null,
     },
   };
 }

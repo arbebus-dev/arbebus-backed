@@ -974,6 +974,8 @@ export async function planTransitRoute(params: {
   from: Coordinate;
   to: Coordinate;
   destination?: PlaceResult;
+  timeMode?: "now" | "depart" | "arrive";
+  travelAt?: string | Date | null;
 }): Promise<TransitRouteOption[]> {
   const destination = params.destination ?? {
     id: "destination",
@@ -1001,6 +1003,8 @@ export async function planTransitRoute(params: {
       from: params.from,
       to: params.to,
       selectedDestination: destination,
+      timeMode: params.timeMode || "now",
+      travelAt: params.travelAt instanceof Date ? params.travelAt.toISOString() : params.travelAt || null,
     }),
   });
 

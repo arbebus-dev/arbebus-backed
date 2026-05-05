@@ -19,6 +19,7 @@ import {
 
 import { useLanguage } from "@/core/i18n/LanguageContext";
 import { COLORS, LINE_HEIGHT, T } from "@/core/theme/typography";
+import TravelTimeModal, { type TravelTimeMode, type TravelTimeSelection } from "../rideBooking/components/TravelTimeModal";
 import {
   buildJourneyViewModel,
   cleanRouteNumber,
@@ -42,6 +43,9 @@ type Props = {
   isPlanning?: boolean;
   routeOptions: TransitRouteOption[];
   selectedRoute: TransitRouteOption | null;
+  travelTimeMode?: TravelTimeMode;
+  travelTimeDate?: Date | string | null;
+  onChangeTravelTime?: (selection: TravelTimeSelection) => void;
   selectedOrigin?: PlaceSearchResult | null;
   selectedDestination?: PlaceSearchResult | null;
   selectedMapPlace?: PlaceSearchResult | null;
@@ -122,6 +126,18 @@ function timeText(value?: string | null) {
 
 function stopTimeText(stop: any) {
   return timeText(stop?.arrivalTime || stop?.departureTime);
+}
+
+function travelTimeLabel(mode?: TravelTimeMode, value?: Date | string | null) {
+  if (!mode || mode === "now" || !value) return "Išvykti dabar";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return mode === "arrive" ? "Atvykti iki" : "Išvykti";
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  const today = new Date();
+  const sameDay = date.toDateString() === today.toDateString();
+  const day = sameDay ? "Šiandien" : date.toLocaleDateString("lt-LT", { weekday: "short", day: "numeric", month: "short" });
+  return `${mode === "arrive" ? "Atvykti iki" : "Išvykti"}: ${day} ${hh}:${mm}`;
 }
 
 function stepMetaLine(step: TransitStep) {
@@ -424,6 +440,7 @@ function TripSearchForm({
   setActiveField: (field: "from" | "to") => void;
 }) {
   const { t } = useLanguage();
+  const [timeModalOpen, setTimeModalOpen] = React.useState(false);
   const fromValue = activeField === "from" ? props.query : props.selectedOrigin?.title || "";
   const toValue = activeField === "to" ? props.query : props.selectedDestination?.title || "";
 
@@ -472,7 +489,28 @@ function TripSearchForm({
         />
       </TripInputRow>
       <View style={styles.tripDivider} />
-      <TripInputRow icon="clock-outline" label={t.sheet.when} value={t.sheet.now} />
+      <Pressable
+        onPress={() => {
+          void Haptics.selectionAsync();
+          setTimeModalOpen(true);
+        }}
+      >
+        <TripInputRow
+          icon="clock-outline"
+          label={t.sheet.when}
+          value={travelTimeLabel(props.travelTimeMode, props.travelTimeDate)}
+        />
+      </Pressable>
+      <TravelTimeModal
+        visible={timeModalOpen}
+        initialMode={props.travelTimeMode || "now"}
+        initialDate={props.travelTimeDate ? new Date(props.travelTimeDate) : null}
+        onClose={() => setTimeModalOpen(false)}
+        onConfirm={(selection) => {
+          props.onChangeTravelTime?.(selection);
+          setTimeModalOpen(false);
+        }}
+      />
     </View>
   );
 }

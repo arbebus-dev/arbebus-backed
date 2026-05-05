@@ -40,6 +40,13 @@ type CachedTransitPlan = {
   selectedRoute: TransitRouteOption | null;
 };
 
+export type TravelTimeMode = "now" | "depart" | "arrive";
+
+export type TravelTimeSelection = {
+  mode: TravelTimeMode;
+  date: Date;
+};
+
 async function saveCachedTransitPlan(payload: Omit<CachedTransitPlan, "createdAt">) {
   try {
     await AsyncStorage.setItem(
@@ -931,6 +938,8 @@ function mergeRouteUpdate(route: TransitRouteOption, update: Partial<TransitRout
 export function useTransitPlanner(userLocation: Coordinate | null) {
   const [flowState, setFlowState] = useState<TransitFlowState>("idle");
   const [query, setQuery] = useState("");
+  const [travelTimeMode, setTravelTimeMode] = useState<TravelTimeMode>("now");
+  const [travelTimeDate, setTravelTimeDate] = useState<Date | null>(null);
   const [searchResults, setSearchResults] = useState<PlaceSearchResult[]>([]);
   const [selectedDestination, setSelectedDestination] = useState<PlaceSearchResult | null>(null);
   const [selectedOrigin, setSelectedOrigin] = useState<PlaceSearchResult | null>(null);
@@ -1144,6 +1153,8 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
               from: routeOrigin,
               to: destination.coordinate,
               destination,
+              timeMode: travelTimeMode,
+              travelAt: travelTimeMode === "now" ? null : travelTimeDate,
             });
 
             if (rawOptions?.length) break;
@@ -1227,7 +1238,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         setIsPlanning(false);
       }
     },
-    [hydrateRouteDetails, selectedOrigin, userLocation]
+    [hydrateRouteDetails, selectedOrigin, travelTimeDate, travelTimeMode, userLocation]
   );
 
   const chooseRoute = useCallback(
@@ -1402,6 +1413,8 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
               from: userLocation,
               to: selectedDestination.coordinate,
               destination: selectedDestination,
+              timeMode: travelTimeMode,
+              travelAt: travelTimeMode === "now" ? null : travelTimeDate,
             });
 
             if (rawOptions?.length) break;
@@ -1677,6 +1690,12 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     userLocation,
   ]);
 
+
+  const setTravelTime = useCallback((selection: TravelTimeSelection) => {
+    setTravelTimeMode(selection.mode);
+    setTravelTimeDate(selection.mode === "now" ? null : selection.date);
+  }, []);
+
   const resetPlanner = useCallback(() => {
     setFlowState("idle");
     setQuery("");
@@ -1693,6 +1712,8 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     setOfflineMessage(null);
     setIsRerouting(false);
     setReroutingMessage(null);
+    setTravelTimeMode("now");
+    setTravelTimeDate(null);
     deviationConfirmations.current = 0;
     rerouteInFlight.current = false;
     void clearBackgroundNavigationTrip();
@@ -1702,6 +1723,9 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     flowState,
     query,
     setQuery,
+    travelTimeMode,
+    travelTimeDate,
+    setTravelTime,
     searchResults,
     selectedDestination,
     selectedOrigin,

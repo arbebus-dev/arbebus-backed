@@ -13,33 +13,30 @@ type Props = {
 
 export default function AccountMenu({ onSelect }: Props) {
   const { t } = useLanguage();
-  const items: Array<{ key: AccountMenuKey; icon: any; title: string; subtitle: string }> = [
-    { key: "profile", icon: "person-circle-outline", title: t.account.profile, subtitle: t.account.profileSubtitle },
-    { key: "payment", icon: "credit-card-outline", title: t.account.payment, subtitle: t.account.paymentSubtitle },
-    { key: "settings", icon: "cog-outline", title: t.account.settings, subtitle: t.account.settingsSubtitle },
-    { key: "feedback", icon: "message-alert-outline", title: t.account.feedback, subtitle: t.account.feedbackSubtitle },
-    { key: "legal", icon: "file-document-outline", title: t.account.legal, subtitle: t.account.legalSubtitle },
+  const items: Array<{ key: AccountMenuKey; icon: any; title: string }> = [
+    { key: "profile", icon: "account-outline", title: t.account.profile },
+    { key: "payment", icon: "credit-card-outline", title: t.account.payment },
+    { key: "settings", icon: "cog-outline", title: t.account.settings },
+    { key: "feedback", icon: "message-text-outline", title: t.account.feedback },
+    { key: "legal", icon: "file-document-check-outline", title: t.account.legal },
   ];
 
   return (
-    <View style={styles.card}>
-      {items.map((item, index) => (
+    <View style={styles.menu}>
+      {items.map((item) => (
         <Pressable
           key={item.key}
-          style={[styles.row, index < items.length - 1 && styles.rowBorder]}
+          style={styles.row}
           onPress={() => {
             void Haptics.selectionAsync();
             onSelect(item.key);
           }}
         >
           <View style={styles.iconWrap}>
-            <MaterialCommunityIcons name={item.icon} size={21} color="#35F2B4" />
+            <MaterialCommunityIcons name={item.icon} size={27} color="#111827" />
           </View>
-          <View style={styles.textBlock}>
-            <Text style={styles.title}>{item.title}</Text>
-            <Text style={styles.subtitle}>{item.subtitle}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.38)" />
+          <Text style={styles.title}>{item.title}</Text>
+          <Ionicons name="chevron-forward" size={24} color="rgba(17,24,39,0.28)" />
         </Pressable>
       ))}
     </View>
@@ -47,17 +44,25 @@ export default function AccountMenu({ onSelect }: Props) {
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderRadius: 26,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    overflow: "hidden",
+  menu: {
+    gap: 24,
   },
-  row: { flexDirection: "row", alignItems: "center", gap: 13, paddingHorizontal: 16, paddingVertical: 15 },
-  rowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "rgba(255,255,255,0.09)" },
-  iconWrap: { width: 38, height: 38, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(53,242,180,0.13)" },
-  textBlock: { flex: 1 },
-  title: { color: "#FFFFFF", fontSize: 16, fontWeight: "900" },
-  subtitle: { color: "rgba(255,255,255,0.58)", fontSize: 12, fontWeight: "700", marginTop: 3 },
+  row: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  iconWrap: {
+    width: 52,
+    alignItems: "flex-start",
+    justifyContent: "center",
+  },
+  title: {
+    flex: 1,
+    color: "#111827",
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: "800",
+    letterSpacing: -0.35,
+  },
 });
