@@ -38,10 +38,10 @@ function apiBase() {
   return API_ENDPOINTS.transitPlan.replace(/\/transit\/plan$/, "");
 }
 
-const API_TIMEOUT_MS = 9000;
-const SEARCH_TIMEOUT_MS = 1800;
+const API_TIMEOUT_MS = 8000;
+const SEARCH_TIMEOUT_MS = 1200;
 const SEARCH_MEMORY_TTL_MS = 5 * 60 * 1000;
-const API_RETRY_COUNT = 1;
+const API_RETRY_COUNT = 0;
 
 type SearchCacheEntry = { createdAt: number; results: PlaceResult[] };
 const searchMemoryCache = new Map<string, SearchCacheEntry>();
@@ -890,7 +890,7 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
   const cached = getSearchMemoryCache(q);
   if (cached) return cached;
 
-  const params = `q=${encodeURIComponent(q)}&limit=18&external=false`;
+  const params = `q=${encodeURIComponent(q)}&limit=8&external=false`;
 
   // Apple Maps style: typing suggestions must be instant and local-first.
   // Use the new /search endpoint first and keep legacy endpoints only as non-blocking fallback.
@@ -919,7 +919,7 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
         .sort(
           (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
         )
-        .slice(0, 18);
+        .slice(0, 8);
 
       setSearchMemoryCache(q, results);
       return results;
@@ -1017,31 +1017,35 @@ export async function planTransitRoute(params: {
     coordinate: params.to,
   };
 
-  const response = await fetchWithRetry(API_ENDPOINTS.transitPlan, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      origin: {
-        latitude: params.from.latitude,
-        longitude: params.from.longitude,
-      },
-      destination: {
-        latitude: params.to.latitude,
-        longitude: params.to.longitude,
-      },
-      from: params.from,
-      to: params.to,
-      selectedDestination: destination,
-      timeMode: params.timeMode || "now",
-      travelAt: params.travelAt instanceof Date ? params.travelAt.toISOString() : params.travelAt || null,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Transit plan failed: ${response.status}`);
-  }
+  const response = await fetchWithTimeout(
+    API_ENDPOINTS.transitPlan,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        origin: {
+          latitude: params.from.latitude,
+          longitude: params.from.longitude,
+        },
+        destination: {
+          latitude: params.to.latitude,
+          longitude: params.to.longitude,
+        },
+        from: params.from,
+        to: params.to,
+        selectedDestination: destination,
+        timeMode: params.timeMode || "now",
+        travelAt: params.travelAt instanceof Date ? params.travelAt.toISOString() : params.travelAt || null,
+      }),
+    },
+    8000,
+  );
 
   const data = await safeJson<any>(response);
+
+  if (!response.ok || data?.ok === false) {
+    throw new Error(data?.error || `Transit plan failed: ${response.status}`);
+  }
 
   const rawRoutes = [
     ...(data?.plan ? [data.plan] : []),
@@ -1055,9 +1059,11 @@ export async function planTransitRoute(params: {
       arr.findIndex((item) => String(item?.id) === String(route?.id)) === index,
   );
 
-  return uniqueRoutes.map((route: any, index: number) =>
-    normalizeBackendPlan(route, index, params.from, params.to),
-  );
+  return uniqueRoutes
+    .slice(0, 6)
+    .map((route: any, index: number) =>
+      normalizeBackendPlan(route, index, params.from, params.to),
+    );
 }
 
 export async function fetchWalkingRoute(

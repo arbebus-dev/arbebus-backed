@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PlaceResult, searchPlaces } from "../services/transitApi";
 
-const SEARCH_DEBOUNCE_MS = 220;
+const SEARCH_DEBOUNCE_MS = 250;
 const MIN_QUERY_LENGTH = 2;
 const MEMORY_TTL_MS = 5 * 60 * 1000;
 const STALE_RESULT_MAX_AGE_MS = 20 * 60 * 1000;
+const MAX_RESULTS = 8;
 
 type CachedSearch = {
   createdAt: number;
@@ -29,7 +30,7 @@ function getCachedResults(query: string) {
 }
 
 function setCachedResults(query: string, results: PlaceResult[]) {
-  memoryCache.set(cleanKey(query), { createdAt: Date.now(), results });
+  memoryCache.set(cleanKey(query), { createdAt: Date.now(), results: results.slice(0, MAX_RESULTS) });
 }
 
 export function useSearchPlaces(query: string) {
@@ -53,7 +54,7 @@ export function useSearchPlaces(query: string) {
 
     const cached = getCachedResults(cleanQuery);
     if (cached?.results?.length) {
-      setResults(cached.results);
+      setResults(cached.results.slice(0, MAX_RESULTS));
       setLoading(!cached.isFresh);
       setIsStale(!cached.isFresh);
       if (cached.isFresh) return;
@@ -66,7 +67,7 @@ export function useSearchPlaces(query: string) {
 
     const timer = setTimeout(async () => {
       try {
-        const data = await searchPlaces(cleanQuery);
+        const data = (await searchPlaces(cleanQuery)).slice(0, MAX_RESULTS);
 
         if (!cancelled && requestId === requestIdRef.current) {
           setCachedResults(cleanQuery, data);

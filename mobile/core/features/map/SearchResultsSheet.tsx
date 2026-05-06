@@ -41,6 +41,8 @@ function labelForType(type?: string) {
 
 export default function SearchResultsSheet({ visible, results, isLoading, error, onSelect }: Props) {
   if (!visible) return null;
+  const visibleResults = results.slice(0, 8);
+  const showSkeleton = Boolean(isLoading && !visibleResults.length);
   return (
     <View style={styles.sheet}>
       <View style={styles.handle} />
@@ -52,9 +54,22 @@ export default function SearchResultsSheet({ visible, results, isLoading, error,
         {isLoading ? <ActivityIndicator color={COLORS.green} /> : null}
       </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      {!isLoading && !results.length ? <Text style={styles.empty}>Įvesk vietą, adresą arba stotelę. Pvz. Akropolis, Taikos 61, Radailiai.</Text> : null}
+      {!isLoading && !visibleResults.length ? <Text style={styles.empty}>Įvesk vietą, adresą arba stotelę. Pvz. Akropolis, Taikos 61, Radailiai.</Text> : null}
+      {showSkeleton ? (
+        <View style={styles.skeletonBox}>
+          {[0, 1, 2].map((item) => (
+            <View key={item} style={styles.skeletonRow}>
+              <View style={styles.skeletonIcon} />
+              <View style={styles.skeletonTextBox}>
+                <View style={styles.skeletonLineWide} />
+                <View style={styles.skeletonLineSmall} />
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
       <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={styles.list}>
-        {results.map((item) => {
+        {visibleResults.map((item) => {
           const distance = formatDistance(item.distanceMeters);
           const meta = [labelForType(item.type), distance, item.subtitle].filter(Boolean).join(" • ");
           return (
@@ -89,4 +104,10 @@ const styles = StyleSheet.create({
   goCircle: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: COLORS.green },
   empty: { color: COLORS.muted, paddingVertical: 14, lineHeight: LINE_HEIGHT.body, fontSize: T.body, fontWeight: "700" },
   error: { color: "#FF8F8F", paddingVertical: 8, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700" },
+  skeletonBox: { paddingVertical: 6 },
+  skeletonRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 11 },
+  skeletonIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.10)" },
+  skeletonTextBox: { flex: 1, gap: 7 },
+  skeletonLineWide: { width: "72%", height: 13, borderRadius: 99, backgroundColor: "rgba(255,255,255,0.12)" },
+  skeletonLineSmall: { width: "44%", height: 10, borderRadius: 99, backgroundColor: "rgba(255,255,255,0.08)" },
 });

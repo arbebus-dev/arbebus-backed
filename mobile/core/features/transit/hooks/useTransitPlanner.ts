@@ -37,6 +37,8 @@ function sleep(ms: number) {
 
 const TRANSIT_PLAN_CACHE_KEY = "arbebus:last-transit-plan:v1";
 const TRANSIT_PLAN_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const SEARCH_DEBOUNCE_MS = 250;
+const SEARCH_RESULTS_LIMIT = 8;
 
 type CachedTransitPlan = {
   createdAt: number;
@@ -966,10 +968,27 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
   const lastRerouteAt = useRef(0);
   const deviationConfirmations = useRef(0);
   const rerouteInFlight = useRef(false);
+  const searchRequestId = useRef(0);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const planRequestId = useRef(0);
 
   useEffect(() => {
     selectedRouteRef.current = selectedRoute;
   }, [selectedRoute]);
+
+  useEffect(() => {
+    if (!userLocation || selectedOrigin) return;
+
+    setSelectedOrigin({
+      id: "current-location",
+      title: "Mano vieta",
+      subtitle: "Dabartinė GPS vieta",
+      type: "address",
+      latitude: userLocation.latitude,
+      longitude: userLocation.longitude,
+      coordinate: userLocation,
+    } as PlaceSearchResult);
+  }, [selectedOrigin, userLocation]);
 
   const activeInstruction = useMemo(() => {
     if (!selectedRoute) return null;
@@ -1075,24 +1094,44 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       const nextQuery = (text ?? query).trim();
       setQuery(nextQuery);
 
+      searchRequestId.current += 1;
+      const requestId = searchRequestId.current;
+
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+        searchTimerRef.current = null;
+      }
+
       if (nextQuery.length < 2) {
         setSearchResults([]);
         setFlowState("idle");
+        setIsSearching(false);
         setError(null);
         return;
       }
 
       setFlowState("searching");
-      setIsSearching(true);
       setError(null);
       setIsOffline(false);
       setOfflineMessage(null);
 
+      // Optimistic UI: keep existing suggestions visible while a new query is typed.
+      setIsSearching(true);
+
+      await new Promise<void>((resolve) => {
+        searchTimerRef.current = setTimeout(resolve, SEARCH_DEBOUNCE_MS);
+      });
+
+      if (requestId !== searchRequestId.current) return;
+
       try {
         const rawResults = await searchPlaces(nextQuery);
+        if (requestId !== searchRequestId.current) return;
+
         const results = safeArray(rawResults)
           .map(normalizePlace)
-          .filter(Boolean) as PlaceSearchResult[];
+          .filter(Boolean)
+          .slice(0, SEARCH_RESULTS_LIMIT) as PlaceSearchResult[];
 
         setSearchResults(results);
 
@@ -1100,13 +1139,17 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           setError("Nieko nerasta");
         }
       } catch (err: any) {
+        if (requestId !== searchRequestId.current) return;
+
         console.log("❌ SEARCH ERROR:", err);
         setError("Paieška nepavyko – patikrink internetą");
         setIsOffline(true);
         setOfflineMessage("Paieška neveikia be ryšio. Paskutinis maršrutas, jei yra, liks saugiai telefone.");
         setSearchResults([]);
       } finally {
-        setIsSearching(false);
+        if (requestId === searchRequestId.current) {
+          setIsSearching(false);
+        }
       }
     },
     [query]
@@ -1128,6 +1171,8 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     async (rawDestination: PlaceSearchResult) => {
       const destination = normalizePlace(rawDestination) ?? rawDestination;
       const routeOrigin = selectedOrigin?.coordinate ?? userLocation;
+      const requestId = planRequestId.current + 1;
+      planRequestId.current = requestId;
 
       setSelectedDestination(destination);
       setSelectedRoute(null);
@@ -1139,6 +1184,8 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       setIsRerouting(false);
       setReroutingMessage(null);
       deviationConfirmations.current = 0;
+      setSearchResults([]);
+      setQuery(destination.title || "");
       setFlowState("destination_selected");
 
       if (!routeOrigin) {
@@ -1146,75 +1193,64 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         return;
       }
 
+      // Route planning starts only after explicit result selection.
       setFlowState("routes_loading");
       setIsPlanning(true);
 
       try {
-        let rawOptions: any[] = [];
+        const rawOptions = await planTransitRoute({
+          from: routeOrigin,
+          to: destination.coordinate,
+          destination,
+          timeMode: travelTimeMode,
+          travelAt: travelTimeMode === "now" ? null : travelTimeDate,
+        });
 
-        for (let i = 0; i < 2; i++) {
-          try {
-            rawOptions = await planTransitRoute({
-              from: routeOrigin,
-              to: destination.coordinate,
-              destination,
-              timeMode: travelTimeMode,
-              travelAt: travelTimeMode === "now" ? null : travelTimeDate,
-            });
-
-            if (rawOptions?.length) break;
-          } catch {
-            if (i === 1) throw new Error("Backend neatsako");
-            await sleep(500);
-          }
-        }
+        if (requestId !== planRequestId.current) return;
 
         const normalizedOptions = safeArray(rawOptions)
           .map((route, index) => normalizeRoute(route, index, routeOrigin, destination))
-          .filter(hasRealBusSegment);
+          .filter(hasRealBusSegment)
+          .slice(0, 6);
 
         if (!normalizedOptions.length) {
-          const walkOnlyRoute = await buildWalkOnlyFallback(routeOrigin, destination);
+          const straightWalk = buildWalkOnlyRoute({
+            origin: routeOrigin,
+            destination,
+            points: [routeOrigin, destination.coordinate],
+          });
 
-          if (walkOnlyRoute) {
-            setRouteOptions([walkOnlyRoute]);
-            setSelectedRoute(walkOnlyRoute);
-            setCurrentStepIndex(0);
-            setFlowState("route_options");
-            setError("Autobusų maršrutas nerastas – rodomas ėjimas pėsčiomis.");
-            return;
-          }
-
-          setRouteOptions([]);
-          setSelectedRoute(null);
+          setRouteOptions([straightWalk]);
+          setSelectedRoute(straightWalk);
           setCurrentStepIndex(0);
-          setFlowState("destination_selected");
-          setError("Autobusų maršrutas nerastas.");
+          setFlowState("route_options");
+          setError("Autobusų maršrutas nerastas – rodomas ėjimas pėsčiomis.");
           return;
         }
 
-        // Apple Maps style lazy routing: show route cards immediately.
-        // Detailed walking geometry is hydrated in the background and must not block UI.
-        const instantOptions = normalizedOptions;
-
         await saveCachedTransitPlan({
           destination,
-          routeOptions: instantOptions,
-          selectedRoute: instantOptions[0] || null,
+          routeOptions: normalizedOptions,
+          selectedRoute: normalizedOptions[0] || null,
         });
 
-        setRouteOptions(instantOptions);
-        setSelectedRoute(instantOptions[0] || null);
+        if (requestId !== planRequestId.current) return;
+
+        setRouteOptions(normalizedOptions);
+        setSelectedRoute(normalizedOptions[0] || null);
         setCurrentStepIndex(0);
         setFlowState("route_options");
         setError(null);
-        void hydrateRouteDetails(instantOptions[0]);
+
+        // Details are lazy-loaded. They must never block route cards.
+        void hydrateRouteDetails(normalizedOptions[0]);
 
         void Promise.all(
-          instantOptions.map((route) =>
+          normalizedOptions.map((route) =>
             enrichRouteWithRealWalkingGeometry(route, routeOrigin, destination)
           )
         ).then((hydratedOptions) => {
+          if (requestId !== planRequestId.current) return;
           if (!hydratedOptions.length) return;
           setRouteOptions(hydratedOptions);
           setSelectedRoute((current) => {
@@ -1227,9 +1263,11 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
             selectedRoute: hydratedOptions[0] || null,
           });
         }).catch(() => {
-          // Geometry enrichment is optional. Never block or clear route cards because of it.
+          // Optional enrichment failed. Keep instant route cards.
         });
       } catch (err: any) {
+        if (requestId !== planRequestId.current) return;
+
         console.log("❌ ROUTE ERROR:", err);
 
         const cached = await loadCachedTransitPlan();
@@ -1252,7 +1290,9 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         setSelectedRoute(null);
         setFlowState("destination_selected");
       } finally {
-        setIsPlanning(false);
+        if (requestId === planRequestId.current) {
+          setIsPlanning(false);
+        }
       }
     },
     [hydrateRouteDetails, selectedOrigin, travelTimeDate, travelTimeMode, userLocation]
