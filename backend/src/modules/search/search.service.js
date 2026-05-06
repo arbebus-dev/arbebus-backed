@@ -109,7 +109,7 @@ async function index(query = {}) {
   }
 
   const cacheKey = searchCacheKey(q, type, limit);
-  
+
   // Use deduplication to prevent duplicate concurrent requests
   return await deduplicateRequest(cacheKey, async () => {
     const cached = await getCache(cacheKey);
@@ -126,67 +126,69 @@ async function index(query = {}) {
 
     // Apple Maps style: first answer from in-memory/local sources.
     // External providers are optional fallback only, never a blocker for typing suggestions.
-  const fastIndex = await runProvider(
-    "fast_local_index",
-    () => searchFastIndex(q, { limit: Math.max(18, limit) }),
-    120,
-  );
+    const fastIndex = await runProvider(
+      "fast_local_index",
+      () => searchFastIndex(q, { limit: Math.max(18, limit) }),
+      120,
+    );
 
-  const fastCombined = fastIndex.results;
-  let combined = fastCombined;
-  const providers = [fastIndex];
+    const fastCombined = fastIndex.results;
+    let combined = fastCombined;
+    const providers = [fastIndex];
 
-  const rankedFast = rankResults(dedupeResults(fastCombined), q);
-  const hasStrongFastResult = rankedFast.some(
-    (item) => Number(item.score || 0) >= 360,
-  );
-  const includeExternal = shouldUseExternalSearch(query);
+    const rankedFast = rankResults(dedupeResults(fastCombined), q);
+    const hasStrongFastResult = rankedFast.some(
+      (item) => Number(item.score || 0) >= 360,
+    );
+    const includeExternal = shouldUseExternalSearch(query);
 
-  if (includeExternal && !hasStrongFastResult) {
-    const [google, nominatim, overpass] = await Promise.all([
-      runProvider(
-        "google_places",
-        () => searchGooglePlaces(q, { limit: 8 }),
-        500,
-      ),
-      runProvider("nominatim", () => searchNominatim(q, { limit: 8 }), 500),
-      runProvider("overpass", () => searchOverpass(q, { limit: 6 }), 400),
-    ]);
-    providers.push(google, nominatim, overpass);
-    combined = [
-      ...combined,
-      ...google.results,
-      ...nominatim.results,
-      ...overpass.results,
-    ];
-  }
+    if (includeExternal && !hasStrongFastResult) {
+      const [google, nominatim, overpass] = await Promise.all([
+        runProvider(
+          "google_places",
+          () => searchGooglePlaces(q, { limit: 8 }),
+          500,
+        ),
+        runProvider("nominatim", () => searchNominatim(q, { limit: 8 }), 500),
+        runProvider("overpass", () => searchOverpass(q, { limit: 6 }), 400),
+      ]);
+      providers.push(google, nominatim, overpass);
+      combined = [
+        ...combined,
+        ...google.results,
+        ...nominatim.results,
+        ...overpass.results,
+      ];
+    }
 
-  if (type !== "all") combined = combined.filter((item) => item.type === type);
+    if (type !== "all")
+      combined = combined.filter((item) => item.type === type);
 
-  const ranked = rankResults(dedupeResults(combined), q);
-  const results = dedupeResults(ranked).slice(0, limit);
+    const ranked = rankResults(dedupeResults(combined), q);
+    const results = dedupeResults(ranked).slice(0, limit);
 
-  const payload = {
-    ok: true,
-    query: q,
-    count: results.length,
-    results,
-    places: results.filter((item) => item.type !== "stop"),
-    stops: results.filter((item) => item.type === "stop"),
-    addresses: results.filter((item) => item.type === "address"),
-    meta: {
-      ...healthMeta(),
-      cached: false,
-      instant: true,
-      externalEnabled: includeExternal,
-      externalSkipped: !includeExternal || hasStrongFastResult,
-      tookMs: Date.now() - startedAt,
-      providers: compactProviderMeta(providers),
-    },
-  };
+    const payload = {
+      ok: true,
+      query: q,
+      count: results.length,
+      results,
+      places: results.filter((item) => item.type !== "stop"),
+      stops: results.filter((item) => item.type === "stop"),
+      addresses: results.filter((item) => item.type === "address"),
+      meta: {
+        ...healthMeta(),
+        cached: false,
+        instant: true,
+        externalEnabled: includeExternal,
+        externalSkipped: !includeExternal || hasStrongFastResult,
+        tookMs: Date.now() - startedAt,
+        providers: compactProviderMeta(providers),
+      },
+    };
 
-  await setCache(cacheKey, payload, 300);
-  return payload;
+    await setCache(cacheKey, payload, 300);
+    return payload;
+  });
 }
 
 async function debug(query = {}) {

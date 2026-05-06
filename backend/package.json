@@ -13,6 +13,6 @@
     "express": "latest",
     "pg": "latest",
     "pino": "latest",
-    "redis": "latest"
+    "redis": "^5.12.1"
   }
 }

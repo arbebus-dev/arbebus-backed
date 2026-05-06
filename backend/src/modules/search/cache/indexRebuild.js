@@ -3,7 +3,7 @@
  * Periodically rebuilds search index from database to ensure fresh data
  */
 
-const { getRedisClient } = require("../../db/redis/client");
+const { getRedisClient } = require("../../../db/redis/client");
 
 const INDEX_REBUILD_INTERVAL_MS = Number(
   process.env.SEARCH_INDEX_REBUILD_INTERVAL_MS || 3600000,

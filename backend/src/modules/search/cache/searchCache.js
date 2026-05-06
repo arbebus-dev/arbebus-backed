@@ -1,4 +1,4 @@
-const { getRedisClient } = require("../../db/redis/client");
+const { getRedisClient } = require("../../../db/redis/client");
 
 const localCache = new Map();
 let redisClient = null;

@@ -1,16 +1,40 @@
-const { createClient } = require('redis');
-const { env } = require('../../core/config/env');
-
-let client;
+let redisClient = null;
 
 async function getRedisClient() {
-  if (!env.REDIS_URL) return null;
-  if (!client) {
-    client = createClient({ url: env.REDIS_URL });
-    client.on('error', (error) => console.error('[redis]', error.message));
-    await client.connect();
+  const redisUrl = process.env.REDIS_URL;
+
+  if (!redisUrl) {
+    return null;
   }
-  return client;
+
+  try {
+    if (redisClient) {
+      return redisClient;
+    }
+
+    const { createClient } = require("redis");
+
+    redisClient = createClient({
+      url: redisUrl,
+      socket: {
+        reconnectStrategy: false,
+      },
+    });
+
+    redisClient.on("error", (error) => {
+      console.warn("[redis] unavailable:", error?.message || error);
+    });
+
+    await redisClient.connect();
+
+    return redisClient;
+  } catch (error) {
+    console.warn("[redis] disabled:", error?.message || error);
+    redisClient = null;
+    return null;
+  }
 }
 
-module.exports = { getRedisClient };
+module.exports = {
+  getRedisClient,
+};
