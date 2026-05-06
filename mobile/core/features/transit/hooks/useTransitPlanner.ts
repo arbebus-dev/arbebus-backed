@@ -1173,13 +1173,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           .map((route, index) => normalizeRoute(route, index, routeOrigin, destination))
           .filter(hasRealBusSegment);
 
-        const options = await Promise.all(
-          normalizedOptions.map((route) =>
-            enrichRouteWithRealWalkingGeometry(route, routeOrigin, destination)
-          )
-        );
-
-        if (!options.length) {
+        if (!normalizedOptions.length) {
           const walkOnlyRoute = await buildWalkOnlyFallback(routeOrigin, destination);
 
           if (walkOnlyRoute) {
@@ -1195,28 +1189,46 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           setSelectedRoute(null);
           setCurrentStepIndex(0);
           setFlowState("destination_selected");
-          setError("Autobusų maršrutas nerastas, o walking route API negrąžino kelio.");
+          setError("Autobusų maršrutas nerastas.");
           return;
         }
 
+        // Apple Maps style lazy routing: show route cards immediately.
+        // Detailed walking geometry is hydrated in the background and must not block UI.
+        const instantOptions = normalizedOptions;
+
         await saveCachedTransitPlan({
           destination,
-          routeOptions: options,
-          selectedRoute: options[0] || null,
+          routeOptions: instantOptions,
+          selectedRoute: instantOptions[0] || null,
         });
 
-        setRouteOptions(options);
-        setSelectedRoute(options[0] || null);
+        setRouteOptions(instantOptions);
+        setSelectedRoute(instantOptions[0] || null);
         setCurrentStepIndex(0);
+        setFlowState("route_options");
+        setError(null);
+        void hydrateRouteDetails(instantOptions[0]);
 
-        if (options.length) {
-          setFlowState("route_options");
-          setError(null);
-          void hydrateRouteDetails(options[0]);
-        } else {
-          setFlowState("destination_selected");
-          setError("Maršrutų nerasta.");
-        }
+        void Promise.all(
+          instantOptions.map((route) =>
+            enrichRouteWithRealWalkingGeometry(route, routeOrigin, destination)
+          )
+        ).then((hydratedOptions) => {
+          if (!hydratedOptions.length) return;
+          setRouteOptions(hydratedOptions);
+          setSelectedRoute((current) => {
+            if (!current) return hydratedOptions[0] || null;
+            return hydratedOptions.find((route) => route.id === current.id) || current;
+          });
+          void saveCachedTransitPlan({
+            destination,
+            routeOptions: hydratedOptions,
+            selectedRoute: hydratedOptions[0] || null,
+          });
+        }).catch(() => {
+          // Geometry enrichment is optional. Never block or clear route cards because of it.
+        });
       } catch (err: any) {
         console.log("❌ ROUTE ERROR:", err);
 
@@ -1428,13 +1440,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           .map((route, index) => normalizeRoute(route, index, userLocation, selectedDestination))
           .filter(hasRealBusSegment);
 
-        const options = await Promise.all(
-          normalizedOptions.map((route) =>
-            enrichRouteWithRealWalkingGeometry(route, userLocation, selectedDestination)
-          )
-        );
-
-        if (!options.length) {
+        if (!normalizedOptions.length) {
           const walkOnlyRoute = await buildWalkOnlyFallback(userLocation, selectedDestination);
 
           if (walkOnlyRoute) {
@@ -1450,20 +1456,39 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           throw new Error("Naujo autobuso maršruto nerasta");
         }
 
+        const instantOptions = normalizedOptions;
+
         await saveCachedTransitPlan({
           destination: selectedDestination,
-          routeOptions: options,
-          selectedRoute: options[0] || null,
+          routeOptions: instantOptions,
+          selectedRoute: instantOptions[0] || null,
         });
 
-        setRouteOptions(options);
-        setSelectedRoute(options[0]);
+        setRouteOptions(instantOptions);
+        setSelectedRoute(instantOptions[0]);
         setCurrentStepIndex(0);
         setFlowState("route_options");
         setError(null);
         setReroutingMessage(null);
 
-        void hydrateRouteDetails(options[0]);
+        void hydrateRouteDetails(instantOptions[0]);
+
+        void Promise.all(
+          instantOptions.map((route) =>
+            enrichRouteWithRealWalkingGeometry(route, userLocation, selectedDestination)
+          )
+        ).then((hydratedOptions) => {
+          if (!hydratedOptions.length) return;
+          setRouteOptions(hydratedOptions);
+          setSelectedRoute(hydratedOptions[0] || null);
+          void saveCachedTransitPlan({
+            destination: selectedDestination,
+            routeOptions: hydratedOptions,
+            selectedRoute: hydratedOptions[0] || null,
+          });
+        }).catch(() => {
+          // Geometry enrichment is optional during reroute.
+        });
       } catch (err: any) {
         const message = err?.message || "Perskaičiavimas nepavyko";
         setError(message);

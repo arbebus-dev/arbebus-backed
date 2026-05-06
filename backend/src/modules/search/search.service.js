@@ -1,11 +1,12 @@
 const { normalizeText } = require('./utils/normalizeText');
 const { rankResults, dedupeResults } = require('./utils/rankSearchResults');
-const { cacheStats } = require('./cache/searchCache');
+const { getCache, setCache, cacheStats } = require('./cache/searchCache');
 const { searchLocalPoi, localPoiHealth } = require('./providers/localPoi.provider');
 const { searchNominatim, reverseNominatim } = require('./providers/nominatim.provider');
 const { searchOverpass } = require('./providers/overpass.provider');
 const { searchGooglePlaces, getGooglePlaceDetails, searchNearbyGooglePlaces, getGooglePhotoMediaUrl } = require('./providers/googlePlaces.provider');
 const { searchGtfsStops, gtfsHealth, loadGtfsStops } = require('./providers/gtfsStops.provider');
+const { searchFastIndex, searchIndexHealth } = require('./index/searchIndex');
 
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 30;
@@ -20,16 +21,37 @@ function envBool(name, fallback = false) {
   return String(v).toLowerCase() === 'true';
 }
 
-async function runProvider(name, fn) {
+async function runProvider(name, fn, timeoutMs = 1600) {
   try {
-    const results = await fn();
+    let timer = null;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`provider timeout ${timeoutMs}ms`)), timeoutMs);
+    });
+    const results = await Promise.race([Promise.resolve().then(fn), timeout]);
+    if (timer) clearTimeout(timer);
     return { name, ok: true, results: Array.isArray(results) ? results : [], error: null };
   } catch (error) {
     return { name, ok: false, results: [], error: error?.message || String(error) };
   }
 }
 
+function searchCacheKey(q, type, limit) {
+  return `v2:${normalizeText(q)}:${String(type || 'all').toLowerCase()}:${Number(limit || DEFAULT_LIMIT)}`;
+}
+
+function shouldUseExternalSearch(query = {}) {
+  const explicit = String(query.external ?? query.includeExternal ?? '').toLowerCase();
+  if (explicit === 'false' || explicit === '0') return false;
+  if (explicit === 'true' || explicit === '1') return true;
+  return envBool('SEARCH_EXTERNAL_ENABLED', false);
+}
+
+function compactProviderMeta(providers) {
+  return providers.map((p) => ({ name: p.name, ok: p.ok, count: p.results.length, error: p.error }));
+}
+
 async function index(query = {}) {
+  const startedAt = Date.now();
   const q = String(query.q || query.query || query.text || query.search || '').trim();
   const type = String(query.type || 'all').toLowerCase();
   const limit = limitValue(query.limit);
@@ -39,26 +61,47 @@ async function index(query = {}) {
     return { ok: true, query: q, count: 0, results: [], places: [], stops: [], addresses: [], meta: healthMeta() };
   }
 
-  const local = await runProvider('local_poi', () => searchLocalPoi(q, { limit: 10 }));
-  const nominatim = await runProvider('nominatim', () => searchNominatim(q, { limit: 10 }));
-  const overpass = await runProvider('overpass', () => searchOverpass(q, { limit: 10 }));
-  const google = await runProvider('google_places', () => searchGooglePlaces(q, { limit: 8 }));
-  const stops = await runProvider('gtfs', () => searchGtfsStops(q, { limit: 12 }));
+  const cacheKey = searchCacheKey(q, type, limit);
+  const cached = getCache(cacheKey);
+  if (cached) {
+    return {
+      ...cached,
+      meta: {
+        ...(cached.meta || {}),
+        cached: true,
+        tookMs: Date.now() - startedAt,
+      },
+    };
+  }
 
-  let combined = [
-    ...local.results,
-    ...nominatim.results,
-    ...overpass.results,
-    ...google.results,
-    ...stops.results,
-  ];
+  // Apple Maps style: first answer from in-memory/local sources.
+  // External providers are optional fallback only, never a blocker for typing suggestions.
+  const fastIndex = await runProvider('fast_local_index', () => searchFastIndex(q, { limit: Math.max(18, limit) }), 120);
+
+  const fastCombined = fastIndex.results;
+  let combined = fastCombined;
+  const providers = [fastIndex];
+
+  const rankedFast = rankResults(dedupeResults(fastCombined), q);
+  const hasStrongFastResult = rankedFast.some((item) => Number(item.score || 0) >= 360);
+  const includeExternal = shouldUseExternalSearch(query);
+
+  if (includeExternal && !hasStrongFastResult) {
+    const [google, nominatim, overpass] = await Promise.all([
+      runProvider('google_places', () => searchGooglePlaces(q, { limit: 8 }), 1200),
+      runProvider('nominatim', () => searchNominatim(q, { limit: 8 }), 1200),
+      runProvider('overpass', () => searchOverpass(q, { limit: 6 }), 900),
+    ]);
+    providers.push(google, nominatim, overpass);
+    combined = [...combined, ...google.results, ...nominatim.results, ...overpass.results];
+  }
 
   if (type !== 'all') combined = combined.filter((item) => item.type === type);
 
   const ranked = rankResults(dedupeResults(combined), q);
   const results = dedupeResults(ranked).slice(0, limit);
 
-  return {
+  const payload = {
     ok: true,
     query: q,
     count: results.length,
@@ -68,9 +111,17 @@ async function index(query = {}) {
     addresses: results.filter((item) => item.type === 'address'),
     meta: {
       ...healthMeta(),
-      providers: [local, nominatim, overpass, google, stops].map((p) => ({ name: p.name, ok: p.ok, count: p.results.length, error: p.error })),
+      cached: false,
+      instant: true,
+      externalEnabled: includeExternal,
+      externalSkipped: !includeExternal || hasStrongFastResult,
+      tookMs: Date.now() - startedAt,
+      providers: compactProviderMeta(providers),
     },
   };
+
+  setCache(cacheKey, payload, 300);
+  return payload;
 }
 
 async function debug(query = {}) {
@@ -108,6 +159,7 @@ function healthMeta() {
     },
     ...localPoiHealth(),
     ...gtfsHealth(),
+    ...searchIndexHealth(),
     cache: cacheStats(),
   };
 }

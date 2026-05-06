@@ -754,7 +754,10 @@ function LoadingState({ onReset }: Pick<Props, "onReset">) {
       </View>
       <View style={styles.loadingBox}>
         <ActivityIndicator color={COLORS.green} />
-        <Text style={styles.loadingText}>Skaičiuojame kelionės variantus…</Text>
+        <Text style={styles.loadingText}>Tikriname artimiausias stoteles…</Text>
+        <Text style={styles.loadingSubtext}>Maršruto korteles parodysime iškart, o detales patikslinsime fone.</Text>
+        <View style={styles.skeletonCard} />
+        <View style={[styles.skeletonCard, styles.skeletonCardShort]} />
       </View>
     </View>
   );
@@ -1288,8 +1291,11 @@ const styles = StyleSheet.create({
   resultTitle: { color: COLORS.text, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "800" },
   resultSubtitle: { color: COLORS.muted, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "600", marginTop: 1 },
   inlineError: { color: "#B00020", fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginBottom: 8 },
-  loadingBox: { marginHorizontal: 18, borderRadius: 18, minHeight: 96, alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: "rgba(8,18,32,0.88)" },
-  loadingText: { color: COLORS.text, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700" },
+  loadingBox: { marginHorizontal: 18, borderRadius: 18, minHeight: 180, alignItems: "center", justifyContent: "center", gap: 10, padding: 16, backgroundColor: "rgba(8,18,32,0.88)" },
+  loadingText: { color: COLORS.text, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700", textAlign: "center" },
+  loadingSubtext: { color: COLORS.muted, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", textAlign: "center" },
+  skeletonCard: { width: "100%", height: 42, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.05)" },
+  skeletonCardShort: { width: "82%", opacity: 0.72 },
   toolbarRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
   blueChip: { backgroundColor: COLORS.green, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7 },
   blueChipText: { color: COLORS.greenDark, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "800" },

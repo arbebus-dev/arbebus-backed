@@ -1,11 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -30,13 +29,13 @@ type Props = {
 };
 
 const WEEK_DAYS_LT = [
-  "Sekmadienį",
-  "Pirmadienį",
-  "Antradienį",
-  "Trečiadienį",
-  "Ketvirtadienį",
-  "Penktadienį",
-  "Šeštadienį",
+  "Sekmadienis",
+  "Pirmadienis",
+  "Antradienis",
+  "Trečiadienis",
+  "Ketvirtadienis",
+  "Penktadienis",
+  "Šeštadienis",
 ];
 
 const MONTHS_LT = [
@@ -54,6 +53,9 @@ const MONTHS_LT = [
   "Gru",
 ];
 
+const VISIBLE_ROWS = 5;
+const CENTER_OFFSET = Math.floor(VISIBLE_ROWS / 2);
+
 function startOfDay(date: Date) {
   const next = new Date(date);
   next.setHours(0, 0, 0, 0);
@@ -70,12 +72,6 @@ function sameDay(a: Date, b: Date) {
   return startOfDay(a).getTime() === startOfDay(b).getTime();
 }
 
-function dateLabel(date: Date, today: Date) {
-  if (sameDay(date, today)) return "Šiandien";
-  if (sameDay(date, addDays(today, 1))) return "Rytoj";
-  return `${WEEK_DAYS_LT[date.getDay()]} ${date.getDate()} ${MONTHS_LT[date.getMonth()]}`;
-}
-
 function clampMinute(minute: number) {
   return Math.round(minute / 5) * 5;
 }
@@ -86,9 +82,21 @@ function makeDate(day: Date, hour: number, minute: number) {
   return next;
 }
 
-/* ===========================
-   ✅ FIXED WheelColumn
-   =========================== */
+function dateLabel(date: Date, today: Date) {
+  if (sameDay(date, today)) return "Šiandien";
+  if (sameDay(date, addDays(today, 1))) return "Rytoj";
+  return `${WEEK_DAYS_LT[date.getDay()]} ${date.getDate()} ${MONTHS_LT[date.getMonth()]}`;
+}
+
+function positiveModulo(value: number, total: number) {
+  return ((value % total) + total) % total;
+}
+
+function modeLabel(mode: TravelTimeMode) {
+  if (mode === "now") return "Išvykti dabar";
+  if (mode === "depart") return "Išvykti";
+  return "Atvykti iki";
+}
 
 function WheelColumn<T extends string | number>({
   values,
@@ -96,37 +104,43 @@ function WheelColumn<T extends string | number>({
   renderLabel,
   onSelect,
   width,
+  loop = false,
 }: {
   values: T[];
   selected: T;
   renderLabel: (value: T) => string;
   onSelect: (value: T) => void;
-  width?: number | string;
+  width?: DimensionValue;
+  loop?: boolean;
 }) {
-  const resolvedWidth: DimensionValue | undefined =
-    typeof width === "string"
-      ? (width as DimensionValue)
-      : typeof width === "number"
-        ? `${width * 100}%`
-        : undefined;
+  const selectedIndex = Math.max(
+    0,
+    values.findIndex((value) => String(value) === String(selected)),
+  );
+
+  const visibleValues = Array.from({ length: VISIBLE_ROWS }, (_, rowIndex) => {
+    const rawIndex = selectedIndex + rowIndex - CENTER_OFFSET;
+
+    if (loop) {
+      return values[positiveModulo(rawIndex, values.length)];
+    }
+
+    if (rawIndex < 0 || rawIndex >= values.length) return null;
+    return values[rawIndex];
+  });
 
   return (
-    <ScrollView
-      style={[
-        styles.wheelColumn,
-        resolvedWidth ? { width: resolvedWidth } : null,
-      ]}
-      contentContainerStyle={styles.wheelColumnContent}
-      showsVerticalScrollIndicator={false}
-      snapToInterval={54}
-      decelerationRate="fast"
-    >
-      {values.map((value) => {
-        const active = String(value) === String(selected);
+    <View style={[styles.wheelColumn, width ? { width } : null]}>
+      {visibleValues.map((value, rowIndex) => {
+        const isActive = rowIndex === CENTER_OFFSET;
+
+        if (value === null) {
+          return <View key={`empty-${rowIndex}`} style={styles.wheelItem} />;
+        }
 
         return (
           <Pressable
-            key={String(value)}
+            key={`${String(value)}-${rowIndex}`}
             style={styles.wheelItem}
             onPress={() => {
               void Haptics.selectionAsync();
@@ -134,21 +148,17 @@ function WheelColumn<T extends string | number>({
             }}
           >
             <Text
-              style={[styles.wheelText, active && styles.wheelTextActive]}
               numberOfLines={1}
+              style={[styles.wheelText, isActive && styles.wheelTextActive]}
             >
               {renderLabel(value)}
             </Text>
           </Pressable>
         );
       })}
-    </ScrollView>
+    </View>
   );
 }
-
-/* ===========================
-   MAIN
-   =========================== */
 
 export default function TravelTimeModal({
   visible,
@@ -165,8 +175,17 @@ export default function TravelTimeModal({
   const [hour, setHour] = useState(startDate.getHours());
   const [minute, setMinute] = useState(clampMinute(startDate.getMinutes()));
 
+  useEffect(() => {
+    if (!visible) return;
+    const nextStartDate = initialDate || new Date();
+    setMode(initialMode);
+    setDayIndex(0);
+    setHour(nextStartDate.getHours());
+    setMinute(clampMinute(nextStartDate.getMinutes()));
+  }, [initialDate, initialMode, visible]);
+
   const days = useMemo(
-    () => Array.from({ length: 14 }, (_, i) => addDays(now, i)),
+    () => Array.from({ length: 21 }, (_, i) => addDays(now, i)),
     [now],
   );
 
@@ -178,6 +197,13 @@ export default function TravelTimeModal({
 
   const selectedDate =
     mode === "now" ? now : makeDate(days[dayIndex] || now, hour, minute);
+
+  const selectedSummary = useMemo(() => {
+    if (mode === "now") return "Dabar";
+
+    const dayText = dateLabel(days[dayIndex] || now, now);
+    return `${dayText}, ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  }, [dayIndex, days, hour, minute, mode, now]);
 
   const setNextMode = (next: TravelTimeMode) => {
     void Haptics.selectionAsync();
@@ -193,80 +219,88 @@ export default function TravelTimeModal({
     <Modal visible={visible} transparent animationType="fade">
       <View style={styles.overlay}>
         <SafeAreaView>
-          <BlurView intensity={42} tint="dark" style={styles.card}>
-            {/* HEADER */}
+          <BlurView intensity={44} tint="dark" style={styles.card}>
             <View style={styles.header}>
               <Pressable onPress={onClose} style={styles.circleButton}>
-                <Ionicons name="close" size={28} color="#fff" />
+                <Ionicons name="close" size={28} color={colors.text} />
               </Pressable>
 
-              <Text style={styles.title}>Kada vykti</Text>
+              <View style={styles.headerTitleWrap}>
+                <Text style={styles.title}>Kada vykti</Text>
+                <Text style={styles.subtitle}>{selectedSummary}</Text>
+              </View>
 
               <Pressable
                 onPress={confirm}
                 style={[styles.circleButton, styles.confirm]}
               >
-                <Ionicons name="checkmark" size={30} color="#000" />
+                <Ionicons name="checkmark" size={30} color={colors.textInverse} />
               </Pressable>
             </View>
 
-            {/* SEGMENTS */}
             <View style={styles.segmented}>
-              {["now", "depart", "arrive"].map((m) => (
-                <Pressable
-                  key={m}
-                  onPress={() => setNextMode(m as TravelTimeMode)}
-                  style={[styles.segment, mode === m && styles.segmentActive]}
-                >
-                  <Text
+              {(["now", "depart", "arrive"] as TravelTimeMode[]).map(
+                (nextMode) => (
+                  <Pressable
+                    key={nextMode}
+                    onPress={() => setNextMode(nextMode)}
                     style={[
-                      styles.segmentText,
-                      mode === m && styles.segmentTextActive,
+                      styles.segment,
+                      mode === nextMode && styles.segmentActive,
                     ]}
                   >
-                    {m === "now"
-                      ? "Išvykti dabar"
-                      : m === "depart"
-                        ? "Išvykti"
-                        : "Atvykti iki"}
-                  </Text>
-                </Pressable>
-              ))}
+                    <Text
+                      style={[
+                        styles.segmentText,
+                        mode === nextMode && styles.segmentTextActive,
+                      ]}
+                    >
+                      {modeLabel(nextMode)}
+                    </Text>
+                  </Pressable>
+                ),
+              )}
             </View>
 
-            {/* PICKER */}
             <View style={styles.pickerWrap}>
-              <View style={styles.selectionBand} />
-
               {mode === "now" ? (
                 <View style={styles.nowPanel}>
-                  <Text style={styles.nowTitle}>Dabar</Text>
+                  <Ionicons name="navigate" size={30} color={colors.accent} />
+                  <Text style={styles.nowTitle}>Išvykti dabar</Text>
+                  <Text style={styles.nowText}>
+                    Maršrutas bus skaičiuojamas pagal dabartinį laiką.
+                  </Text>
                 </View>
               ) : (
-                <View style={styles.wheels}>
-                  <WheelColumn
-                    values={days.map((_, i) => i)}
-                    selected={dayIndex}
-                    onSelect={(v) => setDayIndex(Number(v))}
-                    renderLabel={(v) => dateLabel(days[Number(v)], now)}
-                    width="45%"
-                  />
+                <View style={styles.wheelFrame}>
+                  <View style={styles.selectionBand} />
+                  <View style={styles.wheels}>
+                    <WheelColumn
+                      values={days.map((_, i) => i)}
+                      selected={dayIndex}
+                      onSelect={(value) => setDayIndex(Number(value))}
+                      renderLabel={(value) => dateLabel(days[Number(value)], now)}
+                      width="50%"
+                    />
 
-                  <WheelColumn
-                    values={hours}
-                    selected={hour}
-                    onSelect={(v) => setHour(Number(v))}
-                    renderLabel={(v) => String(v).padStart(2, "0")}
-                    width="26%"
-                  />
+                    <WheelColumn
+                      values={hours}
+                      selected={hour}
+                      onSelect={(value) => setHour(Number(value))}
+                      renderLabel={(value) => String(value).padStart(2, "0")}
+                      width="24%"
+                      loop
+                    />
 
-                  <WheelColumn
-                    values={minutes}
-                    selected={minute}
-                    onSelect={(v) => setMinute(Number(v))}
-                    renderLabel={(v) => String(v).padStart(2, "0")}
-                    width="26%"
-                  />
+                    <WheelColumn
+                      values={minutes}
+                      selected={minute}
+                      onSelect={(value) => setMinute(Number(value))}
+                      renderLabel={(value) => String(value).padStart(2, "0")}
+                      width="24%"
+                      loop
+                    />
+                  </View>
                 </View>
               )}
             </View>
@@ -277,16 +311,12 @@ export default function TravelTimeModal({
   );
 }
 
-/* ===========================
-   STYLES
-   =========================== */
-
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: colors.overlay,
     justifyContent: "center",
-    padding: spacing.xl,
+    paddingHorizontal: spacing.lg,
   },
   card: {
     backgroundColor: colors.surface,
@@ -301,17 +331,29 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: spacing.md,
+  },
+  headerTitleWrap: {
+    flex: 1,
+    alignItems: "center",
   },
   title: {
     color: colors.text,
-    fontSize: typography.size.section,
-    lineHeight: typography.lineHeight.section,
+    fontSize: typography.size.lg,
+    lineHeight: typography.lineHeight.lg,
     fontWeight: typography.weight.black,
   },
+  subtitle: {
+    marginTop: 2,
+    color: colors.muted,
+    fontSize: typography.size.xs,
+    lineHeight: typography.lineHeight.xs,
+    fontWeight: typography.weight.semibold,
+  },
   circleButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: colors.surfaceMuted,
     alignItems: "center",
     justifyContent: "center",
@@ -321,60 +363,74 @@ const styles = StyleSheet.create({
   },
   segmented: {
     flexDirection: "row",
-    marginTop: 12,
+    marginTop: spacing.lg,
     backgroundColor: colors.surfaceSoft,
-    borderRadius: radius.lg,
-    padding: 4,
+    borderRadius: radius.xl,
+    padding: 5,
   },
   segment: {
     flex: 1,
-    padding: 10,
+    minHeight: 54,
+    borderRadius: radius.lg,
     alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
   },
   segmentActive: {
     backgroundColor: colors.accent,
-    borderRadius: 10,
   },
   segmentText: {
     color: colors.muted,
-    fontWeight: typography.weight.medium,
+    textAlign: "center",
+    fontSize: typography.size.sm,
+    lineHeight: typography.lineHeight.sm,
+    fontWeight: typography.weight.black,
   },
   segmentTextActive: {
     color: colors.textInverse,
   },
   pickerWrap: {
-    height: 300,
-    marginTop: 10,
+    height: 260,
+    marginTop: spacing.md,
+  },
+  wheelFrame: {
+    flex: 1,
+    justifyContent: "center",
   },
   wheels: {
+    height: 220,
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
   },
   wheelColumn: {
-    height: 300,
-  },
-  wheelColumnContent: {
-    paddingVertical: 120,
+    height: 220,
+    justifyContent: "center",
   },
   wheelItem: {
-    height: 50,
+    height: 44,
     justifyContent: "center",
+    paddingHorizontal: 4,
   },
   wheelText: {
     color: colors.dim,
     textAlign: "center",
-    fontSize: typography.size.section,
+    fontSize: typography.size.sm,
+    lineHeight: typography.lineHeight.sm,
+    fontWeight: typography.weight.semibold,
   },
   wheelTextActive: {
     color: colors.text,
-    fontSize: 22,
+    fontSize: typography.size.lg,
+    lineHeight: typography.lineHeight.lg,
+    fontWeight: typography.weight.black,
   },
   selectionBand: {
     position: "absolute",
-    top: 120,
+    top: 88,
     left: 0,
     right: 0,
-    height: 60,
+    height: 48,
     backgroundColor: "rgba(55,245,174,0.18)",
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -384,10 +440,21 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    paddingHorizontal: spacing.lg,
   },
   nowTitle: {
+    marginTop: spacing.sm,
     color: colors.text,
-    fontSize: typography.size.hero,
+    fontSize: typography.size.lg,
+    lineHeight: typography.lineHeight.lg,
     fontWeight: typography.weight.black,
+  },
+  nowText: {
+    marginTop: spacing.xs,
+    color: colors.muted,
+    textAlign: "center",
+    fontSize: typography.size.sm,
+    lineHeight: typography.lineHeight.md,
+    fontWeight: typography.weight.semibold,
   },
 });

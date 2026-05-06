@@ -47,6 +47,26 @@ function loadLocalPois() {
     .filter(Boolean);
 }
 
+
+function dedupeLocalPois(items) {
+  const seen = new Map();
+  for (const item of items) {
+    const titleKey = normalizeText(item.title || item.name);
+    const coordinateKey = [
+      Number(item.latitude).toFixed(5),
+      Number(item.longitude).toFixed(5),
+    ].join(',');
+    const key = titleKey || coordinateKey;
+    const existing = seen.get(key);
+    const itemPower = Number(item.priority || 0) + Number(item.score || 0);
+    const existingPower = Number(existing?.priority || 0) + Number(existing?.score || 0);
+    if (!existing || itemPower >= existingPower) {
+      seen.set(key, item);
+    }
+  }
+  return [...seen.values()];
+}
+
 function scoreLocalPoi(item, variants) {
   const fields = [
     item.title,
@@ -84,7 +104,7 @@ async function searchLocalPoi(query, options = {}) {
   const aliasMap = aliasesObject();
   const variants = expandQuery(q, aliasMap);
 
-  return loadLocalPois()
+  return dedupeLocalPois(loadLocalPois())
     .map((item) => ({ ...item, score: scoreLocalPoi(item, variants), matchScore: scoreLocalPoi(item, variants) }))
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score)

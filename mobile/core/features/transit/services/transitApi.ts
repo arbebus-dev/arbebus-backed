@@ -39,7 +39,31 @@ function apiBase() {
 }
 
 const API_TIMEOUT_MS = 9000;
+const SEARCH_TIMEOUT_MS = 1800;
+const SEARCH_MEMORY_TTL_MS = 5 * 60 * 1000;
 const API_RETRY_COUNT = 1;
+
+type SearchCacheEntry = { createdAt: number; results: PlaceResult[] };
+const searchMemoryCache = new Map<string, SearchCacheEntry>();
+
+function searchCacheKey(query: string) {
+  return query.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function getSearchMemoryCache(query: string) {
+  const key = searchCacheKey(query);
+  const cached = searchMemoryCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.createdAt > SEARCH_MEMORY_TTL_MS) {
+    searchMemoryCache.delete(key);
+    return null;
+  }
+  return cached.results;
+}
+
+function setSearchMemoryCache(query: string, results: PlaceResult[]) {
+  searchMemoryCache.set(searchCacheKey(query), { createdAt: Date.now(), results });
+}
 
 async function fetchWithTimeout(
   input: string,
@@ -863,10 +887,13 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
   const q = query.trim();
   if (q.length < 2) return [];
 
-  const params = `q=${encodeURIComponent(q)}&limit=24`;
+  const cached = getSearchMemoryCache(q);
+  if (cached) return cached;
 
-  // Primary endpoint: dynamic POI engine.
-  // Fallback endpoints are kept for older backend/mobile builds.
+  const params = `q=${encodeURIComponent(q)}&limit=18&external=false`;
+
+  // Apple Maps style: typing suggestions must be instant and local-first.
+  // Use the new /search endpoint first and keep legacy endpoints only as non-blocking fallback.
   const urls = [
     `${apiBase()}/search?${params}`,
     `${apiBase()}/places/search?${params}`,
@@ -876,7 +903,7 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
 
   for (const url of urls) {
     try {
-      const response = await fetchWithRetry(url, undefined, 0);
+      const response = await fetchWithTimeout(url, undefined, SEARCH_TIMEOUT_MS);
       if (!response.ok) continue;
 
       const data = await safeJson<any>(response);
@@ -888,13 +915,16 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
         .map((item: any, index: number): PlaceResult | null => normalizePlaceResult(item, index))
         .filter(Boolean) as PlaceResult[];
 
-      return dedupePlaceResults(normalized)
+      const results = dedupePlaceResults(normalized)
         .sort(
           (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
         )
-        .slice(0, 24);
+        .slice(0, 18);
+
+      setSearchMemoryCache(q, results);
+      return results;
     } catch {
-      // Try next compatible endpoint.
+      // Try next compatible endpoint. Search must never block UI for long.
     }
   }
 
