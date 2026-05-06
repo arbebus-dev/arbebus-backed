@@ -157,6 +157,53 @@ function titleForState(flowState: TransitFlowState, route: TransitRouteOption | 
   }
 }
 
+export function isActiveJourneyState(flowState: TransitFlowState) {
+  return ["walking_to_stop", "waiting_bus", "onboard", "transfer", "arriving", "completed"].includes(flowState);
+}
+
+export function flowStateForStep(step: TransitStep | null | undefined, route: TransitRouteOption | null): TransitFlowState {
+  if (!step) return route ? "route_selected" : "idle";
+
+  if (route?.mode === "walk_only") return "walking_to_stop";
+
+  switch (step.type) {
+    case "walk":
+      return "walking_to_stop";
+    case "board":
+      return "waiting_bus";
+    case "ride":
+    case "bus":
+      return "onboard";
+    case "transfer":
+      return "transfer";
+    case "alight":
+    case "arrive":
+      return "arriving";
+    default:
+      return "route_selected";
+  }
+}
+
+export function firstJourneyStepIndex(route: TransitRouteOption | null) {
+  const steps = getSteps(route);
+  if (!steps.length) return 0;
+  const index = steps.findIndex((step) => ["walk", "board", "ride", "bus", "transfer", "alight", "arrive"].includes(step.type));
+  return index >= 0 ? index : 0;
+}
+
+export function nextJourneyStepIndex(route: TransitRouteOption | null, currentStepIndex: number) {
+  const steps = getSteps(route);
+  if (!steps.length) return 0;
+  return Math.min(Math.max(0, currentStepIndex + 1), steps.length - 1);
+}
+
+export function flowStateForStepIndex(route: TransitRouteOption | null, stepIndex: number): TransitFlowState {
+  const steps = getSteps(route);
+  if (!steps.length) return route ? "route_selected" : "idle";
+  const safeIndex = Math.max(0, Math.min(stepIndex, steps.length - 1));
+  return flowStateForStep(steps[safeIndex], route);
+}
+
 export function buildJourneyViewModel(flowState: TransitFlowState, route: TransitRouteOption | null, currentStepIndex = 0): JourneyViewModel {
   const steps = getSteps(route);
   const activeStepIndex = getActiveStepIndex(flowState, route, currentStepIndex);

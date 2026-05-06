@@ -13,10 +13,11 @@ type Props = {
   children?: React.ReactNode;
   onPress?: any;
   onPoiClick?: any;
+  onRegionChangeComplete?: (region: Region) => void;
 };
 
 const MapCanvas = forwardRef<MapView, Props>(
-  ({ children, onPress, onPoiClick }, ref) => {
+  ({ children, onPress, onPoiClick, onRegionChangeComplete }, ref) => {
     return (
       <View style={styles.container}>
         <MapView
@@ -25,6 +26,8 @@ const MapCanvas = forwardRef<MapView, Props>(
           initialRegion={INITIAL_REGION}
           onPress={onPress}
           onPoiClick={onPoiClick}
+          onRegionChangeComplete={onRegionChangeComplete}
+          moveOnMarkerPress={false}
           showsUserLocation={false}
           showsMyLocationButton={false}
           showsCompass={false}

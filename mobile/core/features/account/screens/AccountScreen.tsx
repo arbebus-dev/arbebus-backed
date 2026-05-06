@@ -4,22 +4,23 @@ import React, { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { colors, shadows } from '@/core/design';
 import AccountMenu from '../components/AccountMenu';
 
 type Panel = 'profile' | 'payment' | 'settings' | 'feedback' | 'legal' | null;
 
 const C = {
-  bg: '#050A12',
-  bg2: '#07111F',
-  card: 'rgba(8,18,32,0.94)',
-  card2: 'rgba(16,32,51,0.86)',
-  border: 'rgba(55,245,174,0.22)',
-  accent: '#37F5AE',
+  bg: colors.background,
+  bg2: colors.backgroundElevated,
+  card: colors.surface,
+  card2: colors.surfaceStrong,
+  border: colors.borderAccent,
+  accent: colors.accent,
   accentSoft: 'rgba(55,245,174,0.14)',
-  text: '#F8FBFF',
-  muted: '#9CA8B8',
-  dim: '#6E7B91',
-  danger: '#FF6B6B',
+  text: colors.text,
+  muted: colors.muted,
+  dim: colors.dim,
+  danger: colors.danger,
 };
 
 function BackHeader({ title, onBack, right }: { title: string; onBack: () => void; right?: React.ReactNode }) {

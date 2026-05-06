@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
-import MapView, { Marker } from "react-native-maps";
+import MapView, { Marker, type Region } from "react-native-maps";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 import { useLiveBuses } from "../transit/hooks/useLiveBuses";
@@ -168,6 +168,7 @@ export default function MapScreen() {
   const [stationAccessPoints, setStationAccessPoints] = useState<StationAccessPoint[]>([]);
   const [selectedMapPlace, setSelectedMapPlace] = useState<any | null>(null);
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
+  const [visibleRegion, setVisibleRegion] = useState<Region | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -195,6 +196,22 @@ export default function MapScreen() {
       cancelled = true;
     };
   }, [selectedRoute?.originStop?.id, selectedRoute?.originStop?.stopId, selectedRoute?.destinationStop?.id, selectedRoute?.destinationStop?.stopId]);
+
+  const handleRegionChangeComplete = useCallback((region: Region) => {
+    setVisibleRegion((previous) => {
+      if (
+        previous &&
+        Math.abs(previous.latitude - region.latitude) < 0.0007 &&
+        Math.abs(previous.longitude - region.longitude) < 0.0007 &&
+        Math.abs(previous.latitudeDelta - region.latitudeDelta) < 0.002 &&
+        Math.abs(previous.longitudeDelta - region.longitudeDelta) < 0.002
+      ) {
+        return previous;
+      }
+
+      return region;
+    });
+  }, []);
 
   const selectedRouteLabel = selectedRoute?.routeLabel || null;
 
@@ -460,7 +477,12 @@ export default function MapScreen() {
 
   return (
     <View style={styles.screen}>
-      <MapCanvas ref={mapRef} onPress={handleMapPress} onPoiClick={handlePoiClick}>
+      <MapCanvas
+        ref={mapRef}
+        onPress={handleMapPress}
+        onPoiClick={handlePoiClick}
+        onRegionChangeComplete={handleRegionChangeComplete}
+      >
         <UserLocationLayer coordinate={userLocation} />
 
         <RoutePolylineLayer
@@ -479,6 +501,7 @@ export default function MapScreen() {
           buses={buses}
           selectedRouteLabel={selectedRouteLabel}
           selectedVehicleId={selectedVehicleId}
+          visibleRegion={visibleRegion}
         />
 
         {selectedMapPlace?.coordinate ? (
@@ -509,6 +532,7 @@ export default function MapScreen() {
         isPlanning={planner.isPlanning}
         routeOptions={planner.routeOptions}
         selectedRoute={selectedRoute}
+        currentStepIndex={planner.currentStepIndex}
         selectedOrigin={planner.selectedOrigin}
         selectedDestination={planner.selectedDestination}
         selectedMapPlace={selectedMapPlace}

@@ -2,6 +2,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { colors, shadows } from '@/core/design';
 
 type Item = {
   id: string;
@@ -19,13 +20,13 @@ type Props = {
 };
 
 const COLORS = {
-  bg: '#050A12',
-  card: 'rgba(8,18,32,0.94)',
-  card2: 'rgba(16,32,51,0.88)',
-  border: 'rgba(55,245,174,0.22)',
-  accent: '#37F5AE',
-  text: '#F8FBFF',
-  muted: '#9CA8B8',
+  bg: colors.background,
+  card: colors.surface,
+  card2: colors.surfaceStrong,
+  border: colors.borderAccent,
+  accent: colors.accent,
+  text: colors.text,
+  muted: colors.muted,
   chevron: 'rgba(248,251,255,0.42)',
 };
 
@@ -73,10 +74,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     overflow: 'hidden',
-    shadowColor: '#37F5AE',
-    shadowOpacity: 0.10,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 14 },
+    ...shadows.card,
   },
   row: {
     minHeight: 76,

@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { memo, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { AnimatedRegion, Marker } from "react-native-maps";
+import { AnimatedRegion, Marker, type Region } from "react-native-maps";
 import { COLORS, T } from "@/core/theme/typography";
 import { cleanRouteNumber } from "../../transit/models/journeyStateMachine";
 import type { LiveBus } from "../../transit/models/transitTypes";
@@ -15,10 +15,10 @@ type Props = {
   buses: LiveBus[];
   selectedRouteLabel?: string | null;
   selectedVehicleId?: string | null;
+  visibleRegion?: Region | null;
 };
 
 type BusMarkerProps = {
-  bus: LiveBus;
   coordinate: Coordinate;
   label: string;
   active: boolean;
@@ -27,6 +27,19 @@ type BusMarkerProps = {
   animationMs: number;
   zIndex: number;
 };
+
+type VisibleBus = {
+  bus: LiveBus;
+  coordinate: Coordinate;
+  label: string;
+  normalizedRoute: string;
+  isSelectedVehicle: boolean;
+  isSelectedRoute: boolean;
+  isImportant: boolean;
+};
+
+const MAX_IDLE_BUSES = 90;
+const MAX_ROUTE_BUSES = 140;
 
 function normalizeId(value?: string | null) {
   return String(value ?? "").trim();
@@ -47,6 +60,27 @@ function stableBusKey(bus: LiveBus, label: string) {
   return String(bus.vehicleId || bus.id || bus.vehicleLabel || label);
 }
 
+function isInRegion(coordinate: Coordinate, region?: Region | null) {
+  if (!region) return true;
+
+  const latPad = Math.max(region.latitudeDelta * 0.55, 0.006);
+  const lonPad = Math.max(region.longitudeDelta * 0.55, 0.006);
+
+  return (
+    coordinate.latitude >= region.latitude - latPad &&
+    coordinate.latitude <= region.latitude + latPad &&
+    coordinate.longitude >= region.longitude - lonPad &&
+    coordinate.longitude <= region.longitude + lonPad
+  );
+}
+
+function regionDistanceScore(coordinate: Coordinate, region?: Region | null) {
+  if (!region) return 0;
+  const latScore = Math.abs(coordinate.latitude - region.latitude) / Math.max(region.latitudeDelta, 0.001);
+  const lonScore = Math.abs(coordinate.longitude - region.longitude) / Math.max(region.longitudeDelta, 0.001);
+  return latScore + lonScore;
+}
+
 function BusGlyph({ active, vehicle, heading, label }: { active: boolean; vehicle: boolean; heading: number; label: string }) {
   return (
     <View style={[styles.glyph, active && styles.glyphActive, vehicle && styles.glyphVehicle]}>
@@ -61,47 +95,57 @@ function BusGlyph({ active, vehicle, heading, label }: { active: boolean; vehicl
   );
 }
 
-const BusMarker = memo(function BusMarker({ bus, coordinate, label, active, vehicle, heading, animationMs, zIndex }: BusMarkerProps) {
-  const animatedCoordinate = useRef(
-    new AnimatedRegion({
-      latitude: coordinate.latitude,
-      longitude: coordinate.longitude,
-      latitudeDelta: 0,
-      longitudeDelta: 0,
-    }),
-  ).current;
-  const [tracksChanges, setTracksChanges] = useState(true);
-
-  useEffect(() => {
-    setTracksChanges(true);
-    animatedCoordinate
-      .timing({
+const BusMarker = memo(
+  function BusMarker({ coordinate, label, active, vehicle, heading, animationMs, zIndex }: BusMarkerProps) {
+    const animatedCoordinate = useRef(
+      new AnimatedRegion({
         latitude: coordinate.latitude,
         longitude: coordinate.longitude,
-        duration: animationMs,
-        useNativeDriver: false,
-      } as any)
-      .start(() => {
-        setTimeout(() => setTracksChanges(false), 500);
-      });
-  }, [animatedCoordinate, animationMs, coordinate.latitude, coordinate.longitude]);
+        latitudeDelta: 0,
+        longitudeDelta: 0,
+      }),
+    ).current;
+    const [tracksChanges, setTracksChanges] = useState(true);
 
-  return (
-    <Marker.Animated
-      coordinate={animatedCoordinate as any}
-      anchor={{ x: 0.5, y: 0.5 }}
-      tracksViewChanges={tracksChanges || active}
-      zIndex={zIndex}
-    >
-      <View style={styles.markerWrap}>
-        {active ? <View style={styles.glow} /> : null}
-        <BusGlyph active={active} vehicle={vehicle} heading={heading} label={label} />
-      </View>
-    </Marker.Animated>
-  );
-});
+    useEffect(() => {
+      setTracksChanges(true);
+      animatedCoordinate
+        .timing({
+          latitude: coordinate.latitude,
+          longitude: coordinate.longitude,
+          duration: animationMs,
+          useNativeDriver: false,
+        } as any)
+        .start(() => {
+          setTimeout(() => setTracksChanges(false), 420);
+        });
+    }, [animatedCoordinate, animationMs, coordinate.latitude, coordinate.longitude]);
 
-export default function LiveBusesLayer({ buses, selectedRouteLabel, selectedVehicleId }: Props) {
+    return (
+      <Marker.Animated
+        coordinate={animatedCoordinate as any}
+        anchor={{ x: 0.5, y: 0.5 }}
+        tracksViewChanges={tracksChanges || active}
+        zIndex={zIndex}
+      >
+        <View style={styles.markerWrap}>
+          {active ? <View style={styles.glow} /> : null}
+          <BusGlyph active={active} vehicle={vehicle} heading={heading} label={label} />
+        </View>
+      </Marker.Animated>
+    );
+  },
+  (prev, next) =>
+    prev.label === next.label &&
+    prev.active === next.active &&
+    prev.vehicle === next.vehicle &&
+    prev.zIndex === next.zIndex &&
+    Math.abs(prev.coordinate.latitude - next.coordinate.latitude) < 0.000008 &&
+    Math.abs(prev.coordinate.longitude - next.coordinate.longitude) < 0.000008 &&
+    Math.abs(prev.heading - next.heading) < 4,
+);
+
+export default function LiveBusesLayer({ buses, selectedRouteLabel, selectedVehicleId, visibleRegion }: Props) {
   const selectedNumber = cleanRouteNumber(selectedRouteLabel);
   const selectedVehicle = normalizeId(selectedVehicleId);
   const lastUpdateAt = useRef(Date.now());
@@ -111,37 +155,59 @@ export default function LiveBusesLayer({ buses, selectedRouteLabel, selectedVehi
     const now = Date.now();
     const diff = now - lastUpdateAt.current;
     lastUpdateAt.current = now;
-    if (diff > 500 && diff < 10000) {
-      setAnimationMs(Math.max(900, Math.min(diff, 3200)));
+    if (diff > 800 && diff < 15000) {
+      setAnimationMs(Math.max(1100, Math.min(diff, 3600)));
     }
   }, [buses]);
 
-  const visibleBuses = useMemo(
-    () =>
-      (buses || [])
-        .map((bus) => ({ bus, coordinate: coordinateFromBus(bus) }))
-        .filter((item): item is { bus: LiveBus; coordinate: Coordinate } => Boolean(item.coordinate)),
-    [buses],
-  );
+  const visibleBuses = useMemo(() => {
+    const normalized = (buses || [])
+      .map((bus) => {
+        const coordinate = coordinateFromBus(bus);
+        if (!coordinate) return null;
 
-  return (
-    <>
-      {visibleBuses.map(({ bus, coordinate }) => {
-        const routeNumber = busLabel(bus);
+        const label = busLabel(bus);
         const normalizedRoute = cleanRouteNumber(bus.routeId || bus.route || bus.number);
         const ids = [bus.vehicleId, bus.id, bus.vehicleLabel].map(normalizeId);
         const isSelectedVehicle = Boolean(selectedVehicle && ids.includes(selectedVehicle));
         const isSelectedRoute = Boolean(selectedNumber && normalizedRoute === selectedNumber);
         const isImportant = isSelectedVehicle || isSelectedRoute;
+
+        return {
+          bus,
+          coordinate,
+          label,
+          normalizedRoute,
+          isSelectedVehicle,
+          isSelectedRoute,
+          isImportant,
+        };
+      })
+      .filter(Boolean) as VisibleBus[];
+
+    const inViewport = normalized.filter((item) => item.isImportant || isInRegion(item.coordinate, visibleRegion));
+    const max = selectedNumber || selectedVehicle ? MAX_ROUTE_BUSES : MAX_IDLE_BUSES;
+
+    return inViewport
+      .sort((a, b) => {
+        if (a.isSelectedVehicle !== b.isSelectedVehicle) return a.isSelectedVehicle ? -1 : 1;
+        if (a.isSelectedRoute !== b.isSelectedRoute) return a.isSelectedRoute ? -1 : 1;
+        return regionDistanceScore(a.coordinate, visibleRegion) - regionDistanceScore(b.coordinate, visibleRegion);
+      })
+      .slice(0, max);
+  }, [buses, selectedNumber, selectedVehicle, visibleRegion]);
+
+  return (
+    <>
+      {visibleBuses.map(({ bus, coordinate, label, isSelectedRoute, isSelectedVehicle }) => {
         const heading = Number(bus.heading ?? bus.bearing ?? 0);
 
         return (
           <BusMarker
-            key={stableBusKey(bus, routeNumber)}
-            bus={bus}
+            key={stableBusKey(bus, label)}
             coordinate={coordinate}
-            label={routeNumber}
-            active={isImportant}
+            label={label}
+            active={isSelectedVehicle || isSelectedRoute}
             vehicle={isSelectedVehicle}
             heading={heading}
             animationMs={animationMs}

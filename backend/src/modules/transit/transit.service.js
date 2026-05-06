@@ -655,7 +655,7 @@ function candidateDirectRoutes(originStops, destinationStops, options = {}) {
           Math.round(walkingMeters / WALK_SPEED_M_PER_MIN),
         );
         const totalMinutes = walkingMinutes + segment.durationMinutes;
-        options.push({
+        routeOptions.push({
           type: "direct",
           origin,
           destination,
@@ -668,7 +668,7 @@ function candidateDirectRoutes(originStops, destinationStops, options = {}) {
     }
   }
 
-  return options.sort((a, b) => a.totalMinutes - b.totalMinutes).slice(0, 4);
+  return rankAndDedupeCandidates(routeOptions, 4);
 }
 
 function candidateTransferRoutes(originStops, destinationStops, options = {}) {
@@ -761,7 +761,58 @@ function candidateTransferRoutes(originStops, destinationStops, options = {}) {
     }
   }
 
-  return candidates.sort((a, b) => a.totalMinutes - b.totalMinutes).slice(0, 4);
+  return rankAndDedupeCandidates(candidates, 4);
+}
+
+
+function candidateSignature(candidate) {
+  const routes = (candidate.segments || [])
+    .map((segment) => String(segment.routeLabel || segment.routeId || ""))
+    .join(">");
+  return [
+    candidate.type,
+    routes,
+    candidate.origin?.id,
+    candidate.destination?.id,
+    candidate.transferStop?.id || "direct",
+  ].join("|");
+}
+
+function scoreCandidate(candidate) {
+  const transfersPenalty = Math.max(0, (candidate.segments || []).length - 1) * 7;
+  const walkPenalty = Math.round(Number(candidate.walkingMinutes || 0) * 0.8);
+  const waitPenalty = Math.round(Number(candidate.waitMinutes || 0) * 0.35);
+  return Math.round(Number(candidate.totalMinutes || 999) + transfersPenalty + walkPenalty + waitPenalty);
+}
+
+function rankAndDedupeCandidates(candidates = [], limit = 4) {
+  const seen = new Set();
+  return candidates
+    .map((candidate) => ({
+      ...candidate,
+      score: scoreCandidate(candidate),
+      signature: candidateSignature(candidate),
+    }))
+    .sort((a, b) => {
+      if (a.score !== b.score) return a.score - b.score;
+      if (a.totalMinutes !== b.totalMinutes) return a.totalMinutes - b.totalMinutes;
+      return Math.max(0, (a.segments || []).length - 1) - Math.max(0, (b.segments || []).length - 1);
+    })
+    .filter((candidate) => {
+      if (seen.has(candidate.signature)) return false;
+      seen.add(candidate.signature);
+      return true;
+    })
+    .slice(0, limit);
+}
+
+function humanGtfsTime(value) {
+  const seconds = secondsFromGtfsTime(value);
+  if (seconds == null) return value || null;
+  const normalized = ((seconds % 86400) + 86400) % 86400;
+  const hours = Math.floor(normalized / 3600);
+  const minutes = Math.floor((normalized % 3600) / 60);
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
 function fallbackOption(from, to, destinationTitle) {
@@ -850,9 +901,9 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
       Number(destinationStop.distanceMeters || 0) / WALK_SPEED_M_PER_MIN,
     ),
   );
-  const firstDeparture = candidate.segments[0]?.departureTime || null;
+  const firstDeparture = humanGtfsTime(candidate.segments[0]?.departureTime) || null;
   const lastArrival =
-    candidate.segments[candidate.segments.length - 1]?.arrivalTime || null;
+    humanGtfsTime(candidate.segments[candidate.segments.length - 1]?.arrivalTime) || null;
   const busMinutes = candidate.segments.reduce(
     (sum, segment) => sum + segment.durationMinutes,
     0,
@@ -898,13 +949,13 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
       type: "board",
       mode: "bus",
       title: `Lipk į autobusą ${segment.routeLabel}`,
-      subtitle: `${boardStop?.name || originStop.name} • ${segment.departureTime}${segment.headsign ? ` • ${segment.headsign}` : ""}`,
+      subtitle: `${boardStop?.name || originStop.name} • ${humanGtfsTime(segment.departureTime)}${segment.headsign ? ` • ${segment.headsign}` : ""}`,
       routeId: segment.routeId,
       routeNumber: segment.routeLabel,
       routeLabel: segment.routeLabel,
       stopId: boardStop?.id || segment.fromStopId,
       stopName: boardStop?.name || originStop.name,
-      departureTime: segment.departureTime,
+      departureTime: humanGtfsTime(segment.departureTime),
       headsign: segment.headsign,
       polyline: [boardStop?.coordinate || originStop.coordinate],
     });
@@ -924,8 +975,8 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
       stopCount: segment.stopCount,
       durationMinutes: segment.durationMinutes,
       minutes: segment.durationMinutes,
-      departureTime: segment.departureTime,
-      arrivalTime: segment.arrivalTime,
+      departureTime: humanGtfsTime(segment.departureTime),
+      arrivalTime: humanGtfsTime(segment.arrivalTime),
       stops: segment.stops,
       rideStops: segment.stops,
       routeStops: segment.stops,
@@ -999,6 +1050,14 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
         : etaMinutes <= 6
           ? "on_the_way"
           : "later",
+    routingQuality: {
+      score: Number(candidate.score || scoreCandidate(candidate)),
+      hasRealtimeGps: false,
+      hasGtfsSchedule: true,
+      hasWalkingGeometry: true,
+      candidateType: candidate.type,
+      signature: candidate.signature || candidateSignature(candidate),
+    },
     transfers: transfersCount,
     transfersCount,
     stopCount,
@@ -1037,6 +1096,12 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
       journeyMessage: transfersCount
         ? `Važiuok ${routeLabelText} su persėdimu ties „${candidate.transferStop?.name || "persėdimo stotele"}“`
         : `Važiuok autobusu ${routeLabelText} iki „${destinationStop.name}“`,
+      routingQuality: {
+        score: Number(candidate.score || scoreCandidate(candidate)),
+        candidateType: candidate.type,
+        hasGtfsSchedule: true,
+        hasWalkingGeometry: true,
+      },
     },
     legs: candidate.segments.map((segment) => ({
       id: segment.trip.trip_id,
@@ -1089,10 +1154,10 @@ async function plan(body = {}) {
 
   const originStops = nearestStops(from, 6, 2200);
   const destinationStops = nearestStops(to, 6, 2200);
-  let candidates = [
+  let candidates = rankAndDedupeCandidates([
     ...candidateDirectRoutes(originStops, destinationStops, planTimeOptions),
     ...candidateTransferRoutes(originStops, destinationStops, planTimeOptions),
-  ].sort((a, b) => a.totalMinutes - b.totalMinutes);
+  ], 8);
 
   const plans = await Promise.all(
     candidates
@@ -1126,6 +1191,8 @@ async function plan(body = {}) {
       originStops: originStops.length,
       destinationStops: destinationStops.length,
       candidates: candidates.length,
+      routingVersion: "step-4-pro-routing-v1",
+      fields: ["journeySteps", "legs", "stopCount", "transfersCount", "departureText", "arrivalText", "routingQuality"],
       timeMode,
       travelAt: body.travelAt || null,
     },

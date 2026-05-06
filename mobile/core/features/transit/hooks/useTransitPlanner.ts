@@ -20,6 +20,11 @@ import {
   type PlaceResult as ApiPlaceResult,
   type TransitRouteOption as ApiTransitRouteOption,
 } from "../services/transitApi";
+import {
+  firstJourneyStepIndex,
+  flowStateForStepIndex,
+  nextJourneyStepIndex,
+} from "../models/journeyStateMachine";
 
 // ====== helpers ======
 function safeArray<T>(arr: any): T[] {
@@ -1254,22 +1259,12 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
   const startJourney = useCallback(() => {
     if (!selectedRoute) return;
 
-    setCurrentStepIndex(0);
+    const firstIndex = firstJourneyStepIndex(selectedRoute);
+    const firstState = flowStateForStepIndex(selectedRoute, firstIndex);
 
-    if (isWalkOnlyRoute(selectedRoute)) {
-      setFlowState("walking_to_stop");
-      void syncBackgroundNavigationTrip(selectedRoute);
-      void hydrateRouteDetails(selectedRoute);
-      return;
-    }
-
-    const firstType = selectedRoute.journeySteps?.[0]?.type;
-
-    if (firstType === "walk") {
-      setFlowState("walking_to_stop");
-    } else {
-      setFlowState("waiting_bus");
-    }
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setCurrentStepIndex(firstIndex);
+    setFlowState(firstState === "route_selected" ? "walking_to_stop" : firstState);
 
     void syncBackgroundNavigationTrip(selectedRoute);
     void hydrateRouteDetails(selectedRoute);
@@ -1278,21 +1273,26 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
   const nextStep = useCallback(() => {
     if (!selectedRoute) return;
 
+    void Haptics.selectionAsync();
+
     setCurrentStepIndex((index: number) => {
-      const nextIndex = Math.min(
-        index + 1,
-        Math.max(0, (selectedRoute.journeySteps?.length || 1) - 1)
-      );
+      const steps = selectedRoute.journeySteps || selectedRoute.steps || [];
 
-      const nextStepType = selectedRoute.journeySteps?.[nextIndex]?.type;
+      if (!steps.length) {
+        setFlowState("completed");
+        return 0;
+      }
 
-      if (nextStepType === "walk") setFlowState("walking_to_stop");
-      else if (nextStepType === "board") setFlowState("waiting_bus");
-      else if (nextStepType === "ride") setFlowState("onboard");
-      else if (nextStepType === "alight") setFlowState("arriving");
-      else if (nextStepType === "transfer") setFlowState("transfer");
-      else setFlowState("route_selected");
+      const nextIndex = nextJourneyStepIndex(selectedRoute, index);
+      const isLastStep = nextIndex >= steps.length - 1;
+      const nextState = flowStateForStepIndex(selectedRoute, nextIndex);
 
+      if (isLastStep && ["arrive", "alight"].includes(String(steps[nextIndex]?.type))) {
+        setFlowState("completed");
+        return nextIndex;
+      }
+
+      setFlowState(nextState);
       return nextIndex;
     });
   }, [selectedRoute]);

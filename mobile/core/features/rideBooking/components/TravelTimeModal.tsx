@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { useMemo, useState } from "react";
 import {
@@ -11,6 +12,7 @@ import {
   type DimensionValue,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { colors, radius, shadows, spacing, typography } from "@/core/design";
 
 export type TravelTimeMode = "now" | "depart" | "arrive";
 
@@ -191,7 +193,7 @@ export default function TravelTimeModal({
     <Modal visible={visible} transparent animationType="fade">
       <View style={styles.overlay}>
         <SafeAreaView>
-          <View style={styles.card}>
+          <BlurView intensity={42} tint="dark" style={styles.card}>
             {/* HEADER */}
             <View style={styles.header}>
               <Pressable onPress={onClose} style={styles.circleButton}>
@@ -268,7 +270,7 @@ export default function TravelTimeModal({
                 </View>
               )}
             </View>
-          </View>
+          </BlurView>
         </SafeAreaView>
       </View>
     </Modal>
@@ -282,14 +284,18 @@ export default function TravelTimeModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: colors.overlay,
     justifyContent: "center",
-    padding: 20,
+    padding: spacing.xl,
   },
   card: {
-    backgroundColor: "#07111F",
-    borderRadius: 24,
-    padding: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius["2xl"],
+    padding: spacing.lg,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: colors.borderAccent,
+    ...shadows.floating,
   },
   header: {
     flexDirection: "row",
@@ -297,26 +303,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   title: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "900",
+    color: colors.text,
+    fontSize: typography.size.section,
+    lineHeight: typography.lineHeight.section,
+    fontWeight: typography.weight.black,
   },
   circleButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "rgba(255,255,255,0.1)",
+    backgroundColor: colors.surfaceMuted,
     alignItems: "center",
     justifyContent: "center",
   },
   confirm: {
-    backgroundColor: "#37F5AE",
+    backgroundColor: colors.accent,
   },
   segmented: {
     flexDirection: "row",
     marginTop: 12,
-    backgroundColor: "#111",
-    borderRadius: 14,
+    backgroundColor: colors.surfaceSoft,
+    borderRadius: radius.lg,
     padding: 4,
   },
   segment: {
@@ -325,15 +332,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   segmentActive: {
-    backgroundColor: "#37F5AE",
+    backgroundColor: colors.accent,
     borderRadius: 10,
   },
   segmentText: {
-    color: "#aaa",
-    fontWeight: "700",
+    color: colors.muted,
+    fontWeight: typography.weight.medium,
   },
   segmentTextActive: {
-    color: "#000",
+    color: colors.textInverse,
   },
   pickerWrap: {
     height: 300,
@@ -354,12 +361,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   wheelText: {
-    color: "#888",
+    color: colors.dim,
     textAlign: "center",
-    fontSize: 18,
+    fontSize: typography.size.section,
   },
   wheelTextActive: {
-    color: "#fff",
+    color: colors.text,
     fontSize: 22,
   },
   selectionBand: {
@@ -368,8 +375,10 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 60,
-    backgroundColor: "rgba(55,245,174,0.2)",
-    borderRadius: 12,
+    backgroundColor: "rgba(55,245,174,0.18)",
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.borderAccent,
   },
   nowPanel: {
     flex: 1,
@@ -377,8 +386,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   nowTitle: {
-    color: "#fff",
-    fontSize: 28,
-    fontWeight: "900",
+    color: colors.text,
+    fontSize: typography.size.hero,
+    fontWeight: typography.weight.black,
   },
 });

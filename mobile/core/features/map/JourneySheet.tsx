@@ -43,6 +43,7 @@ type Props = {
   isPlanning?: boolean;
   routeOptions: TransitRouteOption[];
   selectedRoute: TransitRouteOption | null;
+  currentStepIndex?: number;
   travelTimeMode?: TravelTimeMode;
   travelTimeDate?: Date | string | null;
   onChangeTravelTime?: (selection: TravelTimeSelection) => void;
@@ -74,12 +75,15 @@ type Props = {
 type Stage = "search" | "loading" | "routes" | "details" | "navigation";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const SHEET_TOP = 68;
+const SHEET_TOP = 64;
+const SHEET_RADIUS = 32;
 const SNAP_FULL = SHEET_TOP;
-const SNAP_MID = Math.round(SCREEN_HEIGHT * 0.43);
-const SNAP_BOTTOM = Math.max(SCREEN_HEIGHT - 118, SCREEN_HEIGHT * 0.855);
-const SNAP_COMPACT = Math.max(SCREEN_HEIGHT - 220, SCREEN_HEIGHT * 0.72);
-const SHEET_HEIGHT = SCREEN_HEIGHT - SHEET_TOP + 28;
+const SNAP_MID = Math.round(SCREEN_HEIGHT * 0.42);
+const SNAP_BOTTOM = Math.max(SCREEN_HEIGHT - 126, SCREEN_HEIGHT * 0.852);
+const SNAP_COMPACT = Math.max(SCREEN_HEIGHT - 224, SCREEN_HEIGHT * 0.715);
+const SHEET_HEIGHT = SCREEN_HEIGHT - SHEET_TOP + 32;
+const SHEET_POINTS = [SNAP_FULL, SNAP_MID, SNAP_BOTTOM] as const;
+const NAV_SHEET_POINTS = [SNAP_FULL, SNAP_MID, SNAP_COMPACT] as const;
 
 function n(value: unknown, fallback = 0) {
   const num = Number(value);
@@ -96,6 +100,21 @@ function routeSummary(route: TransitRouteOption) {
   const transfers = n(route.transfersCount ?? route.transfers, 0);
   const stops = n(route.stopCount, 0);
   return { duration, walk, transfers, stops, label: routeLabel(route) };
+}
+
+function routeWindow(route: TransitRouteOption) {
+  const dep = timeText(route.departureText);
+  const arr = timeText(route.arrivalText);
+  if (dep && arr) return `${dep} → ${arr}`;
+  if (dep) return `Išvyksta ${dep}`;
+  if (arr) return `Atvyksta ${arr}`;
+  return "pagal tvarkaraštį";
+}
+
+function routeReliability(route: TransitRouteOption) {
+  if (route.liveEta?.etaMinutes != null) return `Live ETA ${Math.round(Number(route.liveEta.etaMinutes))} min`;
+  if (route.boardingState) return String(route.boardingState);
+  return "GTFS + live GPS";
 }
 
 function stepIcon(step: TransitStep | null | undefined) {
@@ -179,12 +198,11 @@ function snapForStage(stage: Stage, query: string, resultCount: number) {
 }
 
 function nearestSnap(y: number, stage: Stage) {
-  const points = stage === "navigation"
-    ? [SNAP_FULL, SNAP_MID, SNAP_COMPACT]
-    : [SNAP_FULL, SNAP_MID, SNAP_BOTTOM];
+  const points = stage === "navigation" ? NAV_SHEET_POINTS : SHEET_POINTS;
+  const velocityBias = y < SNAP_MID ? -10 : 10;
 
   return points.reduce((best, point) => {
-    return Math.abs(point - y) < Math.abs(best - y) ? point : best;
+    return Math.abs(point - (y + velocityBias)) < Math.abs(best - (y + velocityBias)) ? point : best;
   }, points[0]);
 }
 
@@ -192,9 +210,11 @@ function animateTo(value: Animated.Value, toValue: number) {
   Animated.spring(value, {
     toValue,
     useNativeDriver: true,
-    damping: 28,
-    stiffness: 220,
-    mass: 0.85,
+    damping: 30,
+    stiffness: 235,
+    mass: 0.82,
+    restDisplacementThreshold: 0.6,
+    restSpeedThreshold: 0.6,
   }).start();
 }
 
@@ -741,11 +761,12 @@ function LoadingState({ onReset }: Pick<Props, "onReset">) {
 }
 
 function RoutePills({ route }: { route: TransitRouteOption }) {
-  const labels = routeNumbersFromRoute(route).slice(0, 3);
+  const labels = routeNumbersFromRoute(route).slice(0, 4);
   const s = routeSummary(route);
   return (
     <View style={styles.pillRow}>
       {labels.map((item) => <View key={item} style={styles.busBadge}><Text style={styles.busBadgeText}>{item}</Text></View>)}
+      <View style={styles.neutralBadge}><Text style={styles.neutralBadgeText}>{s.stops ? `${s.stops} st.` : "stotelės"}</Text></View>
       {s.walk ? <View style={styles.neutralBadge}><Text style={styles.neutralBadgeText}>eiti {s.walk} min</Text></View> : null}
       <View style={styles.neutralBadge}><Text style={styles.neutralBadgeText}>{s.transfers ? `${s.transfers} pers.` : "tiesiogiai"}</Text></View>
     </View>
@@ -754,19 +775,33 @@ function RoutePills({ route }: { route: TransitRouteOption }) {
 
 function RouteCard({ route, selected, onPress }: { route: TransitRouteOption; selected?: boolean; onPress: () => void }) {
   const s = routeSummary(route);
+  const steps = getSteps(route).slice(0, 4);
   return (
     <Pressable onPress={onPress} style={[styles.routeCard, selected && styles.routeCardSelected]}>
       <View style={styles.routeCardTop}>
-        <View style={{ flex: 1 }}>
+        <View style={styles.routeDurationBlock}>
           <Text style={styles.routeDuration}>{s.duration || "–"} min</Text>
-          <Text style={styles.routeSubtitle} numberOfLines={1}>Bus {route.departureText || "pagal tvarkaraštį"}</Text>
+          <Text style={styles.routeSubtitle} numberOfLines={1}>{routeWindow(route)}</Text>
+          <Text style={styles.routeLiveText} numberOfLines={1}>{routeReliability(route)}</Text>
         </View>
         <View style={styles.routeTimeBox}>
           <Text style={styles.routeTimeText}>{s.label}</Text>
           <Ionicons name="chevron-forward" size={14} color={COLORS.dim} />
         </View>
       </View>
+      <View style={styles.routeMiniTimeline}>
+        {steps.map((step, index) => (
+          <View key={step.id || index} style={styles.routeMiniStep}>
+            <View style={styles.routeMiniIcon}><MaterialCommunityIcons name={stepIcon(step) as any} size={11} color={COLORS.green} /></View>
+            <Text style={styles.routeMiniText} numberOfLines={1}>{stepLabel(step) || cleanStopName(step.stopName || step.fromStopName || step.title)}</Text>
+          </View>
+        ))}
+      </View>
       <RoutePills route={route} />
+      <View style={styles.routeSelectRow}>
+        <Text style={styles.routeSelectHint}>{selected ? "Pasirinktas maršrutas" : "Peržiūrėti detales"}</Text>
+        <View style={styles.routeGoPill}><Text style={styles.routeGoText}>GO</Text></View>
+      </View>
     </Pressable>
   );
 }
@@ -776,11 +811,11 @@ function RoutesListState(props: Props) {
   return (
     <View style={styles.stateRoot}>
       <View style={styles.fixedHeader}>
-        <Header title="Directions" subtitle={`My Location → ${cleanStopName(destination)}`} icon="bus" onClose={props.onReset} onBack={props.onBackToSearch} />
+        <Header title="Maršrutai" subtitle={`Mano vieta → ${cleanStopName(destination)}`} icon="bus" onClose={props.onReset} onBack={props.onBackToSearch} />
         <ModeSelector />
         <View style={styles.toolbarRow}>
-          <Pressable style={styles.blueChip}><Text style={styles.blueChipText}>Leave now</Text></Pressable>
-          <Pressable style={styles.grayChip}><Text style={styles.grayChipText}>Prefer</Text></Pressable>
+          <Pressable style={styles.blueChip}><Text style={styles.blueChipText}>{travelTimeLabel(props.travelTimeMode, props.travelTimeDate)}</Text></Pressable>
+          <Pressable style={styles.grayChip}><Text style={styles.grayChipText}>Mažiau ėjimo</Text></Pressable>
         </View>
       </View>
       <ScrollView style={styles.scrollArea} contentContainerStyle={styles.routesContent} showsVerticalScrollIndicator={false}>
@@ -852,11 +887,12 @@ function RouteDetailsState(props: Props) {
   return (
     <View style={styles.stateRoot}>
       <View style={styles.fixedHeader}>
-        <Header title="Route details" subtitle={`${cleanStopName(route.boardStopName)} → ${cleanStopName(route.alightStopName)}`} icon="bus" onClose={props.onReset} onBack={props.onBackToRoutes} />
+        <Header title="Kelionės detalės" subtitle={`${cleanStopName(route.boardStopName)} → ${cleanStopName(route.alightStopName)}`} icon="bus" onClose={props.onReset} onBack={props.onBackToRoutes} />
         <View style={styles.detailSummaryCard}>
           <View style={{ flex: 1 }}>
             <Text style={styles.detailDuration}>{s.duration || "–"} min</Text>
-            <Text style={styles.detailSubtitle} numberOfLines={1}>Bus {route.departureText || "pagal tvarkaraštį"}{route.arrivalText ? ` • atvyksta ${route.arrivalText}` : ""}</Text>
+            <Text style={styles.detailSubtitle} numberOfLines={1}>{routeWindow(route)}</Text>
+          <Text style={styles.detailLiveText} numberOfLines={1}>{routeReliability(route)}</Text>
           </View>
           <RoutePills route={route} />
           <View style={styles.routeStatsGrid}>
@@ -872,7 +908,7 @@ function RouteDetailsState(props: Props) {
       <View style={styles.stickyCtaWrap}>
         <Pressable style={styles.primaryButton} onPress={props.onStartJourney}>
           <Ionicons name="navigate" size={14} color={COLORS.green} />
-          <Text style={styles.primaryButtonText}>Start navigation</Text>
+          <Text style={styles.primaryButtonText}>GO — pradėti kelionę</Text>
         </Pressable>
       </View>
     </View>
@@ -882,7 +918,7 @@ function RouteDetailsState(props: Props) {
 function NavigationState(props: Props) {
   const route = props.selectedRoute;
   if (!route) return <SearchState {...props} />;
-  const vm = buildJourneyViewModel(props.flowState, route, 0);
+  const vm = buildJourneyViewModel(props.flowState, route, props.currentStepIndex || 0);
   const steps = getSteps(route);
   const active = vm.activeStep || steps[0];
   return (
@@ -942,7 +978,8 @@ export default function JourneySheet(props: Props) {
   }, [stage, props.query, props.searchResults.length, translateY]);
 
   const panResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_evt, gesture) => Math.abs(gesture.dy) > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (_evt, gesture) => Math.abs(gesture.dy) > 5 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.18,
     onPanResponderGrant: () => {
       startY.current = translateYValue.current;
       translateY.stopAnimation((value) => {
@@ -956,7 +993,7 @@ export default function JourneySheet(props: Props) {
       translateY.setValue(next);
     },
     onPanResponderRelease: (_evt, gesture) => {
-      const projected = translateYValue.current + gesture.vy * 120;
+      const projected = translateYValue.current + gesture.vy * 145;
       const snap = nearestSnap(projected, stage);
       translateYValue.current = snap;
       animateTo(translateY, snap);
@@ -994,20 +1031,20 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
+    borderTopLeftRadius: SHEET_RADIUS,
+    borderTopRightRadius: SHEET_RADIUS,
     overflow: "hidden",
     zIndex: 30,
     elevation: 30,
     shadowColor: "#000",
-    shadowOpacity: 0.24,
-    shadowRadius: 26,
-    shadowOffset: { width: 0, height: -6 },
-    backgroundColor: "rgba(5,10,18,0.96)",
+    shadowOpacity: 0.32,
+    shadowRadius: 32,
+    shadowOffset: { width: 0, height: -8 },
+    backgroundColor: "rgba(5,10,18,0.98)",
   },
-  blurSurface: { flex: 1, backgroundColor: "rgba(5,10,18,0.84)" },
-  dragArea: { height: 24, alignItems: "center", justifyContent: "center" },
-  grabber: { width: 58, height: 5, borderRadius: 99, backgroundColor: "rgba(55,245,174,0.38)" },
+  blurSurface: { flex: 1, backgroundColor: "rgba(5,10,18,0.88)", borderTopWidth: 1, borderColor: "rgba(255,255,255,0.10)" },
+  dragArea: { height: 30, alignItems: "center", justifyContent: "center" },
+  grabber: { width: 64, height: 5, borderRadius: 99, backgroundColor: "rgba(255,255,255,0.30)" },
   stateRoot: { flex: 1 },
   fixedHeader: { paddingHorizontal: 18, paddingBottom: 10 },
   fixedHeaderCompact: { paddingHorizontal: 18, paddingBottom: 10, alignItems: "center", justifyContent: "center" },
@@ -1259,21 +1296,32 @@ const styles = StyleSheet.create({
   grayChip: { backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7 },
   grayChipText: { color: COLORS.text, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "800" },
   routesContent: { paddingHorizontal: 18, paddingBottom: 115, paddingTop: 2 },
-  routeCard: { borderRadius: 18, backgroundColor: "rgba(8,18,32,0.92)", padding: 13, marginBottom: 10, borderWidth: 1, borderColor: "rgba(55,245,174,0.18)" },
-  routeCardSelected: { borderColor: COLORS.green, backgroundColor: "rgba(55,245,174,0.14)" },
-  routeCardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 },
-  routeDuration: { color: COLORS.text, fontSize: T.section, lineHeight: LINE_HEIGHT.section, fontWeight: "900" },
-  routeSubtitle: { color: COLORS.muted, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 2 },
-  routeTimeBox: { flexDirection: "row", alignItems: "center", gap: 4 },
-  routeTimeText: { color: COLORS.text, fontSize: T.route, lineHeight: LINE_HEIGHT.route, fontWeight: "900" },
+  routeCard: { borderRadius: 24, backgroundColor: "rgba(8,18,32,0.94)", padding: 15, marginBottom: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.10)", shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 9 } },
+  routeCardSelected: { borderColor: "rgba(55,245,174,0.72)", backgroundColor: "rgba(55,245,174,0.13)" },
+  routeCardTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12 },
+  routeDurationBlock: { flex: 1 },
+  routeDuration: { color: COLORS.text, fontSize: 30, lineHeight: 35, fontWeight: "900", letterSpacing: -0.9 },
+  routeSubtitle: { color: COLORS.text, opacity: 0.82, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "800" },
+  routeLiveText: { color: COLORS.green, fontSize: T.tiny, lineHeight: LINE_HEIGHT.tiny, fontWeight: "900", marginTop: 3, letterSpacing: 0.2 },
+  routeTimeBox: { minHeight: 34, borderRadius: 17, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.09)" },
+  routeTimeText: { color: COLORS.text, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
+  routeMiniTimeline: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 11 },
+  routeMiniStep: { maxWidth: 84, flexDirection: "row", alignItems: "center", gap: 4 },
+  routeMiniIcon: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(55,245,174,0.13)" },
+  routeMiniText: { color: COLORS.muted, fontSize: 10, lineHeight: 12, fontWeight: "800", maxWidth: 58 },
+  routeSelectRow: { marginTop: 12, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "rgba(255,255,255,0.10)", flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  routeSelectHint: { color: COLORS.muted, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "800" },
+  routeGoPill: { height: 30, minWidth: 54, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: COLORS.green, paddingHorizontal: 12 },
+  routeGoText: { color: COLORS.greenDark, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900" },
   pillRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 },
   busBadge: { minWidth: 30, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: COLORS.green, paddingHorizontal: 7 },
   busBadgeText: { color: COLORS.greenDark, fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "900" },
   neutralBadge: { minHeight: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.08)", paddingHorizontal: 8 },
   neutralBadgeText: { color: COLORS.text, fontSize: T.badge, lineHeight: LINE_HEIGHT.badge, fontWeight: "800" },
-  detailSummaryCard: { borderRadius: 18, backgroundColor: "rgba(255,255,255,0.68)", padding: 13, marginBottom: 8 },
-  detailDuration: { color: COLORS.text, fontSize: T.section, lineHeight: LINE_HEIGHT.section, fontWeight: "900" },
-  detailSubtitle: { color: COLORS.muted, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "700", marginTop: 2, marginBottom: 10 },
+  detailSummaryCard: { borderRadius: 24, backgroundColor: "rgba(8,18,32,0.94)", padding: 15, marginBottom: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.10)" },
+  detailDuration: { color: COLORS.text, fontSize: 30, lineHeight: 35, fontWeight: "900", letterSpacing: -0.9 },
+  detailSubtitle: { color: COLORS.muted, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "800", marginTop: 2 },
+  detailLiveText: { color: COLORS.green, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", marginTop: 3, marginBottom: 10 },
   routeStatsGrid: { flexDirection: "row", gap: 8, marginTop: 10 },
   routeStatPill: { flex: 1, borderRadius: 14, paddingVertical: 8, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.07)" },
   routeStatValue: { color: COLORS.text, fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "900" },
@@ -1301,7 +1349,7 @@ const styles = StyleSheet.create({
   progressTrack: { height: 4, borderRadius: 2, backgroundColor: "rgba(20,27,37,0.12)", overflow: "hidden", marginBottom: 6 },
   progressFill: { height: 4, borderRadius: 2, backgroundColor: COLORS.green },
   stickyCtaWrap: { position: "absolute", left: 18, right: 18, bottom: 22 },
-  primaryButton: { height: 48, borderRadius: 18, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, backgroundColor: COLORS.green },
+  primaryButton: { height: 54, borderRadius: 22, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, backgroundColor: COLORS.green, shadowColor: COLORS.green, shadowOpacity: 0.24, shadowRadius: 18, shadowOffset: { width: 0, height: 8 } },
   primaryButtonText: { color: COLORS.greenDark, fontSize: T.cta, lineHeight: LINE_HEIGHT.cta, fontWeight: "900" },
   appleTitleRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 6 },
   appleSheetKicker: { color: COLORS.green, fontSize: T.caption, lineHeight: LINE_HEIGHT.caption, fontWeight: "900", textTransform: "uppercase", letterSpacing: 2.4, marginBottom: 2 },

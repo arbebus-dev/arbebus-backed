@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getLiveBuses, type LiveBus as ApiLiveBus } from "../services/transitApi";
 import type { LiveBus } from "../models/transitTypes";
 
@@ -30,28 +30,66 @@ function normalizeLiveBus(bus: ApiLiveBus, index: number): LiveBus | null {
   };
 }
 
-export function useLiveBuses(refreshMs = 3000) {
+function busesSnapshot(buses: LiveBus[]) {
+  return buses
+    .map((bus) => {
+      const id = String(bus.vehicleId ?? bus.id ?? bus.vehicleLabel ?? "");
+      const route = String(bus.routeId ?? bus.route ?? bus.number ?? "");
+      const lat = Number(bus.latitude ?? bus.coordinate?.latitude ?? 0).toFixed(5);
+      const lon = Number(bus.longitude ?? bus.coordinate?.longitude ?? 0).toFixed(5);
+      const heading = Math.round(Number(bus.heading ?? bus.bearing ?? 0) / 5) * 5;
+      return `${id}:${route}:${lat}:${lon}:${heading}`;
+    })
+    .sort()
+    .join("|");
+}
+
+export function useLiveBuses(refreshMs = 7000) {
   const [buses, setBuses] = useState<LiveBus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  async function load() {
+  const mountedRef = useRef(true);
+  const loadingRef = useRef(false);
+  const lastSnapshotRef = useRef("");
+
+  const load = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+
     try {
       const result = await getLiveBuses();
-      setBuses(result.map(normalizeLiveBus).filter(Boolean) as LiveBus[]);
+      const normalized = result.map(normalizeLiveBus).filter(Boolean) as LiveBus[];
+      const nextSnapshot = busesSnapshot(normalized);
+
+      if (!mountedRef.current) return;
+
+      if (nextSnapshot !== lastSnapshotRef.current) {
+        lastSnapshotRef.current = nextSnapshot;
+        setBuses(normalized);
+      }
+
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Live buses error");
+      if (mountedRef.current) {
+        setError(err instanceof Error ? err.message : "Live buses error");
+      }
     } finally {
-      setLoading(false);
+      loadingRef.current = false;
+      if (mountedRef.current) setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     void load();
-    const timer = setInterval(() => void load(), refreshMs);
-    return () => clearInterval(timer);
-  }, [refreshMs]);
+    const timer = setInterval(() => void load(), Math.max(5000, refreshMs));
+
+    return () => {
+      mountedRef.current = false;
+      clearInterval(timer);
+    };
+  }, [load, refreshMs]);
 
   return {
     buses,
