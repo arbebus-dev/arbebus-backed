@@ -2,21 +2,24 @@ import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import * as TaskManager from "expo-task-manager";
 
-import type { Coordinate, TransitRouteOption } from "../features/transit/models/transitTypes";
+import type {
+  Coordinate,
+  TransitRouteOption,
+} from "../features/transit/models/transitTypes";
+import { useNavigationStore } from "../state/navigationStore";
 
 const TASK_NAME = "arbebus-background-navigation";
-const ACTIVE_TRIP_KEY = "arbebus:active-trip:v2";
-
-let activeTripMemory: {
-  routeId?: string;
-  alightStopName?: string;
-  alightCoordinate?: Coordinate | null;
-  route?: TransitRouteOption | null;
-} | null = null;
 
 function toCoordinate(input: any): Coordinate | null {
-  const latitude = Number(input?.latitude ?? input?.lat ?? input?.coordinate?.latitude);
-  const longitude = Number(input?.longitude ?? input?.lon ?? input?.lng ?? input?.coordinate?.longitude);
+  const latitude = Number(
+    input?.latitude ?? input?.lat ?? input?.coordinate?.latitude,
+  );
+  const longitude = Number(
+    input?.longitude ??
+      input?.lon ??
+      input?.lng ??
+      input?.coordinate?.longitude,
+  );
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
 }
@@ -27,7 +30,9 @@ function distanceMeters(a: Coordinate, b: Coordinate) {
   const dLon = ((b.longitude - a.longitude) * Math.PI) / 180;
   const lat1 = (a.latitude * Math.PI) / 180;
   const lat2 = (b.latitude * Math.PI) / 180;
-  const x = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
@@ -38,7 +43,10 @@ async function ensureNotificationPermissions() {
   return next.granted;
 }
 
-export async function triggerLocalNavigationNotification(title: string, body: string) {
+export async function triggerLocalNavigationNotification(
+  title: string,
+  body: string,
+) {
   const allowed = await ensureNotificationPermissions();
   if (!allowed) return;
 
@@ -53,15 +61,17 @@ export async function triggerLocalNavigationNotification(title: string, body: st
   });
 }
 
-export async function syncBackgroundNavigationTrip(route: TransitRouteOption | null) {
+export async function syncBackgroundNavigationTrip(
+  route: TransitRouteOption | null,
+) {
   if (!route) return;
 
-  activeTripMemory = {
+  useNavigationStore.getState().setActiveTrip({
     routeId: route.id,
     alightStopName: route.alightStopName,
     alightCoordinate: toCoordinate(route.destinationStop),
     route,
-  };
+  });
 
   try {
     const allowed = await ensureNotificationPermissions();
@@ -73,7 +83,9 @@ export async function syncBackgroundNavigationTrip(route: TransitRouteOption | n
     const background = await Location.requestBackgroundPermissionsAsync();
     if (background.status !== "granted") return;
 
-    const hasStarted = await Location.hasStartedLocationUpdatesAsync(TASK_NAME).catch(() => false);
+    const hasStarted = await Location.hasStartedLocationUpdatesAsync(
+      TASK_NAME,
+    ).catch(() => false);
     if (!hasStarted) {
       await Location.startLocationUpdatesAsync(TASK_NAME, {
         accuracy: Location.Accuracy.Balanced,
@@ -93,9 +105,11 @@ export async function syncBackgroundNavigationTrip(route: TransitRouteOption | n
 }
 
 export async function clearBackgroundNavigationTrip() {
-  activeTripMemory = null;
+  useNavigationStore.getState().clearActiveTrip();
   try {
-    const hasStarted = await Location.hasStartedLocationUpdatesAsync(TASK_NAME).catch(() => false);
+    const hasStarted = await Location.hasStartedLocationUpdatesAsync(
+      TASK_NAME,
+    ).catch(() => false);
     if (hasStarted) await Location.stopLocationUpdatesAsync(TASK_NAME);
   } catch {
     // ignore
@@ -104,28 +118,29 @@ export async function clearBackgroundNavigationTrip() {
 
 if (!TaskManager.isTaskDefined(TASK_NAME)) {
   TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
-    if (error || !activeTripMemory?.alightCoordinate) return;
+    const activeTrip = useNavigationStore.getState().activeTrip;
+    if (error || !activeTrip?.alightCoordinate) return;
 
     const locations = (data as any)?.locations || [];
     const latest = locations[locations.length - 1];
     const coordinate = toCoordinate(latest?.coords);
     if (!coordinate) return;
 
-    const distance = distanceMeters(coordinate, activeTripMemory.alightCoordinate);
+    const distance = distanceMeters(coordinate, activeTrip.alightCoordinate);
 
     if (distance <= 120) {
       await triggerLocalNavigationNotification(
         "Pasiruošk išlipti",
-        `Artėji prie ${activeTripMemory.alightStopName || "išlipimo stotelės"}.`
+        `Artėji prie ${activeTrip.alightStopName || "išlipimo stotelės"}.`,
       );
     }
 
     if (distance <= 40) {
       await triggerLocalNavigationNotification(
         "Išlipk dabar",
-        activeTripMemory.alightStopName
-          ? `Išlipk stotelėje „${activeTripMemory.alightStopName}“.`
-          : "Atvykai į išlipimo vietą."
+        activeTrip.alightStopName
+          ? `Išlipk stotelėje „${activeTrip.alightStopName}“.`
+          : "Atvykai į išlipimo vietą.",
       );
       await clearBackgroundNavigationTrip();
     }

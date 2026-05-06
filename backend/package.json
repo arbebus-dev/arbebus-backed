@@ -8,11 +8,11 @@
     "test": "node -e \"require('./src/modules/search/search.service'); require('./src/modules/transit/transit.service'); console.log('backend smoke ok')\""
   },
   "dependencies": {
-    "cors": "latest",
-    "dotenv": "latest",
-    "express": "latest",
-    "pg": "latest",
-    "pino": "latest",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "pg": "^8.16.3",
+    "pino": "^9.7.0",
     "redis": "^5.12.1"
   }
 }

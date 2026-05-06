@@ -1,7 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo } from "react";
 
-import { AppLanguage, isAppLanguage, LANGUAGE_STORAGE_KEY, translations } from "./translations";
+import {
+  AppLanguage,
+  LANGUAGE_STORAGE_KEY,
+  translations,
+} from "./translations";
+import { useLanguageStore } from "../state/languageStore";
 
 type LanguageContextValue = {
   language: AppLanguage;
@@ -14,45 +19,41 @@ type LanguageContextValue = {
 const LanguageContext = createContext<LanguageContextValue | null>(null);
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [language, setLanguageState] = useState<AppLanguage>("lt");
-  const [hasLanguageChoice, setHasLanguageChoice] = useState(false);
-  const [isLanguageReady, setIsLanguageReady] = useState(false);
+  const store = useLanguageStore();
 
   useEffect(() => {
-    let active = true;
-
-    AsyncStorage.getItem(LANGUAGE_STORAGE_KEY)
-      .then((stored) => {
-        if (!active) return;
-        if (isAppLanguage(stored)) {
-          setLanguageState(stored);
-          setHasLanguageChoice(true);
+    // Initialize from storage if not ready
+    if (!store.isLanguageReady) {
+      AsyncStorage.getItem(LANGUAGE_STORAGE_KEY).then((stored) => {
+        if (stored === "lt" || stored === "en") {
+          store.setLanguage(stored);
         }
-      })
-      .finally(() => {
-        if (active) setIsLanguageReady(true);
+        store.setLanguageReady();
       });
+    }
+  }, [store]);
 
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const setLanguage = useCallback(async (next: AppLanguage) => {
-    setLanguageState(next);
-    setHasLanguageChoice(true);
+  const setLanguage = async (next: AppLanguage) => {
+    store.setLanguage(next);
     await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, next);
-  }, []);
+  };
 
-  const value = useMemo<LanguageContextValue>(() => ({
-    language,
-    hasLanguageChoice,
-    isLanguageReady,
-    setLanguage,
-    t: translations[language],
-  }), [hasLanguageChoice, isLanguageReady, language, setLanguage]);
+  const value = useMemo<LanguageContextValue>(
+    () => ({
+      language: store.language,
+      hasLanguageChoice: store.hasLanguageChoice,
+      isLanguageReady: store.isLanguageReady,
+      setLanguage,
+      t: translations[store.language],
+    }),
+    [store.language, store.hasLanguageChoice, store.isLanguageReady],
+  );
 
-  return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
+  return (
+    <LanguageContext.Provider value={value}>
+      {children}
+    </LanguageContext.Provider>
+  );
 }
 
 export function useLanguage() {

@@ -1,11 +1,11 @@
-import { API_BASE, API_ENDPOINTS } from "../../../../constants/api";
+import { API_BASE, API_ENDPOINTS } from "@/constants/api";
 import type {
-  Coordinate,
-  LiveBus,
-  PlaceSearchResult,
-  TransitRouteOption,
-  TransitStep,
-  TransitStepType,
+    Coordinate,
+    LiveBus,
+    PlaceSearchResult,
+    TransitRouteOption,
+    TransitStep,
+    TransitStepType,
 } from "../models/transitTypes";
 
 export type { LiveBus } from "../models/transitTypes";
@@ -62,7 +62,10 @@ function getSearchMemoryCache(query: string) {
 }
 
 function setSearchMemoryCache(query: string, results: PlaceResult[]) {
-  searchMemoryCache.set(searchCacheKey(query), { createdAt: Date.now(), results });
+  searchMemoryCache.set(searchCacheKey(query), {
+    createdAt: Date.now(),
+    results,
+  });
 }
 
 async function fetchWithTimeout(
@@ -301,9 +304,10 @@ function normalizeStops(rawStops: any): any[] {
       return normalizeStop(stop);
     })
     .filter((stop): stop is NonNullable<typeof stop> => Boolean(stop))
-    .filter((stop) =>
-      Number.isFinite(Number(stop.latitude)) &&
-      Number.isFinite(Number(stop.longitude)),
+    .filter(
+      (stop) =>
+        Number.isFinite(Number(stop.latitude)) &&
+        Number.isFinite(Number(stop.longitude)),
     );
 }
 
@@ -803,7 +807,6 @@ function dedupePlaceResults(results: PlaceResult[]): PlaceResult[] {
   });
 }
 
-
 function absoluteMediaUrl(url?: string) {
   if (!url) return undefined;
   if (/^https?:\/\//i.test(url)) return url;
@@ -832,7 +835,10 @@ function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
   if (!coordinate) return null;
 
   const type = normalizePlaceType(item);
-  const placeId = item?.placeId ?? item?.googlePlaceId ?? (item?.source === "google_places" ? item?.id : undefined);
+  const placeId =
+    item?.placeId ??
+    item?.googlePlaceId ??
+    (item?.source === "google_places" ? item?.id : undefined);
 
   return {
     id: String(
@@ -861,20 +867,33 @@ function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
       (type === "address" ? "Adresas" : type === "stop" ? "Stotelė" : "Vieta"),
     type,
     source: item.source,
-    distanceMeters: item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
+    distanceMeters:
+      item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
     latitude: coordinate.latitude,
     longitude: coordinate.longitude,
     coordinate,
     placeId: placeId != null ? String(placeId) : undefined,
-    googlePlaceId: item.googlePlaceId != null ? String(item.googlePlaceId) : placeId != null ? String(placeId) : undefined,
-    category: item.category ?? (Array.isArray(item.keywords) ? item.keywords[0] : undefined),
+    googlePlaceId:
+      item.googlePlaceId != null
+        ? String(item.googlePlaceId)
+        : placeId != null
+          ? String(placeId)
+          : undefined,
+    category:
+      item.category ??
+      (Array.isArray(item.keywords) ? item.keywords[0] : undefined),
     rating: item.rating != null ? Number(item.rating) : undefined,
-    userRatingCount: item.userRatingCount != null ? Number(item.userRatingCount) : undefined,
+    userRatingCount:
+      item.userRatingCount != null ? Number(item.userRatingCount) : undefined,
     openNow: typeof item.openNow === "boolean" ? item.openNow : undefined,
     openNowText: item.openNowText,
     openingHours: Array.isArray(item.openingHours) ? item.openingHours : [],
     photos: normalizePhotos(item),
-    photoUrls: Array.isArray(item.photoUrls) ? item.photoUrls : normalizePhotos(item).map((p: any) => p.url).filter(Boolean),
+    photoUrls: Array.isArray(item.photoUrls)
+      ? item.photoUrls
+      : normalizePhotos(item)
+          .map((p: any) => p.url)
+          .filter(Boolean),
     phone: item.phone,
     website: item.website,
     googleMapsUri: item.googleMapsUri,
@@ -883,52 +902,87 @@ function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
   } as PlaceResult;
 }
 
+function searchUrls(params: string) {
+  // Keep the correct /api/search endpoint first. The other endpoints are only
+  // compatibility fallbacks for older backend builds.
+  return [
+    `${apiBase()}/search?${params}`,
+    API_ENDPOINTS.placesSearch ? `${API_ENDPOINTS.placesSearch}?${params}` : "",
+    `${apiBase()}/search/stops?${params}`,
+    `${apiBase()}/places/search?${params}`,
+  ].filter(Boolean);
+}
+
+async function runSearchRequest(
+  q: string,
+  external: boolean,
+): Promise<PlaceResult[]> {
+  const params = `q=${encodeURIComponent(q)}&limit=8&external=${external ? "true" : "false"}`;
+
+  for (const url of searchUrls(params)) {
+    try {
+      const response = await fetchWithTimeout(
+        url,
+        undefined,
+        external ? 1700 : 900,
+      );
+      if (!response.ok) continue;
+
+      const data = await safeJson<any>(response);
+      const rawResults = normalizeSearchPayload(data);
+      if (!rawResults.length) continue;
+
+      const normalized = rawResults
+        .map((item: any, index: number): PlaceResult | null =>
+          normalizePlaceResult(item, index),
+        )
+        .filter(Boolean) as PlaceResult[];
+
+      return dedupePlaceResults(normalized)
+        .sort(
+          (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
+        )
+        .slice(0, 8);
+    } catch {
+      // Try next compatible endpoint. Search must never freeze the UI.
+    }
+  }
+
+  return [];
+}
+
 export async function searchPlaces(query: string): Promise<PlaceResult[]> {
   const q = query.trim();
   if (q.length < 2) return [];
 
   const cached = getSearchMemoryCache(q);
-  if (cached) return cached;
+  if (cached) return cached.slice(0, 8);
 
-  const params = `q=${encodeURIComponent(q)}&limit=8&external=false`;
+  // 1) Instant local-first search.
+  const localResults = await runSearchRequest(q, false);
 
-  // Apple Maps style: typing suggestions must be instant and local-first.
-  // Use the new /search endpoint first and keep legacy endpoints only as non-blocking fallback.
-  const urls = [
-    `${apiBase()}/search?${params}`,
-    `${apiBase()}/places/search?${params}`,
-    `${apiBase()}/stops/search?${params}`,
-    API_ENDPOINTS.placesSearch ? `${API_ENDPOINTS.placesSearch}?${params}` : "",
-  ].filter(Boolean);
+  // 2) If local index has a usable exact/strong result, return immediately.
+  const strongLocal = localResults.some((item: any) => {
+    const title = String(item.title ?? "").toLowerCase();
+    const queryText = q.toLowerCase();
+    const score = Number(item.score ?? item.priority ?? 0);
+    return title === queryText || title.startsWith(queryText) || score >= 320;
+  });
 
-  for (const url of urls) {
-    try {
-      const response = await fetchWithTimeout(url, undefined, SEARCH_TIMEOUT_MS);
-      if (!response.ok) continue;
-
-      const data = await safeJson<any>(response);
-      const rawResults = normalizeSearchPayload(data);
-
-      if (!rawResults.length) continue;
-
-      const normalized = rawResults
-        .map((item: any, index: number): PlaceResult | null => normalizePlaceResult(item, index))
-        .filter(Boolean) as PlaceResult[];
-
-      const results = dedupePlaceResults(normalized)
-        .sort(
-          (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
-        )
-        .slice(0, 8);
-
-      setSearchMemoryCache(q, results);
-      return results;
-    } catch {
-      // Try next compatible endpoint. Search must never block UI for long.
-    }
+  if (localResults.length && strongLocal) {
+    setSearchMemoryCache(q, localResults);
+    return localResults;
   }
 
-  return [];
+  // 3) If local search finds nothing or weak results only, allow Google/OSM fallback.
+  // This is required for places like Radailiai or addresses not present in local JSON.
+  const externalResults = await runSearchRequest(q, true);
+  const merged = dedupePlaceResults([...localResults, ...externalResults])
+    .sort((a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q))
+    .slice(0, 8);
+
+  setSearchMemoryCache(q, merged);
+  return merged;
 }
 
 export async function reverseGeocodePlace(
@@ -964,7 +1018,10 @@ export async function reverseGeocodePlace(
       const coordinateFromResponse = toCoordinate(raw) ?? fallback.coordinate;
       if (!raw || !coordinateFromResponse) continue;
 
-      return (normalizePlaceResult({ ...raw, coordinate: coordinateFromResponse }, 0) || fallback) as PlaceResult;
+      return (normalizePlaceResult(
+        { ...raw, coordinate: coordinateFromResponse },
+        0,
+      ) || fallback) as PlaceResult;
     } catch {
       // Try compatible fallback endpoint.
     }
@@ -973,8 +1030,9 @@ export async function reverseGeocodePlace(
   return fallback;
 }
 
-
-export async function fetchPlaceDetails(placeId: string): Promise<PlaceResult | null> {
+export async function fetchPlaceDetails(
+  placeId: string,
+): Promise<PlaceResult | null> {
   const id = String(placeId || "").trim();
   if (!id) return null;
 
@@ -1035,7 +1093,10 @@ export async function planTransitRoute(params: {
         to: params.to,
         selectedDestination: destination,
         timeMode: params.timeMode || "now",
-        travelAt: params.travelAt instanceof Date ? params.travelAt.toISOString() : params.travelAt || null,
+        travelAt:
+          params.travelAt instanceof Date
+            ? params.travelAt.toISOString()
+            : params.travelAt || null,
       }),
     },
     8000,

@@ -1,4 +1,5 @@
 let redisClient = null;
+const logger = require("../../core/logging/logger");
 
 async function getRedisClient() {
   const redisUrl = process.env.REDIS_URL;
@@ -22,14 +23,14 @@ async function getRedisClient() {
     });
 
     redisClient.on("error", (error) => {
-      console.warn("[redis] unavailable:", error?.message || error);
+      logger.warn("[redis] unavailable:", error?.message || error);
     });
 
     await redisClient.connect();
 
     return redisClient;
   } catch (error) {
-    console.warn("[redis] disabled:", error?.message || error);
+    logger.warn("[redis] disabled:", error?.message || error);
     redisClient = null;
     return null;
   }

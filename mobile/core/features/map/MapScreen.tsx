@@ -1,25 +1,31 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
+import { Keyboard, Pressable, StyleSheet, View } from "react-native";
 import MapView, { Marker, type Region } from "react-native-maps";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 import { useLiveBuses } from "../transit/hooks/useLiveBuses";
 import { useTransitPlanner } from "../transit/hooks/useTransitPlanner";
 import { useUserLocation } from "../transit/hooks/useUserLocation";
 import {
-  fetchStationAccess,
-  reverseGeocodePlace,
-  fetchPlaceDetails,
-  searchPlaces,
-  type StationAccessPoint,
+    fetchPlaceDetails,
+    fetchStationAccess,
+    reverseGeocodePlace,
+    searchPlaces,
+    type StationAccessPoint,
 } from "../transit/services/transitApi";
 
 import JourneySheet from "./JourneySheet";
 import DestinationMarkerLayer from "./layers/DestinationMarkerLayer";
 import LiveBusesLayer from "./layers/LiveBusesLayer";
 import RoutePolylineLayer from "./layers/RoutePolylineLayer";
-import StopsLayer from "./layers/StopsLayer";
 import StationAccessLayer from "./layers/StationAccessLayer";
+import StopsLayer from "./layers/StopsLayer";
 import UserLocationLayer from "./layers/UserLocationLayer";
 import WalkingPolylineLayer from "./layers/WalkingPolylineLayer";
 import MapCanvas from "./MapCanvas";
@@ -58,15 +64,15 @@ function validPoints(points?: MapPoint[]) {
     (point) =>
       point &&
       Number.isFinite(Number(point.latitude)) &&
-      Number.isFinite(Number(point.longitude))
+      Number.isFinite(Number(point.longitude)),
   );
 }
 
-function normalizeId(value: any) {
+function normalizeId(value: unknown) {
   return String(value ?? "").trim();
 }
 
-function normalizeRouteNumber(value: any) {
+function normalizeRouteNumber(value: unknown) {
   return String(value ?? "")
     .trim()
     .split("•")[0]
@@ -75,9 +81,11 @@ function normalizeRouteNumber(value: any) {
     .toUpperCase();
 }
 
-function normalizeVehiclePoint(vehicle: any): MapPoint | null {
+function normalizeVehiclePoint(vehicle: unknown): MapPoint | null {
   const latitude = Number(vehicle?.latitude ?? vehicle?.coordinate?.latitude);
-  const longitude = Number(vehicle?.longitude ?? vehicle?.coordinate?.longitude);
+  const longitude = Number(
+    vehicle?.longitude ?? vehicle?.coordinate?.longitude,
+  );
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
 
@@ -87,9 +95,9 @@ function normalizeVehiclePoint(vehicle: any): MapPoint | null {
 function distanceMeters(a: MapPoint, b: MapPoint) {
   const dx = (a.latitude - b.latitude) * 111320;
   const dy =
-    (a.longitude - b.longitude) *
-    40075000 *
-    Math.cos((a.latitude * Math.PI) / 180) /
+    ((a.longitude - b.longitude) *
+      40075000 *
+      Math.cos((a.latitude * Math.PI) / 180)) /
     360;
 
   return Math.sqrt(dx * dx + dy * dy);
@@ -121,7 +129,7 @@ function averagePoint(points: MapPoint[]): MapPoint | null {
       latitude: acc.latitude + point.latitude,
       longitude: acc.longitude + point.longitude,
     }),
-    { latitude: 0, longitude: 0 }
+    { latitude: 0, longitude: 0 },
   );
 
   return {
@@ -130,22 +138,33 @@ function averagePoint(points: MapPoint[]): MapPoint | null {
   };
 }
 
-
 function placeFromMapData(input: any) {
   const latitude = Number(input?.latitude ?? input?.coordinate?.latitude);
   const longitude = Number(input?.longitude ?? input?.coordinate?.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
 
-  const placeId = input?.placeId ?? input?.googlePlaceId ?? (input?.source === "google_places" ? input?.id : undefined);
+  const placeId =
+    input?.placeId ??
+    input?.googlePlaceId ??
+    (input?.source === "google_places" ? input?.id : undefined);
 
   return {
     ...input,
-    id: String(input?.id ?? placeId ?? `map-${latitude.toFixed(6)}-${longitude.toFixed(6)}`),
+    id: String(
+      input?.id ??
+        placeId ??
+        `map-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
+    ),
     placeId: placeId != null ? String(placeId) : undefined,
-    googlePlaceId: input?.googlePlaceId ?? (placeId != null ? String(placeId) : undefined),
+    googlePlaceId:
+      input?.googlePlaceId ?? (placeId != null ? String(placeId) : undefined),
     type: String(input?.type ?? "poi"),
     title: String(input?.title ?? input?.name ?? "Pasirinkta vieta"),
-    subtitle: String(input?.subtitle ?? input?.address ?? `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`),
+    subtitle: String(
+      input?.subtitle ??
+        input?.address ??
+        `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+    ),
     latitude,
     longitude,
     coordinate: { latitude, longitude },
@@ -165,7 +184,9 @@ export default function MapScreen() {
 
   const selectedRoute = planner.selectedRoute;
   const selectedDestination = planner.selectedDestination;
-  const [stationAccessPoints, setStationAccessPoints] = useState<StationAccessPoint[]>([]);
+  const [stationAccessPoints, setStationAccessPoints] = useState<
+    StationAccessPoint[]
+  >([]);
   const [selectedMapPlace, setSelectedMapPlace] = useState<any | null>(null);
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
   const [visibleRegion, setVisibleRegion] = useState<Region | null>(null);
@@ -195,7 +216,12 @@ export default function MapScreen() {
     return () => {
       cancelled = true;
     };
-  }, [selectedRoute?.originStop?.id, selectedRoute?.originStop?.stopId, selectedRoute?.destinationStop?.id, selectedRoute?.destinationStop?.stopId]);
+  }, [
+    selectedRoute?.originStop?.id,
+    selectedRoute?.originStop?.stopId,
+    selectedRoute?.destinationStop?.id,
+    selectedRoute?.destinationStop?.stopId,
+  ]);
 
   const handleRegionChangeComplete = useCallback((region: Region) => {
     setVisibleRegion((previous) => {
@@ -219,7 +245,7 @@ export default function MapScreen() {
     return normalizeRouteNumber(
       selectedRoute?.routeNumbers?.[0] ??
         selectedRoute?.routeId ??
-        selectedRoute?.routeLabel
+        selectedRoute?.routeLabel,
     );
   }, [selectedRoute]);
 
@@ -228,7 +254,7 @@ export default function MapScreen() {
 
     const liveVehicle = selectedRoute.liveVehicle;
     const liveVehicleId = normalizeId(
-      liveVehicle?.vehicleId || liveVehicle?.id || liveVehicle?.vehicleLabel
+      liveVehicle?.vehicleId || liveVehicle?.id || liveVehicle?.vehicleLabel,
     );
     const liveVehiclePoint = normalizeVehiclePoint(liveVehicle);
 
@@ -266,7 +292,9 @@ export default function MapScreen() {
 
     const candidates = buses
       .filter((bus) => {
-        const number = normalizeRouteNumber(bus.routeId || bus.route || bus.number);
+        const number = normalizeRouteNumber(
+          bus.routeId || bus.route || bus.number,
+        );
         return number === selectedRouteNumber;
       })
       .map((bus) => {
@@ -277,7 +305,8 @@ export default function MapScreen() {
             : Number.POSITIVE_INFINITY;
         const delay = Number(bus.delaySeconds || 0);
         const speed = Number(bus.speedKph || 0);
-        const score = distance + Math.max(0, delay) * 0.2 - Math.min(speed, 60) * 3;
+        const score =
+          distance + Math.max(0, delay) * 0.2 - Math.min(speed, 60) * 3;
 
         return { bus, score };
       })
@@ -296,7 +325,10 @@ export default function MapScreen() {
     null;
 
   const selectedVehicleCoordinate = useMemo(() => {
-    return normalizeVehiclePoint(selectedLiveBus) ?? normalizeVehiclePoint(selectedRoute?.liveVehicle);
+    return (
+      normalizeVehiclePoint(selectedLiveBus) ??
+      normalizeVehiclePoint(selectedRoute?.liveVehicle)
+    );
   }, [selectedLiveBus, selectedRoute]);
 
   const activeCameraTarget = useMemo(() => {
@@ -342,7 +374,8 @@ export default function MapScreen() {
       coords.push(...routePreview);
     } else {
       if (userLocation) coords.push(userLocation);
-      if (selectedDestination?.coordinate) coords.push(selectedDestination.coordinate);
+      if (selectedDestination?.coordinate)
+        coords.push(selectedDestination.coordinate);
     }
 
     return validPoints(coords);
@@ -361,7 +394,6 @@ export default function MapScreen() {
     // Keep manual gestures stable during TestFlight QA.
     return;
   }, [activeCameraTarget, planner.flowState, selectedLiveBus]);
-
 
   const showPlacePreview = async (rawPlace: any, shouldReverse = true) => {
     const provisional = placeFromMapData(rawPlace);
@@ -396,7 +428,8 @@ export default function MapScreen() {
               .sort((a, b) => a.distance - b.distance)[0];
 
             if (closest?.item && closest.distance <= 260) {
-              const googleId = closest.item.placeId || closest.item.googlePlaceId;
+              const googleId =
+                closest.item.placeId || closest.item.googlePlaceId;
               if (googleId) {
                 const details = await fetchPlaceDetails(googleId);
                 return details || closest.item;
@@ -433,23 +466,28 @@ export default function MapScreen() {
   const handleMapPress = (event: any) => {
     if (Date.now() - lastPoiClickAt.current < 650) return;
     const coordinate = event?.nativeEvent?.coordinate;
-    void showPlacePreview({ coordinate, type: "address", source: "map_tap" }, true);
+    void showPlacePreview(
+      { coordinate, type: "address", source: "map_tap" },
+      true,
+    );
   };
 
   const handlePoiClick = (event: any) => {
     lastPoiClickAt.current = Date.now();
     const native = event?.nativeEvent || {};
-    const coordinate =
-      native.coordinate ||
-      native.position ||
-      { latitude: native.latitude, longitude: native.longitude };
+    const coordinate = native.coordinate ||
+      native.position || {
+        latitude: native.latitude,
+        longitude: native.longitude,
+      };
 
     void showPlacePreview(
       {
         id: native.placeId || native.id,
         placeId: native.placeId || native.id,
         googlePlaceId: native.placeId || native.id,
-        title: native.name || native.title || native.placeName || "Pasirinkta vieta",
+        title:
+          native.name || native.title || native.placeName || "Pasirinkta vieta",
         subtitle: native.address || native.subtitle || "Žemėlapio vieta",
         type: "poi",
         coordinate,
@@ -464,6 +502,35 @@ export default function MapScreen() {
     await refreshLocation();
     const target = userLocation;
     if (!target) return;
+
+    // UX rule: pressing My Location must immediately make origin usable.
+    // Reverse geocoding is nice-to-have and must never block routing.
+    planner.selectOrigin({
+      id: "current-location",
+      title: "Mano vieta",
+      subtitle: "Dabartinė GPS vieta",
+      type: "address",
+      latitude: target.latitude,
+      longitude: target.longitude,
+      coordinate: target,
+    } as any);
+
+    void reverseGeocodePlace(target)
+      .then((place) => {
+        if (!place?.coordinate) return;
+        planner.selectOrigin({
+          ...place,
+          id: place.id || "current-location",
+          title: place.title || "Mano vieta",
+          subtitle: place.subtitle || "Dabartinė GPS vieta",
+          type: place.type || "address",
+          latitude: target.latitude,
+          longitude: target.longitude,
+          coordinate: target,
+        } as any);
+      })
+      .catch(() => undefined);
+
     mapRef.current?.animateCamera(
       {
         center: target,
@@ -491,11 +558,17 @@ export default function MapScreen() {
           currentStepIndex={planner.currentStepIndex}
         />
 
-        <WalkingPolylineLayer route={selectedRoute} userLocation={userLocation} />
+        <WalkingPolylineLayer
+          route={selectedRoute}
+          userLocation={userLocation}
+        />
 
         <StopsLayer route={selectedRoute} flowState={planner.flowState} />
 
-        <StationAccessLayer accessPoints={stationAccessPoints} selectedStopId={selectedRoute?.originStop?.id || null} />
+        <StationAccessLayer
+          accessPoints={stationAccessPoints}
+          selectedStopId={selectedRoute?.originStop?.id || null}
+        />
 
         <LiveBusesLayer
           buses={buses}
@@ -519,8 +592,16 @@ export default function MapScreen() {
         <DestinationMarkerLayer destination={selectedDestination} />
       </MapCanvas>
 
-      <Pressable style={styles.recenterButton} onPress={recenterToUser} hitSlop={12}>
-        <Ionicons name={isLocating ? "sync" : "locate"} size={22} color="#147CFF" />
+      <Pressable
+        style={styles.recenterButton}
+        onPress={recenterToUser}
+        hitSlop={12}
+      >
+        <Ionicons
+          name={isLocating ? "sync" : "locate"}
+          size={22}
+          color="#147CFF"
+        />
       </Pressable>
 
       <JourneySheet
@@ -543,10 +624,9 @@ export default function MapScreen() {
         isRerouting={planner.isRerouting}
         reroutingMessage={planner.reroutingMessage}
         onChangeQuery={(text) => {
-          planner.setQuery(text);
-          if (text.trim().length >= 2) {
-            void planner.runSearch(text);
-          }
+          // Always route text changes through runSearch. It clears old results for
+          // short input, debounces valid searches, and prevents stale UI state.
+          void planner.runSearch(text);
         }}
         onSubmitSearch={() => {
           void planner.runSearch();

@@ -4,6 +4,7 @@
  */
 
 const { getRedisClient } = require("../../../db/redis/client");
+const logger = require("../../../core/logging/logger");
 
 const INDEX_REBUILD_INTERVAL_MS = Number(
   process.env.SEARCH_INDEX_REBUILD_INTERVAL_MS || 3600000,
@@ -20,11 +21,11 @@ async function rebuildSearchIndex() {
   try {
     const redis = await getRedisClient();
     if (!redis) {
-      console.log("[searchIndex] Redis unavailable, skipping rebuild");
+      logger.info("[searchIndex] Redis unavailable, skipping rebuild");
       return { success: false, reason: "redis_unavailable" };
     }
 
-    console.log("[searchIndex] Starting index rebuild...");
+    logger.info("[searchIndex] Starting index rebuild...");
     const startedAt = Date.now();
 
     // Clear old cache to force refresh
@@ -33,14 +34,14 @@ async function rebuildSearchIndex() {
     lastRebuildAt = Date.now();
     const tookMs = Date.now() - startedAt;
 
-    console.log(`[searchIndex] Rebuild completed in ${tookMs}ms`);
+    logger.info(`[searchIndex] Rebuild completed in ${tookMs}ms`);
     return {
       success: true,
       tookMs,
       timestamp: new Date().toISOString(),
     };
   } catch (err) {
-    console.error("[searchIndex] Rebuild error:", err.message);
+    logger.error("[searchIndex] Rebuild error:", err.message);
     return {
       success: false,
       error: err.message,
@@ -50,11 +51,11 @@ async function rebuildSearchIndex() {
 
 async function initPeriodicRebuild() {
   if (INDEX_REBUILD_INTERVAL_MS <= 0) {
-    console.log("[searchIndex] Periodic rebuild disabled");
+    logger.info("[searchIndex] Periodic rebuild disabled");
     return;
   }
 
-  console.log(
+  logger.info(
     `[searchIndex] Periodic rebuild enabled (interval: ${INDEX_REBUILD_INTERVAL_MS}ms)`,
   );
 

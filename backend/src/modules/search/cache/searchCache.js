@@ -1,4 +1,5 @@
 const { getRedisClient } = require("../../../db/redis/client");
+const logger = require("../../../core/logging/logger");
 
 const localCache = new Map();
 let redisClient = null;
@@ -13,7 +14,7 @@ async function initRedis() {
     try {
       redisClient = await getRedisClient();
     } catch (err) {
-      console.warn("[searchCache] Redis initialization failed:", err.message);
+      logger.warn("[searchCache] Redis initialization failed:", err.message);
       redisClient = false;
     }
   }
@@ -31,7 +32,7 @@ async function getCache(key) {
       }
     }
   } catch (err) {
-    console.warn("[searchCache] Redis get error:", err.message);
+    logger.warn("[searchCache] Redis get error:", err.message);
   }
 
   // Fallback to local cache
@@ -56,7 +57,7 @@ async function setCache(key, value, ttlMs) {
       return;
     }
   } catch (err) {
-    console.warn("[searchCache] Redis set error:", err.message);
+    logger.warn("[searchCache] Redis set error:", err.message);
   }
 
   // Fallback to local cache
@@ -70,7 +71,7 @@ async function clearCache() {
       await redis.flushDb();
     }
   } catch (err) {
-    console.warn("[searchCache] Redis flush error:", err.message);
+    logger.warn("[searchCache] Redis flush error:", err.message);
   }
   localCache.clear();
 }
