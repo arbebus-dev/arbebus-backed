@@ -1,0 +1,37 @@
+[
+  {
+    "id": "kg-puriena",
+    "type": "kindergarten",
+    "name": "Lopšelis-darželis Puriena",
+    "title": "Lopšelis-darželis Puriena",
+    "subtitle": "Darželis, Klaipėda",
+    "aliases": [
+      "puriena"
+    ],
+    "keywords": [
+      "darzelis",
+      "darželis",
+      "vaikai"
+    ],
+    "latitude": 55.6923,
+    "longitude": 21.1627,
+    "priority": 190
+  },
+  {
+    "id": "kg-linelis",
+    "type": "kindergarten",
+    "name": "Lopšelis-darželis Linelis",
+    "title": "Lopšelis-darželis Linelis",
+    "subtitle": "Darželis, Klaipėda",
+    "aliases": [
+      "linelis"
+    ],
+    "keywords": [
+      "darzelis",
+      "darželis"
+    ],
+    "latitude": 55.6755,
+    "longitude": 21.1713,
+    "priority": 190
+  }
+]

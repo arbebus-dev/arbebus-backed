@@ -815,73 +815,161 @@ function humanGtfsTime(value) {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
+
+function buildChildGuide(route) {
+  const steps = Array.isArray(route?.journeySteps) ? route.journeySteps : [];
+  return steps.map((step, index) => {
+    const type = String(step.type || step.mode || 'step');
+    let icon = '➡️';
+    let action = step.title || 'Kitas žingsnis';
+
+    if (type === 'walk') {
+      icon = index === steps.length - 1 ? '🏁' : '🚶';
+      action = step.title || 'Eik iki stotelės';
+    } else if (type === 'board') {
+      icon = '🚌';
+      action = step.routeNumber || step.routeLabel
+        ? `Lipk į ${step.routeNumber || step.routeLabel} autobusą`
+        : 'Lipk į autobusą';
+    } else if (type === 'ride' || type === 'bus') {
+      icon = '🚌';
+      action = step.stopCount
+        ? `Važiuok ${step.stopCount} stot.`
+        : (step.title || 'Važiuok autobusu');
+    } else if (type === 'transfer') {
+      icon = '🔁';
+      action = step.title || 'Persėsk į kitą autobusą';
+    } else if (type === 'arrive') {
+      icon = '🏁';
+      action = step.title || 'Atvykai';
+    }
+
+    return {
+      id: step.id || `child-guide-${index}`,
+      index,
+      type,
+      icon,
+      action,
+      title: action,
+      subtitle: step.subtitle || null,
+      stopName: step.stopName || step.fromStopName || step.toStopName || null,
+      routeNumber: step.routeNumber || step.routeLabel || null,
+      minutes: Number(step.durationMinutes || step.minutes || 0) || null,
+      stopCount: Number(step.stopCount || 0) || null,
+      safeText: [action, step.subtitle].filter(Boolean).join(' • '),
+    };
+  });
+}
+
+function attachChildGuide(route) {
+  const childGuide = buildChildGuide(route);
+  return {
+    ...route,
+    childGuide,
+    parentSummary: {
+      routeNumbers: route.routeNumbers || [],
+      totalDurationMinutes: route.totalDurationMinutes || route.totalMinutes || null,
+      transfersCount: route.transfersCount || 0,
+      stopCount: route.stopCount || 0,
+      boardStopName: route.boardStopName || route.originStop?.name || null,
+      alightStopName: route.alightStopName || route.destinationStop?.name || null,
+      childGuideCount: childGuide.length,
+    },
+    summary: {
+      ...(route.summary || {}),
+      childGuide,
+    },
+  };
+}
+
 function fallbackOption(from, to, destinationTitle) {
   const meters = Math.round(distanceMeters(from, to));
-  const totalDurationMinutes = Math.max(
-    8,
-    Math.round(meters / BUS_AVG_SPEED_M_PER_MIN),
-  );
-  const walkingMinutes = Math.max(
-    2,
-    Math.round(Math.min(meters, 900) / WALK_SPEED_M_PER_MIN),
-  );
-  const busMinutes = Math.max(6, totalDurationMinutes - walkingMinutes);
-  const routeNumber = meters > 5000 ? "8" : "6";
-  const originStop = {
-    id: "nearest-stop",
-    name: "Artimiausia stotelė",
-    title: "Artimiausia stotelė",
-    ...from,
-    coordinate: from,
-    distanceMeters: 220,
-  };
-  const destinationStop = {
-    id: "destination-stop",
-    name: destinationTitle,
-    title: destinationTitle,
-    ...to,
-    coordinate: to,
-    distanceMeters: 180,
-  };
-  const polyline = [from, to];
-
-  return {
-    id: `fallback-${routeNumber}`,
-    title: `Autobusas ${routeNumber}`,
-    mode: "bus",
-    routeId: routeNumber,
-    routeLabel: routeNumber,
-    routeNumbers: [routeNumber],
-    totalDurationMinutes,
-    totalMinutes: totalDurationMinutes,
+  const walkingMinutes = Math.max(1, Math.round(meters / WALK_SPEED_M_PER_MIN));
+  const polyline = makeWalkPolyline(from, to);
+  const route = {
+    id: `walk-only-${Math.round(from.latitude * 10000)}-${Math.round(to.latitude * 10000)}`,
+    title: 'Eiti pėsčiomis',
+    subtitle: 'Autobusų maršrutas pagal GTFS šiuo metu nerastas',
+    mode: 'walk',
+    routeId: 'walk',
+    routeLabel: 'Pėsčiomis',
+    routeNumbers: [],
+    totalDurationMinutes: walkingMinutes,
+    totalMinutes: walkingMinutes,
     totalWalkMinutes: walkingMinutes,
     walkingMinutes,
-    totalBusMinutes: busMinutes,
+    totalBusMinutes: 0,
     transfers: 0,
     transfersCount: 0,
-    stopCount: Math.max(3, Math.round(meters / 650)),
-    boardStopName: originStop.name,
+    stopCount: 0,
+    boardStopName: 'Pradžia',
     alightStopName: destinationTitle,
-    originStop,
-    destinationStop,
+    originStop: {
+      id: 'origin-walk',
+      name: 'Pradžia',
+      title: 'Pradžia',
+      ...from,
+      coordinate: from,
+      distanceMeters: 0,
+    },
+    destinationStop: {
+      id: 'destination-walk',
+      name: destinationTitle,
+      title: destinationTitle,
+      ...to,
+      coordinate: to,
+      distanceMeters: 0,
+    },
     previewPoints: polyline,
     polyline,
     steps: [],
-    journeySteps: [],
-    summary: {
-      routeLabel: routeNumber,
-      routeNumbers: [routeNumber],
-      totalDurationMinutes,
-      totalWalkMinutes: walkingMinutes,
-      totalBusMinutes: busMinutes,
-      transfersCount: 0,
-      stopCount: Math.max(3, Math.round(meters / 650)),
-      boardStopName: originStop.name,
-      alightStopName: destinationTitle,
-      etaMinutes: 4,
-      journeyMessage: `Važiuok autobusu ${routeNumber} iki „${destinationTitle}“`,
+    journeySteps: [
+      {
+        id: 'walk-only-step',
+        type: 'walk',
+        mode: 'walk',
+        title: `Eik iki „${destinationTitle}“`,
+        subtitle: `${meters} m • ${walkingMinutes} min`,
+        durationMinutes: walkingMinutes,
+        minutes: walkingMinutes,
+        distanceMeters: meters,
+        polyline,
+      },
+    ],
+    routingQuality: {
+      score: 999,
+      hasRealtimeGps: false,
+      hasGtfsSchedule: false,
+      hasWalkingGeometry: false,
+      candidateType: 'walk_only_fallback',
     },
+    summary: {
+      routeLabel: 'Pėsčiomis',
+      routeNumbers: [],
+      totalDurationMinutes: walkingMinutes,
+      totalWalkMinutes: walkingMinutes,
+      totalBusMinutes: 0,
+      transfersCount: 0,
+      stopCount: 0,
+      boardStopName: 'Pradžia',
+      alightStopName: destinationTitle,
+      etaMinutes: null,
+      journeyMessage: 'Autobusų maršrutas nerastas – rodomas ėjimas pėsčiomis.',
+    },
+    legs: [
+      {
+        id: 'walk-only-leg',
+        type: 'walk',
+        mode: 'walk',
+        durationMinutes: walkingMinutes,
+        distanceMeters: meters,
+        polyline,
+      },
+    ],
   };
+
+  route.steps = route.journeySteps;
+  return attachChildGuide(route);
 }
 
 function buildPlanFromCandidate(candidate, from, to, index = 0) {
@@ -1027,7 +1115,7 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
     Math.round((candidate.segments[0]?.departureSeconds - nowSeconds()) / 60),
   );
 
-  return {
+  const route = {
     id: `${candidate.type}-${routeNumbers.join("-")}-${index}`,
     title: transfersCount
       ? `Autobusai ${routeLabelText}`
@@ -1118,6 +1206,8 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
       polyline: segment.polyline,
     })),
   };
+
+  return attachChildGuide(route);
 }
 
 async function plan(body = {}) {
@@ -1159,25 +1249,34 @@ async function plan(body = {}) {
     ...candidateTransferRoutes(originStops, destinationStops, planTimeOptions),
   ], 8);
 
-  const plans = await Promise.all(
-    candidates
-      .slice(0, 4)
-      .map((candidate, index) =>
-        buildPlanFromCandidate(candidate, from, to, index),
-      )
-      .map((route) => enrichPlanWithWalkingGeometry(route)),
-  );
+  const basePlans = candidates
+    .slice(0, 4)
+    .map((candidate, index) => buildPlanFromCandidate(candidate, from, to, index));
+
+  const shouldEnrichWalkingGeometry =
+    body.includeWalkingGeometry === true ||
+    String(process.env.TRANSIT_INCLUDE_WALKING_GEOMETRY || "false").toLowerCase() === "true";
+
+  const plans = shouldEnrichWalkingGeometry
+    ? await Promise.all(basePlans.map((route) => enrichPlanWithWalkingGeometry(route).then(attachChildGuide)))
+    : basePlans.map(attachChildGuide);
 
   if (!plans.length) {
-    const fallback = await enrichPlanWithWalkingGeometry(
-      fallbackOption(from, to, destinationTitle),
-    );
+    const fallbackBase = fallbackOption(from, to, destinationTitle);
+    const fallback = shouldEnrichWalkingGeometry
+      ? attachChildGuide(await enrichPlanWithWalkingGeometry(fallbackBase))
+      : fallbackBase;
     return {
       ok: true,
-      source: "fallback",
+      source: "gtfs-no-route-walk-only",
       plan: fallback,
       options: [fallback],
       routes: [fallback],
+      meta: {
+        routingVersion: "child-routing-v1",
+        hasRealBusRoute: false,
+        walkingGeometryHydrated: shouldEnrichWalkingGeometry,
+      },
     };
   }
 
@@ -1191,8 +1290,9 @@ async function plan(body = {}) {
       originStops: originStops.length,
       destinationStops: destinationStops.length,
       candidates: candidates.length,
-      routingVersion: "step-4-pro-routing-v1",
-      fields: ["journeySteps", "legs", "stopCount", "transfersCount", "departureText", "arrivalText", "routingQuality"],
+      routingVersion: "child-routing-v1",
+      fields: ["journeySteps", "childGuide", "parentSummary", "legs", "stopCount", "transfersCount", "departureText", "arrivalText", "routingQuality"],
+      walkingGeometryHydrated: shouldEnrichWalkingGeometry,
       timeMode,
       travelAt: body.travelAt || null,
     },

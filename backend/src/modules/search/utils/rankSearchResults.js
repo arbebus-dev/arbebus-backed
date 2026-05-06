@@ -1,6 +1,11 @@
 const { normalizeText } = require("./normalizeText");
 
 const TYPE_WEIGHT = {
+  school: 112,
+  kindergarten: 108,
+  sports_club: 104,
+  district: 98,
+  saved_place_template: 72,
   poi: 92,
   address: 86,
   city: 82,

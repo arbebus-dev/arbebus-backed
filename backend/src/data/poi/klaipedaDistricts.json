@@ -1,0 +1,169 @@
+[
+  {
+    "id": "district-senamiestis",
+    "type": "district",
+    "name": "Senamiestis",
+    "title": "Senamiestis",
+    "subtitle": "Klaipėdos rajonas",
+    "aliases": [
+      "old town",
+      "klaipedos senamiestis"
+    ],
+    "keywords": [
+      "centras",
+      "senamiestis"
+    ],
+    "latitude": 55.7075,
+    "longitude": 21.1329,
+    "priority": 180
+  },
+  {
+    "id": "district-centras",
+    "type": "district",
+    "name": "Centras",
+    "title": "Centras",
+    "subtitle": "Klaipėdos miesto centras",
+    "aliases": [
+      "miesto centras",
+      "klaipedos centras"
+    ],
+    "keywords": [
+      "centras",
+      "senamiestis"
+    ],
+    "latitude": 55.7102,
+    "longitude": 21.1311,
+    "priority": 185
+  },
+  {
+    "id": "district-vingis",
+    "type": "district",
+    "name": "Vingis",
+    "title": "Vingis",
+    "subtitle": "Klaipėdos mikrorajonas",
+    "aliases": [
+      "vingio rajonas"
+    ],
+    "keywords": [
+      "vingis"
+    ],
+    "latitude": 55.6754,
+    "longitude": 21.1775,
+    "priority": 150
+  },
+  {
+    "id": "district-banduziai",
+    "type": "district",
+    "name": "Bandužiai",
+    "title": "Bandužiai",
+    "subtitle": "Klaipėdos mikrorajonas",
+    "aliases": [
+      "banduziu rajonas"
+    ],
+    "keywords": [
+      "banduziai",
+      "bandužiai"
+    ],
+    "latitude": 55.6624,
+    "longitude": 21.1781,
+    "priority": 150
+  },
+  {
+    "id": "district-debrecenas",
+    "type": "district",
+    "name": "Debrecenas",
+    "title": "Debrecenas",
+    "subtitle": "Klaipėdos mikrorajonas",
+    "aliases": [
+      "debreceno rajonas"
+    ],
+    "keywords": [
+      "debrecenas"
+    ],
+    "latitude": 55.6819,
+    "longitude": 21.1659,
+    "priority": 150
+  },
+  {
+    "id": "district-zardininkai",
+    "type": "district",
+    "name": "Žardininkai",
+    "title": "Žardininkai",
+    "subtitle": "Klaipėdos mikrorajonas",
+    "aliases": [
+      "zardininkai",
+      "zardininku rajonas"
+    ],
+    "keywords": [
+      "zardininkai",
+      "žardininkai"
+    ],
+    "latitude": 55.6691,
+    "longitude": 21.1792,
+    "priority": 150
+  },
+  {
+    "id": "district-smelte",
+    "type": "district",
+    "name": "Smeltė",
+    "title": "Smeltė",
+    "subtitle": "Klaipėdos mikrorajonas",
+    "aliases": [
+      "smelte"
+    ],
+    "keywords": [
+      "smelte",
+      "smeltė"
+    ],
+    "latitude": 55.6686,
+    "longitude": 21.1482,
+    "priority": 130
+  },
+  {
+    "id": "district-tauralaukis",
+    "type": "district",
+    "name": "Tauralaukis",
+    "title": "Tauralaukis",
+    "subtitle": "Klaipėdos mikrorajonas",
+    "aliases": [],
+    "keywords": [
+      "tauralaukis"
+    ],
+    "latitude": 55.7567,
+    "longitude": 21.1447,
+    "priority": 140
+  },
+  {
+    "id": "district-melnrage",
+    "type": "district",
+    "name": "Melnragė",
+    "title": "Melnragė",
+    "subtitle": "Klaipėdos pajūrio rajonas",
+    "aliases": [
+      "melnrage"
+    ],
+    "keywords": [
+      "melnrage",
+      "melnragė",
+      "papludimys"
+    ],
+    "latitude": 55.7333,
+    "longitude": 21.0897,
+    "priority": 140
+  },
+  {
+    "id": "district-giruliai",
+    "type": "district",
+    "name": "Giruliai",
+    "title": "Giruliai",
+    "subtitle": "Klaipėdos pajūrio rajonas",
+    "aliases": [],
+    "keywords": [
+      "giruliai",
+      "papludimys"
+    ],
+    "latitude": 55.7728,
+    "longitude": 21.0849,
+    "priority": 140
+  }
+]

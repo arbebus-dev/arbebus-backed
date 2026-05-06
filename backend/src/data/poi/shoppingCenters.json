@@ -1,0 +1,39 @@
+[
+  {
+    "id": "shop-akropolis",
+    "type": "poi",
+    "name": "Akropolis Klaipėda",
+    "title": "Akropolis Klaipėda",
+    "subtitle": "Prekybos centras, Klaipėda",
+    "aliases": [
+      "akropolis",
+      "akro",
+      "pc akropolis"
+    ],
+    "keywords": [
+      "parduotuve",
+      "prekybos centras",
+      "kino teatras"
+    ],
+    "latitude": 55.68962,
+    "longitude": 21.14691,
+    "priority": 300
+  },
+  {
+    "id": "shop-big",
+    "type": "poi",
+    "name": "BIG Klaipėda",
+    "title": "BIG Klaipėda",
+    "subtitle": "Prekybos centras, Klaipėda",
+    "aliases": [
+      "big",
+      "bigas"
+    ],
+    "keywords": [
+      "prekybos centras"
+    ],
+    "latitude": 55.6665,
+    "longitude": 21.1783,
+    "priority": 220
+  }
+]

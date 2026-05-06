@@ -2,6 +2,9 @@ const express = require("express");
 const routes = require("../../api/routes");
 const transitRoutes = require("../../api/routes/transit.routes");
 const searchRoutes = require("../../api/routes/search.routes");
+const parentRoutes = require("../../modules/parent/parent.router");
+const childRoutes = require("../../modules/child/child.router");
+const tripsRoutes = require("../../modules/trips/trips.router");
 const corsMiddleware = require("./middlewares/cors");
 const { notFound, errorHandler } = require("./middlewares/errorHandler");
 
@@ -23,6 +26,9 @@ function createApp() {
   app.use("/api/stops/search", searchRoutes);
 
   app.use("/api/transit", transitRoutes);
+  app.use("/api/parent", parentRoutes);
+  app.use("/api/child", childRoutes);
+  app.use("/api/trips", tripsRoutes);
 
   // Full API router and legacy aliases.
   app.use("/api", routes);

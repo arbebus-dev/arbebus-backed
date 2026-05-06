@@ -1,0 +1,60 @@
+[
+  {
+    "id": "sport-svyturio-arena",
+    "type": "sports_club",
+    "name": "Švyturio arena",
+    "title": "Švyturio arena",
+    "subtitle": "Sportas ir renginiai, Klaipėda",
+    "aliases": [
+      "svyturio arena",
+      "arena"
+    ],
+    "keywords": [
+      "sportas",
+      "treniruote",
+      "arena",
+      "krepsinis"
+    ],
+    "latitude": 55.6883,
+    "longitude": 21.1504,
+    "priority": 230
+  },
+  {
+    "id": "sport-gintaro-baseinas",
+    "type": "sports_club",
+    "name": "Gintaro baseinas",
+    "title": "Gintaro baseinas",
+    "subtitle": "Baseinas, Klaipėda",
+    "aliases": [
+      "baseinas",
+      "gintaro"
+    ],
+    "keywords": [
+      "sportas",
+      "plaukimas",
+      "treniruote"
+    ],
+    "latitude": 55.7062,
+    "longitude": 21.1346,
+    "priority": 210
+  },
+  {
+    "id": "sport-futbolo-mokykla",
+    "type": "sports_club",
+    "name": "Klaipėdos futbolo mokykla",
+    "title": "Klaipėdos futbolo mokykla",
+    "subtitle": "Sporto klubas, Klaipėda",
+    "aliases": [
+      "futbolo mokykla"
+    ],
+    "keywords": [
+      "futbolas",
+      "sportas",
+      "treniruote",
+      "burelis"
+    ],
+    "latitude": 55.6987,
+    "longitude": 21.1525,
+    "priority": 205
+  }
+]

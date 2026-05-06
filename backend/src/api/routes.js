@@ -4,6 +4,9 @@ const searchRoutes = require("./routes/search.routes");
 const transitRoutes = require("./routes/transit.routes");
 const routingRoutes = require("./routes/routing.routes");
 const alertsRoutes = require("./routes/alerts.routes");
+const parentRoutes = require("../modules/parent/parent.router");
+const childRoutes = require("../modules/child/child.router");
+const tripsRoutes = require("../modules/trips/trips.router");
 
 const router = express.Router();
 
@@ -14,6 +17,9 @@ router.use("/stops/search", searchRoutes);
 router.use("/transit", transitRoutes);
 router.use("/routing", routingRoutes);
 router.use("/alerts", alertsRoutes);
+router.use("/parent", parentRoutes);
+router.use("/child", childRoutes);
+router.use("/trips", tripsRoutes);
 
 // Legacy aliases used by older Arbebus mobile builds.
 router.get(

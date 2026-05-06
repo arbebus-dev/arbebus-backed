@@ -1,0 +1,83 @@
+[
+  {
+    "id": "school-azuolyno",
+    "type": "school",
+    "name": "Ąžuolyno gimnazija",
+    "title": "Ąžuolyno gimnazija",
+    "subtitle": "Mokykla, Klaipėda",
+    "aliases": [
+      "azuolyno gimnazija",
+      "azuolynas"
+    ],
+    "keywords": [
+      "mokykla",
+      "gimnazija",
+      "vaikai"
+    ],
+    "latitude": 55.7039,
+    "longitude": 21.1641,
+    "priority": 240
+  },
+  {
+    "id": "school-vyduno",
+    "type": "school",
+    "name": "Vydūno gimnazija",
+    "title": "Vydūno gimnazija",
+    "subtitle": "Mokykla, Klaipėda",
+    "aliases": [
+      "vyduno gimnazija"
+    ],
+    "keywords": [
+      "mokykla",
+      "gimnazija"
+    ],
+    "latitude": 55.7061,
+    "longitude": 21.1449,
+    "priority": 230
+  },
+  {
+    "id": "school-baltijos",
+    "type": "school",
+    "name": "Baltijos gimnazija",
+    "title": "Baltijos gimnazija",
+    "subtitle": "Mokykla, Klaipėda",
+    "aliases": [],
+    "keywords": [
+      "mokykla",
+      "gimnazija"
+    ],
+    "latitude": 55.6875,
+    "longitude": 21.1619,
+    "priority": 220
+  },
+  {
+    "id": "school-varpo",
+    "type": "school",
+    "name": "Varpo gimnazija",
+    "title": "Varpo gimnazija",
+    "subtitle": "Mokykla, Klaipėda",
+    "aliases": [],
+    "keywords": [
+      "mokykla",
+      "gimnazija"
+    ],
+    "latitude": 55.6746,
+    "longitude": 21.1721,
+    "priority": 220
+  },
+  {
+    "id": "school-santaka",
+    "type": "school",
+    "name": "Santakos progimnazija",
+    "title": "Santakos progimnazija",
+    "subtitle": "Mokykla, Klaipėda",
+    "aliases": [],
+    "keywords": [
+      "mokykla",
+      "progimnazija"
+    ],
+    "latitude": 55.6816,
+    "longitude": 21.166,
+    "priority": 210
+  }
+]

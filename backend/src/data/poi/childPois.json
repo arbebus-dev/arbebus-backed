@@ -1,0 +1,56 @@
+[
+  {
+    "id": "child-home-placeholder",
+    "type": "saved_place_template",
+    "name": "Namai",
+    "title": "Namai",
+    "subtitle": "Išsaugoma telefone / paskyroje",
+    "aliases": [
+      "namai",
+      "home"
+    ],
+    "keywords": [
+      "namai"
+    ],
+    "latitude": 55.7033,
+    "longitude": 21.1443,
+    "priority": 60
+  },
+  {
+    "id": "child-school-placeholder",
+    "type": "saved_place_template",
+    "name": "Mokykla",
+    "title": "Mokykla",
+    "subtitle": "Pasirink vaiko mokyklą",
+    "aliases": [
+      "school",
+      "mokykla"
+    ],
+    "keywords": [
+      "mokykla"
+    ],
+    "latitude": 55.7033,
+    "longitude": 21.1443,
+    "priority": 55
+  },
+  {
+    "id": "child-club-placeholder",
+    "type": "saved_place_template",
+    "name": "Būrelis / sporto klubas",
+    "title": "Būrelis / sporto klubas",
+    "subtitle": "Pasirink treniruotės vietą",
+    "aliases": [
+      "burelis",
+      "būrelis",
+      "sportas",
+      "treniruote"
+    ],
+    "keywords": [
+      "burelis",
+      "sportas"
+    ],
+    "latitude": 55.7033,
+    "longitude": 21.1443,
+    "priority": 50
+  }
+]
