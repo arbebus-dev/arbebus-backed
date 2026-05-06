@@ -132,6 +132,21 @@ CREATE INDEX IF NOT EXISTS idx_transit_trips_route_service ON transit.trips (rou
 CREATE INDEX IF NOT EXISTS idx_transit_trips_service ON transit.trips (service_id);
 CREATE INDEX IF NOT EXISTS idx_transit_shape_points_order ON transit.shape_points (shape_id, shape_pt_sequence);
 
+-- Search Performance Indexes (Added for address search optimization)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- Fast substring/fuzzy search using trigrams
+CREATE INDEX IF NOT EXISTS idx_transit_stops_name_trgm ON transit.stops USING GIN (stop_name gin_trgm_ops);
+
+-- Case-insensitive exact/prefix search
+CREATE INDEX IF NOT EXISTS idx_transit_stops_name_lower ON transit.stops (LOWER(stop_name));
+
+-- Stop code lookup
+CREATE INDEX IF NOT EXISTS idx_transit_stops_code ON transit.stops (stop_code);
+
+-- Combined search index for stop_name and stop_desc
+CREATE INDEX IF NOT EXISTS idx_transit_stops_search ON transit.stops (stop_id, stop_name, stop_lat, stop_lon);
+
 DROP MATERIALIZED VIEW IF EXISTS transit.service_days;
 CREATE MATERIALIZED VIEW transit.service_days AS
 WITH calendar_range AS (

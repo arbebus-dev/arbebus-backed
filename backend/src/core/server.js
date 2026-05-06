@@ -21,6 +21,7 @@ const { createApp } = require("./server/app");
 const { env } = require("./config/env");
 const { logger } = require("./logging/logger");
 const { initSentry } = require("./monitoring/sentry");
+const { initPeriodicRebuild } = require("../modules/search/cache/indexRebuild");
 
 initSentry();
 
@@ -30,4 +31,12 @@ const PORT = process.env.PORT || env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
   logger.info({ port: PORT, nodeEnv: env.NODE_ENV }, "Arbebus backend started");
+
+  // Initialize periodic search index rebuild
+  initPeriodicRebuild().catch((err) => {
+    logger.error(
+      { error: err.message },
+      "Failed to initialize search index rebuild",
+    );
+  });
 });
