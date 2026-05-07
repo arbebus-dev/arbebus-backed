@@ -1,5 +1,5 @@
 const { getRedisClient } = require("../../../db/redis/client");
-const logger = require("../../../core/logging/logger");
+const { logger } = require("../../../core/logging/logger");
 
 const localCache = new Map();
 let redisClient = null;
