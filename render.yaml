@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: arbebus-backend
+    runtime: docker
+    region: oregon
+    plan: starter
+
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: PORT
+        value: 3000
+
+    autoDeploy: true
+
+    healthCheckPath: /api/health
+    healthCheckStartupTimeout: 60
+    healthCheckInterval: 30
+
+  - type: postgres
+    name: arbebus-postgres
+    plan: starter
+    ipAllowList: []
+
+  - type: redis
+    name: arbebus-redis
+    plan: starter
+    ipAllowList: []

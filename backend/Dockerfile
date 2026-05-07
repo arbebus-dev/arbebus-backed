@@ -1,10 +1,26 @@
 FROM node:20-alpine
+
 WORKDIR /app
+
+# Copy package files
 COPY package*.json ./
-COPY backend/package*.json ./backend/
-COPY shared/package*.json ./shared/
-RUN npm install
-COPY backend ./backend
-COPY shared ./shared
+
+# Install dependencies
+RUN npm install --production
+
+# Copy backend source
+COPY src ./src
+COPY db ./db
+
+# Create required data directories
+RUN mkdir -p data/poi data/stations data/gtfs data/seeds
+
+# Expose port
 EXPOSE 3000
-CMD ["npm", "--workspace", "backend", "run", "start"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:3000/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+
+# Start backend
+CMD ["node", "src/core/server.js"]
