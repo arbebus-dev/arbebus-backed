@@ -173,6 +173,7 @@ function WheelColumn<T extends string | number>({
         onScrollEndDrag={handleMomentumEnd}
       >
         {values.map((value, index) => {
+          const distance = Math.abs(index - selectedIndex);
           const isActive = index === selectedIndex;
 
           return (
@@ -183,7 +184,11 @@ function WheelColumn<T extends string | number>({
             >
               <Text
                 numberOfLines={1}
-                style={[styles.wheelText, isActive && styles.wheelTextActive]}
+                style={[
+                  styles.wheelText,
+                  distance === 1 && styles.wheelTextNear,
+                  isActive && styles.wheelTextActive,
+                ]}
               >
                 {renderLabel(value)}
               </Text>
@@ -260,12 +265,12 @@ export default function TravelTimeModal({
     <Modal visible={visible} transparent animationType="slide" statusBarTranslucent>
       <View style={styles.overlay}>
         <SafeAreaView style={styles.safeArea}>
-          <BlurView intensity={72} tint="dark" style={styles.card}>
+          <BlurView intensity={82} tint="dark" style={styles.card}>
             <View style={styles.handle} />
 
             <View style={styles.header}>
-              <Pressable onPress={onClose} style={styles.circleButton}>
-                <Ionicons name="close" size={24} color={colors.text} />
+              <Pressable onPress={onClose} style={styles.circleButton} hitSlop={10}>
+                <Ionicons name="close" size={23} color={colors.text} />
               </Pressable>
 
               <View style={styles.headerTitleWrap}>
@@ -273,7 +278,7 @@ export default function TravelTimeModal({
                 <Text style={styles.subtitle}>{modeSummaryLabel(mode)}</Text>
               </View>
 
-              <Pressable onPress={confirm} style={styles.okButton}>
+              <Pressable onPress={confirm} style={styles.okButton} hitSlop={10}>
                 <Text style={styles.okButtonText}>OK</Text>
               </Pressable>
             </View>
@@ -385,7 +390,7 @@ const styles = StyleSheet.create({
   },
   handle: {
     alignSelf: "center",
-    width: 52,
+    width: 54,
     height: 5,
     borderRadius: 99,
     backgroundColor: "rgba(255,255,255,0.28)",
@@ -519,11 +524,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   wheelText: {
-    color: "rgba(248,251,255,0.36)",
+    color: "rgba(248,251,255,0.30)",
     textAlign: "center",
     fontSize: 14,
     lineHeight: 18,
     fontWeight: typography.weight.semibold,
+  },
+  wheelTextNear: {
+    color: "rgba(248,251,255,0.52)",
   },
   wheelTextActive: {
     color: colors.text,
@@ -548,7 +556,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: ITEM_HEIGHT * 1.4,
-    backgroundColor: "rgba(7,12,22,0.60)",
+    backgroundColor: "rgba(7,12,22,0.64)",
     zIndex: 2,
   },
   bottomFade: {
@@ -557,7 +565,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: ITEM_HEIGHT * 1.4,
-    backgroundColor: "rgba(7,12,22,0.60)",
+    backgroundColor: "rgba(7,12,22,0.64)",
     zIndex: 2,
   },
   nowPanel: {

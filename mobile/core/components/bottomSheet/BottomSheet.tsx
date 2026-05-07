@@ -19,7 +19,7 @@ export default function BottomSheet({ children, height, initialSnap, snapPoints,
 
   return (
     <Animated.View style={[styles.shell, style, { height, transform: [{ translateY: sheet.translateY }] }]} pointerEvents="box-none">
-      <BlurView intensity={88} tint="dark" style={styles.surface}>
+      <BlurView intensity={92} tint="dark" style={styles.surface}>
         <Animated.View {...sheet.panHandlers}>
           <BottomSheetHandle />
         </Animated.View>
@@ -35,8 +35,8 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
+    borderTopLeftRadius: 34,
+    borderTopRightRadius: 34,
     overflow: "hidden",
     zIndex: 30,
     elevation: 30,
@@ -48,7 +48,7 @@ const styles = StyleSheet.create({
   },
   surface: {
     flex: 1,
-    backgroundColor: "rgba(5,10,18,0.88)",
+    backgroundColor: "rgba(5,10,18,0.86)",
     borderTopWidth: 1,
     borderColor: "rgba(255,255,255,0.10)",
   },

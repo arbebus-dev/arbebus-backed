@@ -8,7 +8,7 @@ type Props = {
   onOpenProfile: () => void;
   onOpenPayment: () => void;
   onOpenSettings: () => void;
-  onOpenFeedback: () => void;
+  onOpenHelp: () => void;
   onOpenLegal: () => void;
 };
 
@@ -19,14 +19,13 @@ type Item = {
   onPress: () => void;
 };
 
-export default function AccountMenu({ onOpenProfile, onOpenPayment, onOpenSettings, onOpenFeedback, onOpenLegal }: Props) {
+export default function AccountMenu({ onOpenProfile, onOpenPayment, onOpenSettings, onOpenHelp, onOpenLegal }: Props) {
   const items: Item[] = [
-    { title: 'Profilis', subtitle: 'Asmeninė informacija', icon: 'account-outline', onPress: onOpenProfile },
-    { title: 'Mokėjimo būdai', subtitle: 'Kortelės, Apple Pay ir kt.', icon: 'credit-card-outline', onPress: onOpenPayment },
-    { title: 'Nustatymai', subtitle: 'Programėlės nustatymai', icon: 'cog-outline', onPress: onOpenSettings },
-    { title: 'Pranešimai', subtitle: 'Įspėjimai ir pranešimų nustatymai', icon: 'bell-outline', onPress: onOpenFeedback },
-    { title: 'Pagalba', subtitle: 'DUK ir klientų aptarnavimas', icon: 'help-circle-outline', onPress: onOpenFeedback },
-    { title: 'Teisinė informacija', subtitle: 'Privatumo politika ir sąlygos', icon: 'file-document-check-outline', onPress: onOpenLegal },
+    { title: 'Profilis', subtitle: 'Pildyti ir saugoti asmeninę informaciją', icon: 'account-outline', onPress: onOpenProfile },
+    { title: 'Mokėjimo būdai', subtitle: 'Saugūs mokėjimo tokenai ir Apple Pay', icon: 'credit-card-outline', onPress: onOpenPayment },
+    { title: 'Nustatymai', subtitle: 'Kalba, tema, pranešimai ir automatiniai mokėjimai', icon: 'cog-outline', onPress: onOpenSettings },
+    { title: 'Pagalba ir atsiliepimai', subtitle: 'Atsiliepimai, problemos, DUK ir kontaktai', icon: 'help-circle-outline', onPress: onOpenHelp },
+    { title: 'Teisinė informacija', subtitle: 'Privatumo politika, sąlygos ir kontaktai', icon: 'file-document-check-outline', onPress: onOpenLegal },
   ];
 
   return (

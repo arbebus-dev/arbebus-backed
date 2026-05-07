@@ -4,6 +4,7 @@ import React, { useCallback, useState } from "react";
 import { View } from "react-native";
 
 import LaunchScreen from "@/core/features/launch/LaunchScreen";
+import { AppPreferencesProvider } from "@/core/features/account/context/AppPreferencesContext";
 import { LanguageProvider, useLanguage } from "@/core/i18n/LanguageContext";
 import type { AppLanguage } from "@/core/i18n/translations";
 
@@ -34,7 +35,11 @@ function RootLayoutInner() {
     return <LaunchScreen onSelectLanguage={handleSelectLanguage} />;
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <AppPreferencesProvider>
+      <Stack screenOptions={{ headerShown: false }} />
+    </AppPreferencesProvider>
+  );
 }
 
 export default function RootLayout() {

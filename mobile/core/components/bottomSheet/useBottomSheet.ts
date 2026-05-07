@@ -32,9 +32,9 @@ export function useBottomSheet({
     Animated.spring(translateY, {
       toValue,
       useNativeDriver: true,
-      damping: 30,
-      stiffness: 235,
-      mass: 0.82,
+      damping: 34,
+      stiffness: 205,
+      mass: 0.88,
       restDisplacementThreshold: 0.6,
       restSpeedThreshold: 0.6,
     }).start();
@@ -45,8 +45,8 @@ export function useBottomSheet({
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: (_evt, gesture) =>
-          Math.abs(gesture.dy) > 5 &&
-          Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.18,
+          Math.abs(gesture.dy) > 4 &&
+          Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.08,
         onPanResponderGrant: () => {
           startY.current = currentY.current;
           translateY.stopAnimation((value) => {
@@ -64,11 +64,11 @@ export function useBottomSheet({
         },
         onPanResponderRelease: (_evt, gesture) => {
           const snap = nearestSnap(
-            currentY.current + gesture.vy * 145,
+            currentY.current + gesture.vy * 165,
             snapPoints,
           );
           animateTo(snap);
-          void Haptics.selectionAsync();
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         },
         onPanResponderTerminate: () =>
           animateTo(nearestSnap(currentY.current, snapPoints)),
