@@ -1,14 +1,19 @@
 {
   "expo": {
-    "extra": {
-      "eas": {
-        "projectId": "3ff2bb3c-494a-4b7e-9aa8-be2f5bfc6dd5"
-      }
-    },
+    "name": "Arbebus",
+    "slug": "arbebus-monorepo",
+    "version": "1.0.0",
+    "scheme": "arbebus",
+    "orientation": "portrait",
     "ios": {
       "bundleIdentifier": "com.arbebus.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "3ff2bb3c-494a-4b7e-9aa8-be2f5bfc6dd5"
       }
     }
   }
