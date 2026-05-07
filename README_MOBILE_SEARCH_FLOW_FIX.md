@@ -10,6 +10,7 @@ Overwrite these files from project root:
 - mobile/constants/api.ts
 
 Included fixes:
+
 - debounce 250ms
 - stale request cancellation by request id
 - top 8 rendered/search results
@@ -33,6 +34,6 @@ eas submit --platform ios --latest
 
 Important: backend /api/transit/plan must also be fixed on Render first. Test:
 
-curl.exe "https://arbebus-backed.onrender.com/api/transit/plan?fromLat=55.7033&fromLng=21.1443&toLat=55.6886&toLng=21.1567"
+curl.exe "https://arbebus-backend.onrender.com/api/transit/plan?fromLat=55.7033&fromLng=21.1443&toLat=55.6886&toLng=21.1567"
 
 Expected: ok:true, not options.push error.

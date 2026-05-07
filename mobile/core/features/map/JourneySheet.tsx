@@ -3,38 +3,40 @@ import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useMemo, useRef } from "react";
 import {
-  ActivityIndicator,
-  Animated,
-  Dimensions,
-  Image,
-  Keyboard,
-  PanResponder,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    ActivityIndicator,
+    Animated,
+    Dimensions,
+    Image,
+    Keyboard,
+    PanResponder,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 
 import { useLanguage } from "@/core/i18n/LanguageContext";
+import { saveFavoritePlace } from "@/core/services/favorites/favoritePlacesService";
 import { COLORS, LINE_HEIGHT, T } from "@/core/theme/typography";
+import FavoritePlacesSheet from "../rideBooking/components/FavoritePlacesSheet";
 import TravelTimeModal, {
-  type TravelTimeMode,
-  type TravelTimeSelection,
+    type TravelTimeMode,
+    type TravelTimeSelection,
 } from "../rideBooking/components/TravelTimeModal";
 import {
-  buildJourneyViewModel,
-  cleanRouteNumber,
-  cleanStopName,
-  getSteps,
-  routeNumbersFromRoute,
+    buildJourneyViewModel,
+    cleanRouteNumber,
+    cleanStopName,
+    getSteps,
+    routeNumbersFromRoute,
 } from "../transit/models/journeyStateMachine";
 import type {
-  PlaceSearchResult,
-  TransitFlowState,
-  TransitRouteOption,
-  TransitStep,
+    PlaceSearchResult,
+    TransitFlowState,
+    TransitRouteOption,
+    TransitStep,
 } from "../transit/models/transitTypes";
 
 type Props = {
@@ -67,6 +69,7 @@ type Props = {
   onSelectDestination: (place: PlaceSearchResult) => void;
   onSelectOrigin?: (place: PlaceSearchResult) => void;
   onClearOrigin?: () => void;
+  onSwapPlaces?: () => void;
   onChooseRoute: (route: TransitRouteOption) => void;
   onStartJourney: () => void;
   onNextStep: () => void;
@@ -82,8 +85,9 @@ const SHEET_TOP = 64;
 const SHEET_RADIUS = 32;
 const SNAP_FULL = SHEET_TOP;
 const SNAP_MID = Math.round(SCREEN_HEIGHT * 0.42);
-const SNAP_BOTTOM = Math.max(SCREEN_HEIGHT - 126, SCREEN_HEIGHT * 0.852);
-const SNAP_COMPACT = Math.max(SCREEN_HEIGHT - 224, SCREEN_HEIGHT * 0.715);
+// Default search position: high enough to show IŠ KUR / Į KUR / KADA and favourites.
+const SNAP_BOTTOM = Math.round(SCREEN_HEIGHT * 0.49);
+const SNAP_COMPACT = Math.round(SCREEN_HEIGHT * 0.66);
 const SHEET_HEIGHT = SCREEN_HEIGHT - SHEET_TOP + 32;
 const SHEET_POINTS = [SNAP_FULL, SNAP_MID, SNAP_BOTTOM] as const;
 const NAV_SHEET_POINTS = [SNAP_FULL, SNAP_MID, SNAP_COMPACT] as const;
@@ -155,11 +159,7 @@ function timeText(value?: string | null) {
 }
 
 function stopTimeText(stop: unknown) {
-  const item = stop as {
-    arrivalTime?: string | null;
-    departureTime?: string | null;
-  };
-  return timeText(item?.arrivalTime || item?.departureTime);
+  return timeText(stop?.arrivalTime || stop?.departureTime);
 }
 
 function travelTimeLabel(mode?: TravelTimeMode, value?: Date | string | null) {
@@ -293,7 +293,7 @@ function Header({
 }: {
   title: string;
   subtitle?: string;
-  icon?: string;
+  icon?: unknown;
   badge?: string;
   onClose: () => void;
   onBack?: () => void;
@@ -307,7 +307,7 @@ function Header({
       ) : null}
       <View style={styles.headerIcon}>
         <MaterialCommunityIcons
-          name={(icon || "directions-fork") as any}
+          name={icon || "directions-fork"}
           size={17}
           color={COLORS.green}
         />
@@ -335,67 +335,10 @@ function Header({
   );
 }
 
-function SearchInput(
-  props: Pick<
-    Props,
-    "query" | "isSearching" | "onChangeQuery" | "onSubmitSearch" | "onReset"
-  >,
-) {
-  const { t } = useLanguage();
-  return (
-    <View style={styles.searchInputRow}>
-      <Ionicons name="search" size={16} color="rgba(248,251,255,0.58)" />
-      <TextInput
-        value={props.query}
-        onChangeText={props.onChangeQuery}
-        onSubmitEditing={() => {
-          Keyboard.dismiss();
-          props.onSubmitSearch();
-        }}
-        placeholder={t.common.searchPlaceholder}
-        placeholderTextColor="rgba(248,251,255,0.42)"
-        returnKeyType="search"
-        autoCorrect={false}
-        autoCapitalize="none"
-        style={styles.searchInput}
-      />
-      {props.isSearching ? (
-        <ActivityIndicator size="small" color={COLORS.green} />
-      ) : null}
-      {props.query.trim().length ? (
-        <Pressable
-          onPress={props.onReset}
-          hitSlop={12}
-          style={styles.searchClearButton}
-        >
-          <Ionicons name="close" size={13} color="rgba(248,251,255,0.58)" />
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
-function ProfileAvatar() {
-  return (
-    <Pressable
-      style={styles.profileAvatar}
-      onPress={() => {
-        void Haptics.selectionAsync();
-      }}
-      hitSlop={10}
-    >
-      <Ionicons name="person" size={17} color="#0B1220" />
-    </Pressable>
-  );
-}
-
 function AppleSearchHeader({ panHandlers }: { panHandlers?: unknown }) {
   const { t } = useLanguage();
   return (
-    <View
-      {...((panHandlers ?? {}) as Record<string, unknown>)}
-      style={styles.fixedHeaderCompact}
-    >
+    <View {...(panHandlers || {})} style={styles.fixedHeaderCompact}>
       <Text style={styles.appleSheetTitleCentered}>{t.common.appName}</Text>
     </View>
   );
@@ -407,7 +350,7 @@ function QuickMenuRow({
   subtitle,
   onPress,
 }: {
-  icon: string;
+  icon: unknown;
   title: string;
   subtitle?: string;
   onPress: () => void;
@@ -421,11 +364,7 @@ function QuickMenuRow({
       }}
     >
       <View style={styles.quickMenuIcon}>
-        <MaterialCommunityIcons
-          name={icon as any}
-          size={17}
-          color={COLORS.green}
-        />
+        <MaterialCommunityIcons name={icon} size={17} color={COLORS.green} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.quickMenuTitle} numberOfLines={1}>
@@ -446,33 +385,6 @@ function QuickMenuRow({
   );
 }
 
-function SuggestionChip({
-  icon,
-  label,
-  onPress,
-}: {
-  icon: string;
-  label: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      style={styles.suggestionChip}
-      onPress={() => {
-        void Haptics.selectionAsync();
-        onPress();
-      }}
-    >
-      <MaterialCommunityIcons
-        name={icon as any}
-        size={15}
-        color={COLORS.green}
-      />
-      <Text style={styles.suggestionChipText}>{label}</Text>
-    </Pressable>
-  );
-}
-
 function TripInputRow({
   icon,
   label,
@@ -487,11 +399,7 @@ function TripInputRow({
   return (
     <View style={styles.tripInputRow}>
       <View style={styles.tripInputIcon}>
-        <MaterialCommunityIcons
-          name={icon as any}
-          size={15}
-          color={COLORS.green}
-        />
+        <MaterialCommunityIcons name={icon} size={15} color={COLORS.green} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.tripInputLabel}>{label}</Text>
@@ -605,6 +513,16 @@ function TripSearchForm({
           isLoading={activeField === "from" && props.isSearching}
         />
       </TripInputRow>
+      <Pressable
+        style={styles.swapPlacesButton}
+        onPress={() => {
+          void Haptics.selectionAsync();
+          props.onSwapPlaces?.();
+        }}
+        hitSlop={12}
+      >
+        <Ionicons name="swap-vertical" size={23} color="#7EA4FF" />
+      </Pressable>
       <View style={styles.tripDivider} />
       <TripInputRow icon="map-marker" label={t.sheet.to}>
         <InlineInput
@@ -685,8 +603,8 @@ function PlacePreviewCard({ props }: { props: Props }) {
 
   const photos = [
     ...(Array.isArray((place as { photos?: unknown[] }).photos)
-      ? ((place as { photos?: unknown[] }).photos || [])
-          .map((p: unknown) => (p as { url?: string })?.url || p)
+      ? (place as { photos?: unknown[] }).photos
+          .map((p: unknown) => p?.url || p)
           .filter(Boolean)
       : []),
     ...(Array.isArray((place as any).photoUrls)
@@ -835,13 +753,14 @@ function PlacePreviewCard({ props }: { props: Props }) {
   );
 }
 
-function AppleMenuContent(props: Props) {
+function AppleMenuContent({
+  props,
+  onOpenFavoritePlaces,
+}: {
+  props: Props;
+  onOpenFavoritePlaces: () => void;
+}) {
   const { t } = useLanguage();
-
-  const runPresetSearch = (value: string) => {
-    props.onChangeQuery(value);
-    setTimeout(() => props.onSubmitSearch(), 0);
-  };
 
   return (
     <View style={styles.appleMenuRoot}>
@@ -851,13 +770,7 @@ function AppleMenuContent(props: Props) {
           icon="heart"
           title={t.sheet.favouritePlaces}
           subtitle={t.sheet.favouritePlacesSubtitle}
-          onPress={() => runPresetSearch(t.sheet.favouritePlaces)}
-        />
-        <QuickMenuRow
-          icon="star"
-          title={t.sheet.favouriteStops}
-          subtitle={t.sheet.favouriteStopsSubtitle}
-          onPress={() => runPresetSearch(t.sheet.favouriteStops)}
+          onPress={onOpenFavoritePlaces}
         />
       </View>
     </View>
@@ -887,6 +800,8 @@ function SearchSkeletonRows() {
 function SearchState(props: Props & { panHandlers?: unknown }) {
   const { t } = useLanguage();
   const [activeField, setActiveField] = React.useState<"from" | "to">("to");
+  const [favoritePlacesVisible, setFavoritePlacesVisible] =
+    React.useState(false);
   const hasResults = props.searchResults.length > 0;
   const hasQuery = props.query.trim().length >= 2;
   const showSkeleton = Boolean(props.isSearching && hasQuery && !hasResults);
@@ -946,6 +861,30 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
                     {placeSubtitle(place)}
                   </Text>
                 </View>
+                <Pressable
+                  style={styles.favoriteSaveButton}
+                  onPress={(event) => {
+                    event.stopPropagation?.();
+                    void Haptics.selectionAsync();
+                    void saveFavoritePlace({
+                      id: place.id,
+                      title: cleanStopName(place.title),
+                      subtitle: placeSubtitle(place),
+                      type: place.type,
+                      latitude: place.latitude ?? place.coordinate?.latitude,
+                      longitude: place.longitude ?? place.coordinate?.longitude,
+                      coordinate: place.coordinate,
+                      createdAt: new Date().toISOString(),
+                    });
+                  }}
+                  hitSlop={10}
+                >
+                  <Ionicons
+                    name="heart-outline"
+                    size={19}
+                    color={COLORS.green}
+                  />
+                </Pressable>
                 <Ionicons name="chevron-forward" size={14} color={COLORS.dim} />
               </Pressable>
             ))
@@ -964,9 +903,26 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
         ) : null}
 
         {!hasResults && !showSkeleton && !hasQuery ? (
-          <AppleMenuContent {...props} />
+          <AppleMenuContent
+            props={props}
+            onOpenFavoritePlaces={() => setFavoritePlacesVisible(true)}
+          />
         ) : null}
       </ScrollView>
+      <FavoritePlacesSheet
+        visible={favoritePlacesVisible}
+        onClose={() => setFavoritePlacesVisible(false)}
+        onSelectPlace={(place) => {
+          setFavoritePlacesVisible(false);
+          if (place.coordinate) {
+            props.onChangeQuery("");
+            props.onSelectDestination(place as any);
+            return;
+          }
+          props.onChangeQuery(place.title);
+          setTimeout(() => props.onSubmitSearch(), 0);
+        }}
+      />
     </View>
   );
 }
@@ -2333,8 +2289,11 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginTop: 1,
   },
-  stepsContent: { paddingHorizontal: 18, paddingBottom: 132, paddingTop: 2 },
-  navStepsContent: { paddingHorizontal: 18, paddingBottom: 132, paddingTop: 4 },
+  // Extra bottom padding keeps the last trip steps above the floating bottom tab bar
+  // and above the fixed CTA button. Without this, the tab bar can cover the
+  // “GO — pradėti kelionę” button on iPhone/Android.
+  stepsContent: { paddingHorizontal: 18, paddingBottom: 240, paddingTop: 2 },
+  navStepsContent: { paddingHorizontal: 18, paddingBottom: 240, paddingTop: 4 },
   stepRow: {
     minHeight: 49,
     flexDirection: "row",
@@ -2453,7 +2412,15 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   progressFill: { height: 4, borderRadius: 2, backgroundColor: COLORS.green },
-  stickyCtaWrap: { position: "absolute", left: 18, right: 18, bottom: 22 },
+  // Raised above the floating Keliauti / Paskyra tab bar.
+  stickyCtaWrap: {
+    position: "absolute",
+    left: 18,
+    right: 18,
+    bottom: 112,
+    zIndex: 50,
+    elevation: 50,
+  },
   primaryButton: {
     height: 54,
     borderRadius: 22,
@@ -2503,6 +2470,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.25,
   },
   tripFormCard: {
+    position: "relative",
     borderRadius: 24,
     padding: 12,
     backgroundColor: "rgba(8,18,32,0.94)",
@@ -2510,6 +2478,29 @@ const styles = StyleSheet.create({
     borderColor: "rgba(55,245,174,0.24)",
     marginBottom: 12,
     marginTop: 2,
+  },
+  swapPlacesButton: {
+    position: "absolute",
+    right: 18,
+    top: 74,
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(92,117,170,0.42)",
+    borderWidth: 1,
+    borderColor: "rgba(126,164,255,0.28)",
+    zIndex: 20,
+  },
+  favoriteSaveButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(52,245,162,0.10)",
+    marginRight: 2,
   },
   tripInputRow: {
     minHeight: 56,

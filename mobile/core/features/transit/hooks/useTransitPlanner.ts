@@ -2,29 +2,34 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "react-native";
-import { clearBackgroundNavigationTrip, syncBackgroundNavigationTrip, triggerLocalNavigationNotification } from "../../../services/navigationBackground";
+import { monitoring } from "../../../services/monitoring";
+import {
+    clearBackgroundNavigationTrip,
+    syncBackgroundNavigationTrip,
+    triggerLocalNavigationNotification,
+} from "../../../services/navigationBackground";
+import {
+    firstJourneyStepIndex,
+    flowStateForStepIndex,
+    nextJourneyStepIndex,
+} from "../models/journeyStateMachine";
 import type {
-  Coordinate,
-  PlaceSearchResult,
-  TransitFlowState,
-  TransitRouteOption,
-  TransitStep,
-  TransitStepType,
+    Coordinate,
+    PlaceSearchResult,
+    TransitFlowState,
+    TransitRouteOption,
+    TransitStep,
+    TransitStepType,
 } from "../models/transitTypes";
 import {
-  fetchLiveEta,
-  fetchTransitShape,
-  fetchWalkingRoute,
-  planTransitRoute,
-  searchPlaces,
-  type PlaceResult as ApiPlaceResult,
-  type TransitRouteOption as ApiTransitRouteOption,
+    fetchLiveEta,
+    fetchTransitShape,
+    fetchWalkingRoute,
+    planTransitRoute,
+    searchPlaces,
+    type PlaceResult as ApiPlaceResult,
+    type TransitRouteOption as ApiTransitRouteOption,
 } from "../services/transitApi";
-import {
-  firstJourneyStepIndex,
-  flowStateForStepIndex,
-  nextJourneyStepIndex,
-} from "../models/journeyStateMachine";
 
 // ====== helpers ======
 function safeArray<T>(arr: any): T[] {
@@ -54,11 +59,13 @@ export type TravelTimeSelection = {
   date: Date;
 };
 
-async function saveCachedTransitPlan(payload: Omit<CachedTransitPlan, "createdAt">) {
+async function saveCachedTransitPlan(
+  payload: Omit<CachedTransitPlan, "createdAt">,
+) {
   try {
     await AsyncStorage.setItem(
       TRANSIT_PLAN_CACHE_KEY,
-      JSON.stringify({ ...payload, createdAt: Date.now() })
+      JSON.stringify({ ...payload, createdAt: Date.now() }),
     );
   } catch {
     // Cache is a safety net only. Never block navigation because cache failed.
@@ -71,11 +78,15 @@ async function loadCachedTransitPlan(): Promise<CachedTransitPlan | null> {
     if (!raw) return null;
 
     const parsed = JSON.parse(raw) as CachedTransitPlan;
-    if (!parsed?.createdAt || Date.now() - parsed.createdAt > TRANSIT_PLAN_CACHE_TTL_MS) {
+    if (
+      !parsed?.createdAt ||
+      Date.now() - parsed.createdAt > TRANSIT_PLAN_CACHE_TTL_MS
+    ) {
       return null;
     }
 
-    if (!Array.isArray(parsed.routeOptions) || !parsed.routeOptions.length) return null;
+    if (!Array.isArray(parsed.routeOptions) || !parsed.routeOptions.length)
+      return null;
     return parsed;
   } catch {
     return null;
@@ -83,8 +94,15 @@ async function loadCachedTransitPlan(): Promise<CachedTransitPlan | null> {
 }
 
 function toCoordinate(input: any): Coordinate | null {
-  const latitude = Number(input?.latitude ?? input?.lat ?? input?.coordinate?.latitude);
-  const longitude = Number(input?.longitude ?? input?.lon ?? input?.lng ?? input?.coordinate?.longitude);
+  const latitude = Number(
+    input?.latitude ?? input?.lat ?? input?.coordinate?.latitude,
+  );
+  const longitude = Number(
+    input?.longitude ??
+      input?.lon ??
+      input?.lng ??
+      input?.coordinate?.longitude,
+  );
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
 }
@@ -93,9 +111,9 @@ function toCoordinate(input: any): Coordinate | null {
 function distanceMeters(a: Coordinate, b: Coordinate) {
   const dx = (a.latitude - b.latitude) * 111320;
   const dy =
-    (a.longitude - b.longitude) *
-    40075000 *
-    Math.cos((a.latitude * Math.PI) / 180) /
+    ((a.longitude - b.longitude) *
+      40075000 *
+      Math.cos((a.latitude * Math.PI) / 180)) /
     360;
 
   return Math.sqrt(dx * dx + dy * dy);
@@ -113,7 +131,7 @@ function isActiveNavigationState(flowState: TransitFlowState) {
 
 function targetForStep(
   route: TransitRouteOption,
-  step: TransitStep | undefined
+  step: TransitStep | undefined,
 ): Coordinate | null {
   if (!step) return null;
 
@@ -153,10 +171,14 @@ function targetForStep(
 const REROUTE_COOLDOWN_MS = 45_000;
 const DEVIATION_CONFIRMATIONS_REQUIRED = 2;
 
-function distanceToSegmentMeters(point: Coordinate, start: Coordinate, end: Coordinate) {
+function distanceToSegmentMeters(
+  point: Coordinate,
+  start: Coordinate,
+  end: Coordinate,
+) {
   const latFactor = 111320;
   const lonFactor =
-    40075000 * Math.cos((point.latitude * Math.PI) / 180) / 360;
+    (40075000 * Math.cos((point.latitude * Math.PI) / 180)) / 360;
 
   const px = point.longitude * lonFactor;
   const py = point.latitude * latFactor;
@@ -203,15 +225,20 @@ function distanceToPolylineMeters(point: Coordinate, polyline?: Coordinate[]) {
 
 function activePolylineForDeviation(
   route: TransitRouteOption | null,
-  currentStepIndex: number
+  currentStepIndex: number,
 ): Coordinate[] {
   if (!route) return [];
 
   const steps = route.journeySteps || route.steps || [];
   const currentStep =
-    steps[Math.max(0, Math.min(currentStepIndex, Math.max(0, steps.length - 1)))] || null;
+    steps[
+      Math.max(0, Math.min(currentStepIndex, Math.max(0, steps.length - 1)))
+    ] || null;
 
-  if (Array.isArray(currentStep?.polyline) && currentStep.polyline.length >= 2) {
+  if (
+    Array.isArray(currentStep?.polyline) &&
+    currentStep.polyline.length >= 2
+  ) {
     return currentStep.polyline.filter(Boolean) as Coordinate[];
   }
 
@@ -239,17 +266,28 @@ function normalizePlace(item: ApiPlaceResult | any): PlaceSearchResult | null {
   if (!coordinate) return null;
 
   return {
-    id: String(item.id ?? item.stop_id ?? `${coordinate.latitude},${coordinate.longitude}`),
-    title: String(item.title ?? item.name ?? item.stopName ?? item.stop_name ?? "Vieta"),
-    subtitle: item.subtitle ?? item.address ?? item.description ?? item.stop_desc ?? "Klaipėda",
+    id: String(
+      item.id ??
+        item.stop_id ??
+        `${coordinate.latitude},${coordinate.longitude}`,
+    ),
+    title: String(
+      item.title ?? item.name ?? item.stopName ?? item.stop_name ?? "Vieta",
+    ),
+    subtitle:
+      item.subtitle ??
+      item.address ??
+      item.description ??
+      item.stop_desc ??
+      "Klaipėda",
     type: item.type ?? (item.stop_id ? "stop" : "place"),
-    distanceMeters: item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
+    distanceMeters:
+      item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
     latitude: coordinate.latitude,
     longitude: coordinate.longitude,
     coordinate,
   };
 }
-
 
 function normalizeStopPoint(raw: any) {
   const coordinate = toCoordinate(raw);
@@ -262,9 +300,15 @@ function normalizeStopPoint(raw: any) {
         : raw?.stop_id != null
           ? String(raw.stop_id)
           : undefined,
-    title: String(raw?.title ?? raw?.name ?? raw?.stopName ?? raw?.stop_name ?? "Stotelė"),
-    name: String(raw?.name ?? raw?.title ?? raw?.stopName ?? raw?.stop_name ?? "Stotelė"),
-    stopName: String(raw?.stopName ?? raw?.stop_name ?? raw?.name ?? raw?.title ?? "Stotelė"),
+    title: String(
+      raw?.title ?? raw?.name ?? raw?.stopName ?? raw?.stop_name ?? "Stotelė",
+    ),
+    name: String(
+      raw?.name ?? raw?.title ?? raw?.stopName ?? raw?.stop_name ?? "Stotelė",
+    ),
+    stopName: String(
+      raw?.stopName ?? raw?.stop_name ?? raw?.name ?? raw?.title ?? "Stotelė",
+    ),
     stopSequence:
       raw?.stopSequence != null
         ? Number(raw.stopSequence)
@@ -274,7 +318,8 @@ function normalizeStopPoint(raw: any) {
     latitude: coordinate.latitude,
     longitude: coordinate.longitude,
     coordinate,
-    distanceMeters: raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
+    distanceMeters:
+      raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
     arrivalSeconds:
       raw?.arrivalSeconds != null
         ? Number(raw.arrivalSeconds)
@@ -293,9 +338,7 @@ function normalizeStopPoint(raw: any) {
 function normalizeStepStops(rawStops: any): any[] {
   if (!Array.isArray(rawStops)) return [];
 
-  return rawStops
-    .map((stop) => normalizeStopPoint(stop))
-    .filter(Boolean);
+  return rawStops.map((stop) => normalizeStopPoint(stop)).filter(Boolean);
 }
 
 function normalizeStep(step: any, index: number): TransitStep {
@@ -316,7 +359,7 @@ function normalizeStep(step: any, index: number): TransitStep {
       step?.routeStops ??
       step?.stopList ??
       step?.passedStops ??
-      step?.summary?.stops
+      step?.summary?.stops,
   );
 
   const routeNumber =
@@ -338,7 +381,8 @@ function normalizeStep(step: any, index: number): TransitStep {
     description: step?.description ?? step?.subtitle,
     routeId: step?.routeId != null ? String(step.routeId) : undefined,
     routeNumber,
-    routeLabel: step?.routeLabel != null ? String(step.routeLabel) : routeNumber,
+    routeLabel:
+      step?.routeLabel != null ? String(step.routeLabel) : routeNumber,
     stopId: step?.stopId != null ? String(step.stopId) : undefined,
     stopName: step?.stopName,
     fromStopId: step?.fromStopId != null ? String(step.fromStopId) : undefined,
@@ -366,7 +410,8 @@ function normalizeStep(step: any, index: number): TransitStep {
         : step?.minutes != null
           ? Number(step.minutes)
           : undefined,
-    distanceMeters: step?.distanceMeters != null ? Number(step.distanceMeters) : undefined,
+    distanceMeters:
+      step?.distanceMeters != null ? Number(step.distanceMeters) : undefined,
     departureTime: step?.departureTime ?? step?.departureText,
     arrivalTime: step?.arrivalTime ?? step?.arrivalText,
     polyline: Array.isArray(step?.polyline)
@@ -384,7 +429,8 @@ function stopPoint(name: string, coordinate: Coordinate, raw?: any) {
     latitude: fixedCoordinate.latitude,
     longitude: fixedCoordinate.longitude,
     coordinate: fixedCoordinate,
-    distanceMeters: raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
+    distanceMeters:
+      raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
   };
 }
 
@@ -392,7 +438,7 @@ function normalizeRoute(
   route: ApiTransitRouteOption | any,
   index: number,
   origin: Coordinate,
-  destination: PlaceSearchResult
+  destination: PlaceSearchResult,
 ): TransitRouteOption {
   const summary = route?.summary ?? {};
   const apiSteps = safeArray(route?.journeySteps).length
@@ -400,11 +446,16 @@ function normalizeRoute(
     : safeArray(route?.steps);
 
   const steps = apiSteps.map(normalizeStep);
-  const routeLabel = String(route?.routeLabel ?? summary?.routeLabel ?? route?.title ?? "Autobusas");
+  const routeLabel = String(
+    route?.routeLabel ?? summary?.routeLabel ?? route?.title ?? "Autobusas",
+  );
 
   const routeNumbers = Array.isArray(route?.routeNumbers)
     ? route.routeNumbers.map(String).filter(Boolean)
-    : routeLabel.split("→").map((part) => part.trim()).filter(Boolean);
+    : routeLabel
+        .split("→")
+        .map((part) => part.trim())
+        .filter(Boolean);
 
   const previewPoints =
     Array.isArray(route?.previewPoints) && route.previewPoints.length >= 2
@@ -413,45 +464,64 @@ function normalizeRoute(
         ? (route.polyline.map(toCoordinate).filter(Boolean) as Coordinate[])
         : [origin, destination.coordinate];
 
-  const originStopCoordinate = toCoordinate(route?.originStop) ?? previewPoints[0] ?? origin;
+  const originStopCoordinate =
+    toCoordinate(route?.originStop) ?? previewPoints[0] ?? origin;
   const destinationStopCoordinate =
     toCoordinate(route?.destinationStop) ??
     previewPoints[previewPoints.length - 1] ??
     destination.coordinate;
 
   const boardStopName = String(
-    route?.boardStopName ?? summary?.boardStopName ?? route?.originStop?.name ?? "Artimiausia stotelė"
+    route?.boardStopName ??
+      summary?.boardStopName ??
+      route?.originStop?.name ??
+      "Artimiausia stotelė",
   );
 
   const alightStopName = String(
-    route?.alightStopName ?? summary?.alightStopName ?? route?.destinationStop?.name ?? destination.title
+    route?.alightStopName ??
+      summary?.alightStopName ??
+      route?.destinationStop?.name ??
+      destination.title,
   );
 
   const totalMinutes = Number(
-    route?.totalMinutes ?? route?.totalDurationMinutes ?? summary?.totalDurationMinutes ?? 0
+    route?.totalMinutes ??
+      route?.totalDurationMinutes ??
+      summary?.totalDurationMinutes ??
+      0,
   );
 
   const walkingMinutes = Number(
-    route?.walkingMinutes ?? route?.totalWalkMinutes ?? summary?.totalWalkMinutes ?? 0
+    route?.walkingMinutes ??
+      route?.totalWalkMinutes ??
+      summary?.totalWalkMinutes ??
+      0,
   );
 
   const transfers = Number(
     route?.transfers ??
       route?.transfersCount ??
       summary?.transfersCount ??
-      Math.max(0, routeNumbers.length - 1)
+      Math.max(0, routeNumbers.length - 1),
   );
 
   const stopCount = Number(
     route?.stopCount ??
       summary?.stopCount ??
-      steps.reduce((sum: number, step: TransitStep) => sum + Number(step.stopCount ?? 0), 0)
+      steps.reduce(
+        (sum: number, step: TransitStep) => sum + Number(step.stopCount ?? 0),
+        0,
+      ),
   );
 
   return {
     id: String(route?.id ?? `route-${index}`),
     title: routeLabel,
-    subtitle: route?.subtitle ?? summary?.journeyMessage ?? `${boardStopName} → ${alightStopName}`,
+    subtitle:
+      route?.subtitle ??
+      summary?.journeyMessage ??
+      `${boardStopName} → ${alightStopName}`,
     mode: route?.mode,
     routeId: route?.routeId != null ? String(route.routeId) : undefined,
     shapeId: route?.shapeId ?? summary?.shapeId ?? null,
@@ -474,43 +544,74 @@ function normalizeRoute(
     stopCount,
     boardStopName,
     alightStopName,
-    originStop: stopPoint(boardStopName, originStopCoordinate, route?.originStop),
-    destinationStop: stopPoint(alightStopName, destinationStopCoordinate, route?.destinationStop),
+    originStop: stopPoint(
+      boardStopName,
+      originStopCoordinate,
+      route?.originStop,
+    ),
+    destinationStop: stopPoint(
+      alightStopName,
+      destinationStopCoordinate,
+      route?.destinationStop,
+    ),
     previewPoints,
     polyline: previewPoints,
     steps,
     journeySteps: steps,
     departureText:
       route?.departureText ??
-      (summary?.etaMinutes != null ? `Atvyksta po ${summary.etaMinutes} min` : undefined),
+      (summary?.etaMinutes != null
+        ? `Atvyksta po ${summary.etaMinutes} min`
+        : undefined),
     arrivalText: route?.arrivalText,
     journeyMessage: route?.journeyMessage ?? summary?.journeyMessage,
     totalBusMinutes: route?.totalBusMinutes ?? summary?.totalBusMinutes,
-    headsign: route?.headsign ?? summary?.headsign ?? summary?.directionCode ?? null,
+    headsign:
+      route?.headsign ?? summary?.headsign ?? summary?.directionCode ?? null,
     liveVehicle: route?.liveVehicle ?? null,
     summary,
   } as TransitRouteOption;
 }
 
-
 function looksLikeFakeRouteNumber(value: any) {
-  const text = String(value ?? "").trim().toUpperCase();
-  return !text || text === "BUS" || text === "WALK" || text === "PĖSČIOMIS" || text === "UNDEFINED" || text === "NAN";
+  const text = String(value ?? "")
+    .trim()
+    .toUpperCase();
+  return (
+    !text ||
+    text === "BUS" ||
+    text === "WALK" ||
+    text === "PĖSČIOMIS" ||
+    text === "UNDEFINED" ||
+    text === "NAN"
+  );
 }
 
 function hasRealBusSegment(route: TransitRouteOption | null) {
   if (!route) return false;
 
   const steps = route.journeySteps || route.steps || [];
-  const busStep = steps.find((step) => step.type === "bus" || step.type === "ride");
+  const busStep = steps.find(
+    (step) => step.type === "bus" || step.type === "ride",
+  );
   const routeNumber =
     route.routeNumbers?.find((item) => !looksLikeFakeRouteNumber(item)) ??
     busStep?.routeNumber ??
     route.routeId ??
     route.routeLabel;
 
-  const boardName = String(route.boardStopName ?? route.originStop?.name ?? route.originStop?.title ?? "").trim();
-  const alightName = String(route.alightStopName ?? route.destinationStop?.name ?? route.destinationStop?.title ?? "").trim();
+  const boardName = String(
+    route.boardStopName ??
+      route.originStop?.name ??
+      route.originStop?.title ??
+      "",
+  ).trim();
+  const alightName = String(
+    route.alightStopName ??
+      route.destinationStop?.name ??
+      route.destinationStop?.title ??
+      "",
+  ).trim();
 
   const hasUsableGeometry =
     !!route.shapeId ||
@@ -551,10 +652,14 @@ function buildWalkOnlyRoute(params: {
   points: Coordinate[];
   durationMinutes?: number;
 }): TransitRouteOption {
-  const points = safeArray<Coordinate>(params.points).map(toCoordinate).filter(Boolean) as Coordinate[];
+  const points = safeArray<Coordinate>(params.points)
+    .map(toCoordinate)
+    .filter(Boolean) as Coordinate[];
   const durationMinutes = Math.max(
     1,
-    Math.round(Number(params.durationMinutes || estimateWalkMinutes(points) || 1))
+    Math.round(
+      Number(params.durationMinutes || estimateWalkMinutes(points) || 1),
+    ),
   );
 
   const originStop = stopPoint("Dabartinė vieta", params.origin, {
@@ -563,11 +668,15 @@ function buildWalkOnlyRoute(params: {
     coordinate: params.origin,
   });
 
-  const destinationStop = stopPoint(params.destination.title, params.destination.coordinate, {
-    title: params.destination.title,
-    name: params.destination.title,
-    coordinate: params.destination.coordinate,
-  });
+  const destinationStop = stopPoint(
+    params.destination.title,
+    params.destination.coordinate,
+    {
+      title: params.destination.title,
+      name: params.destination.title,
+      coordinate: params.destination.coordinate,
+    },
+  );
 
   const walkStep: TransitStep = {
     id: "walk-only-step",
@@ -625,16 +734,16 @@ function buildWalkOnlyRoute(params: {
   } as TransitRouteOption;
 }
 
-
 function getWalkingRoutePoints(walk: any): Coordinate[] {
-  const rawPoints =
-    (Array.isArray(walk?.points) && walk.points.length >= 2
+  const rawPoints = (
+    Array.isArray(walk?.points) && walk.points.length >= 2
       ? walk.points
       : Array.isArray(walk?.geometry) && walk.geometry.length >= 2
         ? walk.geometry
         : Array.isArray(walk?.polyline) && walk.polyline.length >= 2
           ? walk.polyline
-          : []) as any[];
+          : []
+  ) as any[];
 
   return rawPoints.map(toCoordinate).filter(Boolean) as Coordinate[];
 }
@@ -731,7 +840,7 @@ async function fetchWalkingPoints(from: Coordinate, to: Coordinate) {
 async function enrichRouteWithRealWalkingGeometry(
   route: TransitRouteOption,
   origin: Coordinate,
-  destination: PlaceSearchResult
+  destination: PlaceSearchResult,
 ): Promise<TransitRouteOption> {
   if (!hasRealBusSegment(route)) return route;
 
@@ -757,13 +866,18 @@ async function enrichRouteWithRealWalkingGeometry(
 
       const newWalkStep = createWalkStep({
         id: steps[firstWalkIndex]?.id ?? "walk-to-stop",
-        title: `Eik iki stotelės ${route.boardStopName || route.originStop?.name || ""}`.trim(),
+        title:
+          `Eik iki stotelės ${route.boardStopName || route.originStop?.name || ""}`.trim(),
         subtitle: `${walkToStop.durationMinutes} min`,
-        description: `Eik iki stotelės ${route.boardStopName || route.originStop?.name || ""}`.trim(),
+        description:
+          `Eik iki stotelės ${route.boardStopName || route.originStop?.name || ""}`.trim(),
         points: walkToStop.points,
         durationMinutes: walkToStop.durationMinutes,
         fromStopName: "Dabartinė vieta",
-        toStopName: route.boardStopName || route.originStop?.name || route.originStop?.title,
+        toStopName:
+          route.boardStopName ||
+          route.originStop?.name ||
+          route.originStop?.title,
       });
 
       if (firstWalkIndex >= 0) {
@@ -777,8 +891,14 @@ async function enrichRouteWithRealWalkingGeometry(
     }
   }
 
-  if (destinationStop && distanceMeters(destinationStop, destination.coordinate) > 20) {
-    const walkFromStop = await fetchWalkingPoints(destinationStop, destination.coordinate);
+  if (
+    destinationStop &&
+    distanceMeters(destinationStop, destination.coordinate) > 20
+  ) {
+    const walkFromStop = await fetchWalkingPoints(
+      destinationStop,
+      destination.coordinate,
+    );
 
     if (walkFromStop && (walkFromStop.points?.length ?? 0) >= 2) {
       extraWalkMinutes += walkFromStop.durationMinutes;
@@ -790,7 +910,8 @@ async function enrichRouteWithRealWalkingGeometry(
         const mode = String(step?.mode ?? "").toLowerCase();
         return type === "walk" || mode === "walk" || type === "arrive";
       });
-      const lastWalkIndex = reverseWalkIndex >= 0 ? steps.length - 1 - reverseWalkIndex : -1;
+      const lastWalkIndex =
+        reverseWalkIndex >= 0 ? steps.length - 1 - reverseWalkIndex : -1;
 
       const newWalkStep = createWalkStep({
         id: steps[lastWalkIndex]?.id ?? "walk-to-destination",
@@ -799,7 +920,10 @@ async function enrichRouteWithRealWalkingGeometry(
         description: `Nuo išlipimo stotelės eik iki ${destination.title}`,
         points: walkFromStop.points,
         durationMinutes: walkFromStop.durationMinutes,
-        fromStopName: route.alightStopName || route.destinationStop?.name || route.destinationStop?.title,
+        fromStopName:
+          route.alightStopName ||
+          route.destinationStop?.name ||
+          route.destinationStop?.title,
         toStopName: destination.title,
       });
 
@@ -818,7 +942,7 @@ async function enrichRouteWithRealWalkingGeometry(
   const mergedPolyline = mergeStepPolylines(steps);
   const nextWalkingMinutes = Math.max(
     Number(route.walkingMinutes ?? route.totalWalkMinutes ?? 0),
-    extraWalkMinutes
+    extraWalkMinutes,
   );
 
   return {
@@ -827,7 +951,8 @@ async function enrichRouteWithRealWalkingGeometry(
     totalWalkMinutes: nextWalkingMinutes,
     journeySteps: steps,
     steps,
-    previewPoints: mergedPolyline.length >= 2 ? mergedPolyline : route.previewPoints,
+    previewPoints:
+      mergedPolyline.length >= 2 ? mergedPolyline : route.previewPoints,
     polyline: mergedPolyline.length >= 2 ? mergedPolyline : route.polyline,
     summary: {
       ...(route.summary ?? {}),
@@ -836,7 +961,10 @@ async function enrichRouteWithRealWalkingGeometry(
   } as TransitRouteOption;
 }
 
-async function buildWalkOnlyFallback(origin: Coordinate, destination: PlaceSearchResult) {
+async function buildWalkOnlyFallback(
+  origin: Coordinate,
+  destination: PlaceSearchResult,
+) {
   const walkingRoute = await fetchWalkingRoute({
     from: origin,
     to: destination.coordinate,
@@ -856,82 +984,19 @@ async function buildWalkOnlyFallback(origin: Coordinate, destination: PlaceSearc
   });
 }
 
-
-function hasRealBusLeg(route: TransitRouteOption) {
-  const steps = safeArray<TransitStep>(route.journeySteps || route.steps);
-
-  const hasBusStep = steps.some((step) => {
-    const type = String(step?.type ?? "").toLowerCase();
-    const mode = String(step?.mode ?? "").toLowerCase();
-    const routeNumber = String(step?.routeNumber ?? step?.routeId ?? "").trim();
-
-    return (
-      type === "bus" ||
-      type === "ride" ||
-      mode === "bus" ||
-      Boolean(routeNumber && routeNumber.toLowerCase() !== "walk")
-    );
-  });
-
-  const label = String(route.routeLabel ?? route.title ?? "").trim().toLowerCase();
-  const hasGoodLabel = Boolean(label && label !== "walk" && label !== "pėsčiomis");
-
-  const hasBoardingStop = Boolean(
-    route.originStop?.coordinate &&
-      String(route.boardStopName ?? route.originStop?.name ?? route.originStop?.title ?? "").trim()
-  );
-
-  const hasAlightStop = Boolean(
-    route.destinationStop?.coordinate &&
-      String(route.alightStopName ?? route.destinationStop?.name ?? route.destinationStop?.title ?? "").trim()
-  );
-
-  const hasGeometry = Boolean(
-    (Array.isArray(route.previewPoints) && route.previewPoints.length >= 2) ||
-      (Array.isArray(route.polyline) && route.polyline.length >= 2)
-  );
-
-  return hasBusStep && hasGoodLabel && hasBoardingStop && hasAlightStop && hasGeometry;
-}
-
-
-async function createWalkOnlyFallback(
-  origin: Coordinate,
-  destination: PlaceSearchResult
-): Promise<TransitRouteOption | null> {
-  const walk = await fetchWalkingRoute({
-    from: origin,
-    to: destination.coordinate,
-  });
-
-  const points = getWalkingRoutePoints(walk);
-
-  if (points.length < 2) return null;
-
-  const durationMinutes =
-    Number(walk?.durationMinutes) ||
-    (Number(walk?.durationSeconds) > 0
-      ? Math.max(1, Math.round(Number(walk?.durationSeconds) / 60))
-      : Math.max(1, Math.round(distanceMeters(origin, destination.coordinate) / 80)));
-
-  return buildWalkOnlyRoute({
-    origin,
-    destination,
-    points,
-    durationMinutes,
-  });
-}
-
 function isWalkOnlyRoute(route: TransitRouteOption | null) {
   return Boolean(
     route &&
-      (route.mode === "walk_only" ||
-        route.id === "walk-only" ||
-        route.summary?.isWalkOnly === true)
+    (route.mode === "walk_only" ||
+      route.id === "walk-only" ||
+      route.summary?.isWalkOnly === true),
   );
 }
 
-function mergeRouteUpdate(route: TransitRouteOption, update: Partial<TransitRouteOption>): TransitRouteOption {
+function mergeRouteUpdate(
+  route: TransitRouteOption,
+  update: Partial<TransitRouteOption>,
+): TransitRouteOption {
   return {
     ...route,
     ...update,
@@ -948,10 +1013,14 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
   const [travelTimeMode, setTravelTimeMode] = useState<TravelTimeMode>("now");
   const [travelTimeDate, setTravelTimeDate] = useState<Date | null>(null);
   const [searchResults, setSearchResults] = useState<PlaceSearchResult[]>([]);
-  const [selectedDestination, setSelectedDestination] = useState<PlaceSearchResult | null>(null);
-  const [selectedOrigin, setSelectedOrigin] = useState<PlaceSearchResult | null>(null);
+  const [selectedDestination, setSelectedDestination] =
+    useState<PlaceSearchResult | null>(null);
+  const [selectedOrigin, setSelectedOrigin] =
+    useState<PlaceSearchResult | null>(null);
   const [routeOptions, setRouteOptions] = useState<TransitRouteOption[]>([]);
-  const [selectedRoute, setSelectedRoute] = useState<TransitRouteOption | null>(null);
+  const [selectedRoute, setSelectedRoute] = useState<TransitRouteOption | null>(
+    null,
+  );
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
   const [isPlanning, setIsPlanning] = useState(false);
@@ -995,15 +1064,20 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     return selectedRoute.journeySteps?.[currentStepIndex] || null;
   }, [currentStepIndex, selectedRoute]);
 
-  const applyRouteUpdate = useCallback((routeId: string, update: Partial<TransitRouteOption>) => {
-    setRouteOptions((current) =>
-      current.map((item) => (item.id === routeId ? mergeRouteUpdate(item, update) : item))
-    );
+  const applyRouteUpdate = useCallback(
+    (routeId: string, update: Partial<TransitRouteOption>) => {
+      setRouteOptions((current) =>
+        current.map((item) =>
+          item.id === routeId ? mergeRouteUpdate(item, update) : item,
+        ),
+      );
 
-    setSelectedRoute((current) =>
-      current?.id === routeId ? mergeRouteUpdate(current, update) : current
-    );
-  }, []);
+      setSelectedRoute((current) =>
+        current?.id === routeId ? mergeRouteUpdate(current, update) : current,
+      );
+    },
+    [],
+  );
 
   const hydrateRouteDetails = useCallback(
     async (route: TransitRouteOption) => {
@@ -1038,10 +1112,12 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           applyRouteUpdate(route.id, update);
         }
       } catch (e) {
-        console.log("❌ HYDRATE ERROR:", e);
+        monitoring.captureException(e as Error, {
+          source: "useTransitPlanner.hydrateRouteDetails",
+        });
       }
     },
-    [applyRouteUpdate]
+    [applyRouteUpdate],
   );
 
   useEffect(() => {
@@ -1141,10 +1217,14 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       } catch (err: any) {
         if (requestId !== searchRequestId.current) return;
 
-        console.log("❌ SEARCH ERROR:", err);
+        monitoring.captureException(err as Error, {
+          source: "useTransitPlanner.search",
+        });
         setError("Paieška nepavyko – patikrink internetą");
         setIsOffline(true);
-        setOfflineMessage("Paieška neveikia be ryšio. Paskutinis maršrutas, jei yra, liks saugiai telefone.");
+        setOfflineMessage(
+          "Paieška neveikia be ryšio. Paskutinis maršrutas, jei yra, liks saugiai telefone.",
+        );
         setSearchResults([]);
       } finally {
         if (requestId === searchRequestId.current) {
@@ -1152,7 +1232,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         }
       }
     },
-    [query]
+    [query],
   );
 
   const selectOrigin = useCallback((rawOrigin: PlaceSearchResult) => {
@@ -1209,7 +1289,9 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         if (requestId !== planRequestId.current) return;
 
         const normalizedOptions = safeArray(rawOptions)
-          .map((route, index) => normalizeRoute(route, index, routeOrigin, destination))
+          .map((route, index) =>
+            normalizeRoute(route, index, routeOrigin, destination),
+          )
           .filter(hasRealBusSegment)
           .slice(0, 6);
 
@@ -1247,44 +1329,57 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
 
         void Promise.all(
           normalizedOptions.map((route) =>
-            enrichRouteWithRealWalkingGeometry(route, routeOrigin, destination)
-          )
-        ).then((hydratedOptions) => {
-          if (requestId !== planRequestId.current) return;
-          if (!hydratedOptions.length) return;
-          setRouteOptions(hydratedOptions);
-          setSelectedRoute((current) => {
-            if (!current) return hydratedOptions[0] || null;
-            return hydratedOptions.find((route) => route.id === current.id) || current;
+            enrichRouteWithRealWalkingGeometry(route, routeOrigin, destination),
+          ),
+        )
+          .then((hydratedOptions) => {
+            if (requestId !== planRequestId.current) return;
+            if (!hydratedOptions.length) return;
+            setRouteOptions(hydratedOptions);
+            setSelectedRoute((current) => {
+              if (!current) return hydratedOptions[0] || null;
+              return (
+                hydratedOptions.find((route) => route.id === current.id) ||
+                current
+              );
+            });
+            void saveCachedTransitPlan({
+              destination,
+              routeOptions: hydratedOptions,
+              selectedRoute: hydratedOptions[0] || null,
+            });
+          })
+          .catch(() => {
+            // Optional enrichment failed. Keep instant route cards.
           });
-          void saveCachedTransitPlan({
-            destination,
-            routeOptions: hydratedOptions,
-            selectedRoute: hydratedOptions[0] || null,
-          });
-        }).catch(() => {
-          // Optional enrichment failed. Keep instant route cards.
-        });
       } catch (err: any) {
         if (requestId !== planRequestId.current) return;
 
-        console.log("❌ ROUTE ERROR:", err);
+        monitoring.captureException(err as Error, {
+          source: "useTransitPlanner.selectDestination",
+        });
 
         const cached = await loadCachedTransitPlan();
         if (cached) {
           setSelectedDestination(cached.destination);
           setRouteOptions(cached.routeOptions);
-          setSelectedRoute(cached.selectedRoute || cached.routeOptions[0] || null);
+          setSelectedRoute(
+            cached.selectedRoute || cached.routeOptions[0] || null,
+          );
           setCurrentStepIndex(0);
           setFlowState("route_options");
           setIsOffline(true);
-          setOfflineMessage("Nėra stabilaus ryšio – rodome paskutinį išsaugotą maršrutą.");
+          setOfflineMessage(
+            "Nėra stabilaus ryšio – rodome paskutinį išsaugotą maršrutą.",
+          );
           setError("Offline režimas: maršrutas paimtas iš telefono cache.");
           return;
         }
 
         setIsOffline(true);
-        setOfflineMessage("Nepavyko prisijungti prie maršrutų serverio ir telefone nėra išsaugoto maršruto.");
+        setOfflineMessage(
+          "Nepavyko prisijungti prie maršrutų serverio ir telefone nėra išsaugoto maršruto.",
+        );
         setError(err?.message || "Nepavyko suplanuoti maršruto");
         setRouteOptions([]);
         setSelectedRoute(null);
@@ -1295,7 +1390,13 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         }
       }
     },
-    [hydrateRouteDetails, selectedOrigin, travelTimeDate, travelTimeMode, userLocation]
+    [
+      hydrateRouteDetails,
+      selectedOrigin,
+      travelTimeDate,
+      travelTimeMode,
+      userLocation,
+    ],
   );
 
   const chooseRoute = useCallback(
@@ -1305,7 +1406,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       setFlowState("route_selected");
       void hydrateRouteDetails(route);
     },
-    [hydrateRouteDetails]
+    [hydrateRouteDetails],
   );
 
   const startJourney = useCallback(() => {
@@ -1316,7 +1417,9 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
 
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setCurrentStepIndex(firstIndex);
-    setFlowState(firstState === "route_selected" ? "walking_to_stop" : firstState);
+    setFlowState(
+      firstState === "route_selected" ? "walking_to_stop" : firstState,
+    );
 
     void syncBackgroundNavigationTrip(selectedRoute);
     void hydrateRouteDetails(selectedRoute);
@@ -1339,7 +1442,10 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       const isLastStep = nextIndex >= steps.length - 1;
       const nextState = flowStateForStepIndex(selectedRoute, nextIndex);
 
-      if (isLastStep && ["arrive", "alight"].includes(String(steps[nextIndex]?.type))) {
+      if (
+        isLastStep &&
+        ["arrive", "alight"].includes(String(steps[nextIndex]?.type))
+      ) {
         setFlowState("completed");
         return nextIndex;
       }
@@ -1348,7 +1454,6 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       return nextIndex;
     });
   }, [selectedRoute]);
-
 
   const backToRoutesList = useCallback(() => {
     setSelectedRoute(null);
@@ -1382,7 +1487,6 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     void clearBackgroundNavigationTrip();
     setFlowState(query.trim().length >= 2 ? "searching" : "idle");
   }, [query]);
-
 
   const triggerNavigationAlert = useCallback(
     async ({
@@ -1431,7 +1535,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         // Alert neturi blokuoti navigation flow.
       }
     },
-    []
+    [],
   );
 
   const performReroute = useCallback(
@@ -1477,11 +1581,16 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         }
 
         const normalizedOptions = safeArray(rawOptions)
-          .map((route, index) => normalizeRoute(route, index, userLocation, selectedDestination))
+          .map((route, index) =>
+            normalizeRoute(route, index, userLocation, selectedDestination),
+          )
           .filter(hasRealBusSegment);
 
         if (!normalizedOptions.length) {
-          const walkOnlyRoute = await buildWalkOnlyFallback(userLocation, selectedDestination);
+          const walkOnlyRoute = await buildWalkOnlyFallback(
+            userLocation,
+            selectedDestination,
+          );
 
           if (walkOnlyRoute) {
             setRouteOptions([walkOnlyRoute]);
@@ -1515,26 +1624,34 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
 
         void Promise.all(
           instantOptions.map((route) =>
-            enrichRouteWithRealWalkingGeometry(route, userLocation, selectedDestination)
-          )
-        ).then((hydratedOptions) => {
-          if (!hydratedOptions.length) return;
-          setRouteOptions(hydratedOptions);
-          setSelectedRoute(hydratedOptions[0] || null);
-          void saveCachedTransitPlan({
-            destination: selectedDestination,
-            routeOptions: hydratedOptions,
-            selectedRoute: hydratedOptions[0] || null,
+            enrichRouteWithRealWalkingGeometry(
+              route,
+              userLocation,
+              selectedDestination,
+            ),
+          ),
+        )
+          .then((hydratedOptions) => {
+            if (!hydratedOptions.length) return;
+            setRouteOptions(hydratedOptions);
+            setSelectedRoute(hydratedOptions[0] || null);
+            void saveCachedTransitPlan({
+              destination: selectedDestination,
+              routeOptions: hydratedOptions,
+              selectedRoute: hydratedOptions[0] || null,
+            });
+          })
+          .catch(() => {
+            // Geometry enrichment is optional during reroute.
           });
-        }).catch(() => {
-          // Geometry enrichment is optional during reroute.
-        });
       } catch (err: any) {
         const message = err?.message || "Perskaičiavimas nepavyko";
         setError(message);
         setReroutingMessage(message);
         setIsOffline(true);
-        setOfflineMessage("Perskaičiavimas nepavyko – paliekame dabartinį maršrutą ir bandysime vėliau.");
+        setOfflineMessage(
+          "Perskaičiavimas nepavyko – paliekame dabartinį maršrutą ir bandysime vėliau.",
+        );
 
         void triggerNavigationAlert({
           key: `rerouting-error-${now}`,
@@ -1547,7 +1664,14 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         rerouteInFlight.current = false;
       }
     },
-    [hydrateRouteDetails, selectedDestination, triggerNavigationAlert, userLocation]
+    [
+      hydrateRouteDetails,
+      selectedDestination,
+      triggerNavigationAlert,
+      travelTimeMode,
+      travelTimeDate,
+      userLocation,
+    ],
   );
 
   // ====== STEP 9 REAL GPS NAVIGATION ENGINE + STEP 11 ALERTS ======
@@ -1560,7 +1684,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
 
     const safeIndex = Math.min(
       Math.max(0, currentStepIndex),
-      Math.max(0, steps.length - 1)
+      Math.max(0, steps.length - 1),
     );
 
     const currentStep = steps[safeIndex];
@@ -1630,7 +1754,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       setFlowState("arriving");
 
       const alightIndex = steps.findIndex(
-        (step) => step.type === "alight" || step.type === "arrive"
+        (step) => step.type === "alight" || step.type === "arrive",
       );
 
       if (alightIndex >= 0) {
@@ -1645,18 +1769,22 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       void triggerNavigationAlert({
         key: `stop-reached-${selectedRoute.id}-${safeIndex}`,
         title: "Stotelė pasiekta",
-        message: selectedRoute.mode === "walk_only" ? "Tęsk ėjimą iki tikslo." : `Lauk autobuso ${selectedRoute.routeLabel || ""}.`.trim(),
+        message:
+          selectedRoute.mode === "walk_only"
+            ? "Tęsk ėjimą iki tikslo."
+            : `Lauk autobuso ${selectedRoute.routeLabel || ""}.`.trim(),
         type: "success",
       });
       setFlowState("waiting_bus");
       setCurrentStepIndex((index) =>
-        Math.min(index + 1, Math.max(0, steps.length - 1))
+        Math.min(index + 1, Math.max(0, steps.length - 1)),
       );
       return;
     }
 
     if (currentStep?.type === "board") {
-      const eta = selectedRoute.liveEta?.etaMinutes ?? selectedRoute.etaMinutes ?? null;
+      const eta =
+        selectedRoute.liveEta?.etaMinutes ?? selectedRoute.etaMinutes ?? null;
 
       const shouldBoard =
         selectedRoute.boardingState === "boarding_soon" ||
@@ -1667,12 +1795,13 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         void triggerNavigationAlert({
           key: `board-now-${selectedRoute.id}-${safeIndex}`,
           title: "Lipk dabar",
-          message: `Autobusas ${selectedRoute.routeLabel || ""} atvyko. Lipk į autobusą.`.trim(),
+          message:
+            `Autobusas ${selectedRoute.routeLabel || ""} atvyko. Lipk į autobusą.`.trim(),
           type: "warning",
         });
         setFlowState("onboard");
         setCurrentStepIndex((index) =>
-          Math.min(index + 1, Math.max(0, steps.length - 1))
+          Math.min(index + 1, Math.max(0, steps.length - 1)),
         );
         return;
       }
@@ -1691,7 +1820,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       });
       setFlowState("arriving");
       setCurrentStepIndex((index) =>
-        Math.min(index + 1, Math.max(0, steps.length - 1))
+        Math.min(index + 1, Math.max(0, steps.length - 1)),
       );
       return;
     }
@@ -1706,10 +1835,16 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       });
       setFlowState("waiting_bus");
       setCurrentStepIndex((index) =>
-        Math.min(index + 1, Math.max(0, steps.length - 1))
+        Math.min(index + 1, Math.max(0, steps.length - 1)),
       );
     }
-  }, [currentStepIndex, flowState, selectedRoute, triggerNavigationAlert, userLocation]);
+  }, [
+    currentStepIndex,
+    flowState,
+    selectedRoute,
+    triggerNavigationAlert,
+    userLocation,
+  ]);
 
   // ====== STEP 13 RE-ROUTING ENGINE ======
   useEffect(() => {
@@ -1718,7 +1853,10 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     if (flowState === "waiting_bus") return;
     if (isRerouting || rerouteInFlight.current) return;
 
-    const routeLine = activePolylineForDeviation(selectedRoute, currentStepIndex);
+    const routeLine = activePolylineForDeviation(
+      selectedRoute,
+      currentStepIndex,
+    );
     if (routeLine.length < 2) return;
 
     const distanceFromRoute = distanceToPolylineMeters(userLocation, routeLine);
@@ -1736,13 +1874,13 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
 
     if (deviationConfirmations.current < DEVIATION_CONFIRMATIONS_REQUIRED) {
       setReroutingMessage(
-        `Tikriname nukrypimą nuo maršruto (${Math.round(distanceFromRoute)} m)`
+        `Tikriname nukrypimą nuo maršruto (${Math.round(distanceFromRoute)} m)`,
       );
       return;
     }
 
     void performReroute(
-      `Nukrypai nuo maršruto apie ${Math.round(distanceFromRoute)} m. Perskaičiuojame geriausią kelią.`
+      `Nukrypai nuo maršruto apie ${Math.round(distanceFromRoute)} m. Perskaičiuojame geriausią kelią.`,
     );
   }, [
     currentStepIndex,
@@ -1755,6 +1893,18 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     userLocation,
   ]);
 
+  const swapOriginDestination = useCallback(() => {
+    if (!selectedOrigin && !selectedDestination) return;
+
+    setSelectedOrigin(selectedDestination);
+    setSelectedDestination(selectedOrigin);
+    setSelectedRoute(null);
+    setRouteOptions([]);
+    setSearchResults([]);
+    setQuery("");
+    setError(null);
+    setFlowState("idle");
+  }, [selectedDestination, selectedOrigin]);
 
   const setTravelTime = useCallback((selection: TravelTimeSelection) => {
     setTravelTimeMode(selection.mode);
@@ -1809,6 +1959,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
     selectDestination,
     selectOrigin,
     clearOrigin,
+    swapOriginDestination,
     chooseRoute,
     startJourney,
     nextStep,

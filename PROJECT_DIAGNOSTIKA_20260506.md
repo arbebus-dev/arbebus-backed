@@ -57,7 +57,7 @@
 
 - ❌ **API_BASE typo**: `mobile/constants/api.ts` eilutė 9
   ```ts
-  "https://arbebus-backed.onrender.com"; // "backed" instead of "backend"
+  "https://arbebus-backend.onrender.com"; // "backend" instead of "backed"
   ```
   **Rekomenduojamas taisymas**: Patikrinti, ar tai tikslingas alias ar klaida
 

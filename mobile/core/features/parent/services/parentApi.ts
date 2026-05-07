@@ -4,25 +4,25 @@ import type {
     TransitRouteOption,
 } from "../../transit/models/transitTypes";
 
-export interface Child {
+interface Child {
   id: string;
   displayName: string;
   grade?: string;
 }
 
-export interface SavedPlace {
+interface SavedPlace {
   id: string;
   placeType: string;
   label?: string;
   place: PlaceSearchResult;
 }
 
-export interface Trip {
+interface Trip {
   id: string;
   // add more fields as needed
 }
 
-export interface TripEvent {
+interface TripEvent {
   id: string;
   title?: string;
   event_type?: string;

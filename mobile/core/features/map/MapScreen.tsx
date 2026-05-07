@@ -1,11 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import {
-    useCallback,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, Pressable, StyleSheet, View } from "react-native";
 import MapView, { Marker, type Region } from "react-native-maps";
 
@@ -35,28 +29,21 @@ type MapPoint = {
   longitude: number;
 };
 
-function isRouteFlow(flowState: string) {
-  return [
-    "routes_loading",
-    "route_options",
-    "route_selected",
-    "walking_to_stop",
-    "waiting_bus",
-    "onboard",
-    "transfer",
-    "arriving",
-    "completed",
-  ].includes(flowState);
-}
-
-function isActiveTrip(flowState: string) {
-  return [
-    "walking_to_stop",
-    "waiting_bus",
-    "onboard",
-    "transfer",
-    "arriving",
-  ].includes(flowState);
+function cameraForFlow(flowState: string) {
+  switch (flowState) {
+    case "walking_to_stop":
+      return { zoom: 17.1, pitch: 50 };
+    case "waiting_bus":
+      return { zoom: 16.6, pitch: 45 };
+    case "onboard":
+      return { zoom: 15.8, pitch: 52 };
+    case "transfer":
+      return { zoom: 16.5, pitch: 48 };
+    case "arriving":
+      return { zoom: 17.2, pitch: 50 };
+    default:
+      return { zoom: 16.2, pitch: 45 };
+  }
 }
 
 function validPoints(points?: MapPoint[]) {
@@ -82,10 +69,9 @@ function normalizeRouteNumber(value: unknown) {
 }
 
 function normalizeVehiclePoint(vehicle: unknown): MapPoint | null {
-  const item = vehicle as { latitude?: unknown; longitude?: unknown; coordinate?: { latitude?: unknown; longitude?: unknown } };
-  const latitude = Number(item?.latitude ?? item?.coordinate?.latitude);
+  const latitude = Number(vehicle?.latitude ?? vehicle?.coordinate?.latitude);
   const longitude = Number(
-    item?.longitude ?? item?.coordinate?.longitude,
+    vehicle?.longitude ?? vehicle?.coordinate?.longitude,
   );
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
@@ -175,8 +161,6 @@ function placeFromMapData(input: any) {
 
 export default function MapScreen() {
   const mapRef = useRef<MapView | null>(null);
-  const lastFollowAt = useRef(0);
-  const lastCameraTarget = useRef<MapPoint | null>(null);
   const lastPoiClickAt = useRef(0);
 
   const { userLocation, refreshLocation, isLocating } = useUserLocation();
@@ -275,10 +259,7 @@ export default function MapScreen() {
           if (!point) return null;
           return { bus, distance: distanceMeters(point, liveVehiclePoint) };
         })
-        .filter(Boolean) as Array<{
-        bus: (typeof buses)[number];
-        distance: number;
-      }>;
+        .filter(Boolean) as { bus: (typeof buses)[number]; distance: number }[];
 
       closestByPoint.sort((a, b) => a.distance - b.distance);
 
@@ -643,6 +624,7 @@ export default function MapScreen() {
           planner.selectOrigin(item);
         }}
         onClearOrigin={planner.clearOrigin}
+        onSwapPlaces={planner.swapOriginDestination}
         onClearMapPlace={() => setSelectedMapPlace(null)}
         onUseMapPlaceAsOrigin={(place) => {
           Keyboard.dismiss();

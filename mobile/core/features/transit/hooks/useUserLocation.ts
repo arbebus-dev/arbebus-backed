@@ -1,5 +1,6 @@
 import * as Location from "expo-location";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { monitoring } from "../../../services/monitoring";
 import type { Coordinate } from "../models/transitTypes";
 
 const KLAIPEDA: Coordinate = { latitude: 55.7033, longitude: 21.1443 };
@@ -36,7 +37,9 @@ export function useUserLocation() {
         longitude: current.coords.longitude,
       });
     } catch (error) {
-      console.log("useUserLocation error:", error);
+      monitoring.captureException(error as Error, {
+        source: "useUserLocation",
+      });
       if (mountedRef.current) setUserLocation((prev) => prev ?? KLAIPEDA);
     } finally {
       if (mountedRef.current) setIsLocating(false);
@@ -66,10 +69,12 @@ export function useUserLocation() {
               latitude: next.coords.latitude,
               longitude: next.coords.longitude,
             });
-          }
+          },
         );
       } catch (error) {
-        console.log("watchPosition error:", error);
+        monitoring.captureException(error as Error, {
+          source: "useUserLocation.watchPosition",
+        });
       }
     }
 

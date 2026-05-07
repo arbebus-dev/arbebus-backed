@@ -39,7 +39,6 @@ function apiBase() {
 }
 
 const API_TIMEOUT_MS = 8000;
-const SEARCH_TIMEOUT_MS = 1200;
 const SEARCH_MEMORY_TTL_MS = 5 * 60 * 1000;
 const API_RETRY_COUNT = 0;
 

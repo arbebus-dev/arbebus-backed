@@ -1,5 +1,5 @@
 const { env } = require("../config/env");
-const { logger } = require("../logging/logger");
+const logger = require("../logging/logger");
 
 function initSentry() {
   if (!env.SENTRY_DSN) return { enabled: false };

@@ -72,7 +72,7 @@ git push
 ### 2. Render Settings
 
 - Go to Render Dashboard
-- Select `arbebus-backed` service
+- Select `arbebus-backend` service
 - Settings → Environment Variables (set):
   ```
   NODE_ENV=production

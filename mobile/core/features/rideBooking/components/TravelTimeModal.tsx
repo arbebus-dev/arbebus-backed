@@ -1,17 +1,17 @@
+import { colors, radius, shadows, spacing, typography } from "@/core/design";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { useEffect, useMemo, useState } from "react";
 import {
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  type DimensionValue,
+    Modal,
+    Pressable,
+    StyleSheet,
+    Text,
+    View,
+    type DimensionValue,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors, radius, shadows, spacing, typography } from "@/core/design";
 
 export type TravelTimeMode = "now" | "depart" | "arrive";
 
@@ -167,7 +167,7 @@ export default function TravelTimeModal({
   onClose,
   onConfirm,
 }: Props) {
-  const now = useMemo(() => new Date(), [visible]);
+  const now = new Date();
   const startDate = initialDate || now;
 
   const [mode, setMode] = useState<TravelTimeMode>(initialMode);
@@ -226,15 +226,18 @@ export default function TravelTimeModal({
               </Pressable>
 
               <View style={styles.headerTitleWrap}>
-                <Text style={styles.title}>Kada vykti</Text>
-                <Text style={styles.subtitle}>{selectedSummary}</Text>
+                <Text style={styles.title}>Keisti laiką</Text>
               </View>
 
               <Pressable
                 onPress={confirm}
                 style={[styles.circleButton, styles.confirm]}
               >
-                <Ionicons name="checkmark" size={30} color={colors.textInverse} />
+                <Ionicons
+                  name="checkmark"
+                  size={30}
+                  color={colors.textInverse}
+                />
               </Pressable>
             </View>
 
@@ -263,46 +266,36 @@ export default function TravelTimeModal({
             </View>
 
             <View style={styles.pickerWrap}>
-              {mode === "now" ? (
-                <View style={styles.nowPanel}>
-                  <Ionicons name="navigate" size={30} color={colors.accent} />
-                  <Text style={styles.nowTitle}>Išvykti dabar</Text>
-                  <Text style={styles.nowText}>
-                    Maršrutas bus skaičiuojamas pagal dabartinį laiką.
-                  </Text>
-                </View>
-              ) : (
-                <View style={styles.wheelFrame}>
-                  <View style={styles.selectionBand} />
-                  <View style={styles.wheels}>
-                    <WheelColumn
-                      values={days.map((_, i) => i)}
-                      selected={dayIndex}
-                      onSelect={(value) => setDayIndex(Number(value))}
-                      renderLabel={(value) => dateLabel(days[Number(value)], now)}
-                      width="50%"
-                    />
+              <View style={styles.wheelFrame}>
+                <View style={styles.selectionBand} />
+                <View style={styles.wheels}>
+                  <WheelColumn
+                    values={days.map((_, i) => i)}
+                    selected={dayIndex}
+                    onSelect={(value) => setDayIndex(Number(value))}
+                    renderLabel={(value) => dateLabel(days[Number(value)], now)}
+                    width="50%"
+                  />
 
-                    <WheelColumn
-                      values={hours}
-                      selected={hour}
-                      onSelect={(value) => setHour(Number(value))}
-                      renderLabel={(value) => String(value).padStart(2, "0")}
-                      width="24%"
-                      loop
-                    />
+                  <WheelColumn
+                    values={hours}
+                    selected={hour}
+                    onSelect={(value) => setHour(Number(value))}
+                    renderLabel={(value) => String(value).padStart(2, "0")}
+                    width="24%"
+                    loop
+                  />
 
-                    <WheelColumn
-                      values={minutes}
-                      selected={minute}
-                      onSelect={(value) => setMinute(Number(value))}
-                      renderLabel={(value) => String(value).padStart(2, "0")}
-                      width="24%"
-                      loop
-                    />
-                  </View>
+                  <WheelColumn
+                    values={minutes}
+                    selected={minute}
+                    onSelect={(value) => setMinute(Number(value))}
+                    renderLabel={(value) => String(value).padStart(2, "0")}
+                    width="24%"
+                    loop
+                  />
                 </View>
-              )}
+              </View>
             </View>
           </BlurView>
         </SafeAreaView>
@@ -315,16 +308,20 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: colors.overlay,
-    justifyContent: "center",
-    paddingHorizontal: spacing.lg,
+    justifyContent: "flex-start",
+    paddingHorizontal: 0,
   },
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius["2xl"],
+    backgroundColor: "rgba(32,34,39,0.98)",
+    borderTopLeftRadius: 34,
+    borderTopRightRadius: 34,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    minHeight: 660,
     padding: spacing.lg,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: colors.borderAccent,
+    borderColor: "rgba(255,255,255,0.08)",
     ...shadows.floating,
   },
   header: {
@@ -339,8 +336,8 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.text,
-    fontSize: typography.size.lg,
-    lineHeight: typography.lineHeight.lg,
+    fontSize: 25,
+    lineHeight: 31,
     fontWeight: typography.weight.black,
   },
   subtitle: {
@@ -351,20 +348,20 @@ const styles = StyleSheet.create({
     fontWeight: typography.weight.semibold,
   },
   circleButton: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     backgroundColor: colors.surfaceMuted,
     alignItems: "center",
     justifyContent: "center",
   },
   confirm: {
-    backgroundColor: colors.accent,
+    backgroundColor: "#2F7DFF",
   },
   segmented: {
     flexDirection: "row",
     marginTop: spacing.lg,
-    backgroundColor: colors.surfaceSoft,
+    backgroundColor: "rgba(255,255,255,0.10)",
     borderRadius: radius.xl,
     padding: 5,
   },
@@ -377,7 +374,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   segmentActive: {
-    backgroundColor: colors.accent,
+    backgroundColor: "rgba(255,255,255,0.34)",
   },
   segmentText: {
     color: colors.muted,
@@ -387,10 +384,10 @@ const styles = StyleSheet.create({
     fontWeight: typography.weight.black,
   },
   segmentTextActive: {
-    color: colors.textInverse,
+    color: "#FFFFFF",
   },
   pickerWrap: {
-    height: 260,
+    height: 330,
     marginTop: spacing.md,
   },
   wheelFrame: {
@@ -398,13 +395,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   wheels: {
-    height: 220,
+    height: 270,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   wheelColumn: {
-    height: 220,
+    height: 270,
     justifyContent: "center",
   },
   wheelItem: {
@@ -427,14 +424,14 @@ const styles = StyleSheet.create({
   },
   selectionBand: {
     position: "absolute",
-    top: 88,
+    top: 111,
     left: 0,
     right: 0,
-    height: 48,
-    backgroundColor: "rgba(55,245,174,0.18)",
+    height: 58,
+    backgroundColor: "rgba(255,255,255,0.09)",
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.borderAccent,
+    borderColor: "rgba(255,255,255,0.05)",
   },
   nowPanel: {
     flex: 1,

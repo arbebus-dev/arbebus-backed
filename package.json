@@ -2,12 +2,20 @@
   "private": true,
   "name": "arbebus-monorepo",
   "version": "1.0.0",
-  "workspaces": ["backend", "mobile", "shared"],
+  "workspaces": [
+    "backend",
+    "mobile",
+    "shared"
+  ],
   "scripts": {
     "dev:backend": "npm --workspace backend run dev",
     "start:backend": "npm --workspace backend run start",
     "dev:mobile": "npm --workspace mobile run start",
-    "lint": "echo \"TODO: add ESLint\"",
-    "test": "echo \"TODO: add Jest/Vitest tests\""
+    "lint": "npm --workspace mobile run lint",
+    "test": "npm --workspace backend run test"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "13.0.0",
+    "react-test-renderer": "19.1.0"
   }
 }

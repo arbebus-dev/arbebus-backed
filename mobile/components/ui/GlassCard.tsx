@@ -20,7 +20,7 @@ export default function GlassCard({ children, style, intensity = 35, onPress, te
 
   return (
     <Container style={[styles.glassCardWrap, style]} onPress={onPress} testID={testID}>
-      <BlurView intensity={Platform.OS === "ios" ? intensity : 20} tint="dark" style={StyleSheet.absoluteFill} />
+      <BlurView intensity={Platform.OS === "ios" ? intensity : 20} tint="dark" style={StyleSheet.absoluteFillObject} />
       <View pointerEvents="none" style={styles.glassCardBorder} />
       <View style={styles.glassCardInner}>{children}</View>
     </Container>

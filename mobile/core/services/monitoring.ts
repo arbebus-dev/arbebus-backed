@@ -1,6 +1,6 @@
-import React from 'react';
+import React from "react";
 
-type SentryLevel = 'fatal' | 'error' | 'warning' | 'log' | 'info' | 'debug';
+type SentryLevel = "fatal" | "error" | "warning" | "log" | "info" | "debug";
 
 class MonitoringService {
   private initialized = false;
@@ -24,16 +24,25 @@ class MonitoringService {
   }
 
   captureException(error: Error, context?: Record<string, any>) {
-    if (__DEV__) console.warn('Monitoring captureException:', error?.message, context);
+    if (__DEV__)
+      console.warn("Monitoring captureException:", error?.message, context);
   }
 
-  captureMessage(message: string, level: SentryLevel = 'info', context?: Record<string, any>) {
-    if (__DEV__) console.log('Monitoring message:', level, message, context);
+  captureMessage(
+    message: string,
+    level: SentryLevel = "info",
+    context?: Record<string, any>,
+  ) {
+    if (__DEV__) console.debug("Monitoring message:", level, message, context);
   }
 
   addBreadcrumb(_message: string, _category?: string, _level?: SentryLevel) {}
 
-  captureUserFeedback(_feedback: { name?: string; email?: string; message: string }) {}
+  captureUserFeedback(_feedback: {
+    name?: string;
+    email?: string;
+    message: string;
+  }) {}
 
   setUser(_user: Record<string, any> | null) {}
 
@@ -46,7 +55,10 @@ class MonitoringService {
 
 export const monitoring = new MonitoringService();
 
-export function withMonitoring<P extends object>(Component: React.ComponentType<P>, _name?: string) {
+export function withMonitoring<P extends object>(
+  Component: React.ComponentType<P>,
+  _name?: string,
+) {
   return Component;
 }
 
