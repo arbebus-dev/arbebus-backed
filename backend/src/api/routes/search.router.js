@@ -1,6 +1,6 @@
 const express = require("express");
 const controller = require("../../modules/search/search.controller");
-const logger = require("../../core/logging/logger");
+const { logger } = require("../../core/logging/logger");
 
 const router = express.Router();
 
@@ -11,7 +11,7 @@ const mainSearchHandler =
   controller.handleSearch;
 
 if (typeof mainSearchHandler !== "function") {
-  logger.info("[search.routes] controller keys:", Object.keys(controller));
+  logger.info("[search.router] controller keys:", Object.keys(controller));
   throw new Error(
     "Search controller does not export search/index/searchPlaces/handleSearch",
   );
