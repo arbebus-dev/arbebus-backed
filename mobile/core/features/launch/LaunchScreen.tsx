@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   imageWrap: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: BG,
   },
   hero: {
@@ -191,7 +191,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(3,7,11,0.22)",
   },
   safe: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
   },
   languagePanel: {
     position: "absolute",

@@ -34,7 +34,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.glass,
   },
   glassCardBorder: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 24,

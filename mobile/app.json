@@ -5,11 +5,20 @@
     "version": "1.0.0",
     "scheme": "arbebus",
     "orientation": "portrait",
+    "platforms": ["ios", "android"],
+    "plugins": ["expo-router", "expo-splash-screen"],
     "ios": {
       "bundleIdentifier": "com.arbebus.app",
+      "supportsTablet": false,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "Arbebus naudoja jūsų vietą, kad parodytų artimiausias stoteles ir maršrutus.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Arbebus naudoja jūsų vietą kelionės navigacijai ir pranešimams."
       }
+    },
+    "android": {
+      "package": "com.arbebus.app",
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
     },
     "extra": {
       "eas": {

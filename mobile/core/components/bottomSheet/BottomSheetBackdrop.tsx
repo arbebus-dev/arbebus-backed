@@ -8,7 +8,7 @@ export default function BottomSheetBackdrop({ visible, onPress }: { visible?: bo
 
 const styles = StyleSheet.create({
   backdrop: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.34)",
   },
 });
