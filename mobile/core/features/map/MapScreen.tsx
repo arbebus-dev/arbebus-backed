@@ -82,9 +82,10 @@ function normalizeRouteNumber(value: unknown) {
 }
 
 function normalizeVehiclePoint(vehicle: unknown): MapPoint | null {
-  const latitude = Number(vehicle?.latitude ?? vehicle?.coordinate?.latitude);
+  const item = vehicle as { latitude?: unknown; longitude?: unknown; coordinate?: { latitude?: unknown; longitude?: unknown } };
+  const latitude = Number(item?.latitude ?? item?.coordinate?.latitude);
   const longitude = Number(
-    vehicle?.longitude ?? vehicle?.coordinate?.longitude,
+    item?.longitude ?? item?.coordinate?.longitude,
   );
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;

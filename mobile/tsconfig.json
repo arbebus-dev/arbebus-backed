@@ -1,32 +1,8 @@
 {
-  "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "strict": true,
-    "jsx": "react-jsx",
     "baseUrl": ".",
-    "ignoreDeprecations": "6.0",
-    "paths": {
-      "@/*": ["./*"],
-      "@shared/*": ["../shared/src/*"]
-    }
+    "ignoreDeprecations": "6.0"
   },
-  "include": [
-    "app/**/*.ts",
-    "app/**/*.tsx",
-    "core/**/*.ts",
-    "core/**/*.tsx",
-    "components/**/*.ts",
-    "components/**/*.tsx",
-    "constants/**/*.ts",
-    "constants/**/*.tsx",
-    "*.ts",
-    "*.tsx"
-  ],
-  "exclude": [
-    "node_modules",
-    "**/__tests__/**",
-    "**/*.test.ts",
-    "**/*.test.tsx",
-    "core/app/**"
-  ]
+  "exclude": ["node_modules", "mobile/node_modules", "backend/node_modules"],
+  "extends": "expo/tsconfig.base"
 }

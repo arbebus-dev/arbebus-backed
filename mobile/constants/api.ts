@@ -1,13 +1,16 @@
 import Constants from "expo-constants";
 
-const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string | undefined>;
+const extra = (Constants.expoConfig?.extra ?? {}) as Record<
+  string,
+  string | undefined
+>;
 
 export const API_BASE =
   process.env.EXPO_PUBLIC_API_BASE_URL ||
   process.env.EXPO_PUBLIC_API_BASE ||
   extra.API_BASE_URL ||
   extra.API_BASE ||
-  "https://arbebus-backed.onrender.com";
+  "https://arbebus-backend.onrender.com";
 
 export const API_ENDPOINTS = {
   health: `${API_BASE}/api/health`,

@@ -1,0 +1,12 @@
+.env
+*.env
+!*.env.example
+infrastructure/.env
+mobile/.env
+backend/.env
+node_modules
+.expo/
+mobile/.expo/
+node_modules/
+mobile/node_modules/
+backend/node_modules/

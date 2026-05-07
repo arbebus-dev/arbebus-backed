@@ -155,7 +155,8 @@ function timeText(value?: string | null) {
 }
 
 function stopTimeText(stop: unknown) {
-  return timeText(stop?.arrivalTime || stop?.departureTime);
+  const item = stop as { arrivalTime?: string | null; departureTime?: string | null };
+  return timeText(item?.arrivalTime || item?.departureTime);
 }
 
 function travelTimeLabel(mode?: TravelTimeMode, value?: Date | string | null) {
@@ -289,7 +290,7 @@ function Header({
 }: {
   title: string;
   subtitle?: string;
-  icon?: unknown;
+  icon?: string;
   badge?: string;
   onClose: () => void;
   onBack?: () => void;
@@ -303,7 +304,7 @@ function Header({
       ) : null}
       <View style={styles.headerIcon}>
         <MaterialCommunityIcons
-          name={icon || "directions-fork"}
+          name={(icon || "directions-fork") as any}
           size={17}
           color={COLORS.green}
         />
@@ -400,7 +401,7 @@ function QuickMenuRow({
   subtitle,
   onPress,
 }: {
-  icon: unknown;
+  icon: string;
   title: string;
   subtitle?: string;
   onPress: () => void;
@@ -414,7 +415,7 @@ function QuickMenuRow({
       }}
     >
       <View style={styles.quickMenuIcon}>
-        <MaterialCommunityIcons name={icon} size={17} color={COLORS.green} />
+        <MaterialCommunityIcons name={icon as any} size={17} color={COLORS.green} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.quickMenuTitle} numberOfLines={1}>
@@ -440,7 +441,7 @@ function SuggestionChip({
   label,
   onPress,
 }: {
-  icon: unknown;
+  icon: string;
   label: string;
   onPress: () => void;
 }) {
@@ -452,7 +453,7 @@ function SuggestionChip({
         onPress();
       }}
     >
-      <MaterialCommunityIcons name={icon} size={15} color={COLORS.green} />
+      <MaterialCommunityIcons name={icon as any} size={15} color={COLORS.green} />
       <Text style={styles.suggestionChipText}>{label}</Text>
     </Pressable>
   );
@@ -472,7 +473,7 @@ function TripInputRow({
   return (
     <View style={styles.tripInputRow}>
       <View style={styles.tripInputIcon}>
-        <MaterialCommunityIcons name={icon} size={15} color={COLORS.green} />
+        <MaterialCommunityIcons name={icon as any} size={15} color={COLORS.green} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.tripInputLabel}>{label}</Text>
@@ -666,8 +667,8 @@ function PlacePreviewCard({ props }: { props: Props }) {
 
   const photos = [
     ...(Array.isArray((place as { photos?: unknown[] }).photos)
-      ? (place as { photos?: unknown[] }).photos
-          .map((p: unknown) => p?.url || p)
+      ? ((place as { photos?: unknown[] }).photos || [])
+          .map((p: unknown) => (p as { url?: string })?.url || p)
           .filter(Boolean)
       : []),
     ...(Array.isArray((place as any).photoUrls)
