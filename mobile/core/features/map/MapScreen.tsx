@@ -585,6 +585,9 @@ export default function MapScreen() {
         routeOptions={planner.routeOptions}
         selectedRoute={selectedRoute}
         currentStepIndex={planner.currentStepIndex}
+        travelTimeMode={planner.travelTimeMode}
+        travelTimeDate={planner.travelTimeDate}
+        onChangeTravelTime={planner.setTravelTime}
         selectedOrigin={planner.selectedOrigin}
         selectedDestination={planner.selectedDestination}
         selectedMapPlace={selectedMapPlace}

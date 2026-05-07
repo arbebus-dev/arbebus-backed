@@ -82,12 +82,12 @@ type Stage = "search" | "loading" | "routes" | "details" | "navigation";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_TOP = 64;
-const SHEET_RADIUS = 32;
+const SHEET_RADIUS = 30;
 const SNAP_FULL = SHEET_TOP;
-const SNAP_MID = Math.round(SCREEN_HEIGHT * 0.42);
-// Default search position: high enough to show IŠ KUR / Į KUR / KADA and favourites.
-const SNAP_BOTTOM = Math.round(SCREEN_HEIGHT * 0.49);
-const SNAP_COMPACT = Math.round(SCREEN_HEIGHT * 0.66);
+const SNAP_MID = Math.round(SCREEN_HEIGHT * 0.43);
+// Lower default start position: sheet opens calmer, but still shows IŠ KUR / Į KUR / KADA.
+const SNAP_BOTTOM = Math.round(SCREEN_HEIGHT * 0.52);
+const SNAP_COMPACT = Math.round(SCREEN_HEIGHT * 0.70);
 const SHEET_HEIGHT = SCREEN_HEIGHT - SHEET_TOP + 32;
 const SHEET_POINTS = [SNAP_FULL, SNAP_MID, SNAP_BOTTOM] as const;
 const NAV_SHEET_POINTS = [SNAP_FULL, SNAP_MID, SNAP_COMPACT] as const;
@@ -543,6 +543,7 @@ function TripSearchForm({
       </TripInputRow>
       <View style={styles.tripDivider} />
       <Pressable
+        style={styles.timePickerRowButton}
         onPress={() => {
           void Haptics.selectionAsync();
           setTimeModalOpen(true);
@@ -553,6 +554,7 @@ function TripSearchForm({
           label={t.sheet.when}
           value={travelTimeLabel(props.travelTimeMode, props.travelTimeDate)}
         />
+        <Ionicons name="chevron-forward" size={18} color="rgba(248,251,255,0.46)" />
       </Pressable>
       <TravelTimeModal
         visible={timeModalOpen}
@@ -1445,23 +1447,23 @@ const styles = StyleSheet.create({
     zIndex: 30,
     elevation: 30,
     shadowColor: "#000",
-    shadowOpacity: 0.32,
-    shadowRadius: 32,
+    shadowOpacity: 0.30,
+    shadowRadius: 30,
     shadowOffset: { width: 0, height: -8 },
-    backgroundColor: "rgba(5,10,18,0.98)",
+    backgroundColor: "rgba(7,12,22,0.98)",
   },
   blurSurface: {
     flex: 1,
-    backgroundColor: "rgba(5,10,18,0.88)",
+    backgroundColor: "rgba(7,12,22,0.90)",
     borderTopWidth: 1,
     borderColor: "rgba(255,255,255,0.10)",
   },
-  dragArea: { height: 30, alignItems: "center", justifyContent: "center" },
+  dragArea: { height: 28, alignItems: "center", justifyContent: "center" },
   grabber: {
-    width: 64,
+    width: 58,
     height: 5,
     borderRadius: 99,
-    backgroundColor: "rgba(255,255,255,0.30)",
+    backgroundColor: "rgba(255,255,255,0.28)",
   },
   stateRoot: { flex: 1 },
   fixedHeader: { paddingHorizontal: 18, paddingBottom: 10 },
@@ -1607,8 +1609,8 @@ const styles = StyleSheet.create({
   },
   searchScrollContent: {
     paddingHorizontal: 18,
-    paddingTop: 8,
-    paddingBottom: 110,
+    paddingTop: 4,
+    paddingBottom: 120,
   },
   appleTopRow: {
     flexDirection: "row",
@@ -2471,27 +2473,35 @@ const styles = StyleSheet.create({
   },
   tripFormCard: {
     position: "relative",
-    borderRadius: 24,
+    borderRadius: 26,
     padding: 12,
     backgroundColor: "rgba(8,18,32,0.94)",
     borderWidth: 1,
-    borderColor: "rgba(55,245,174,0.24)",
+    borderColor: "rgba(255,255,255,0.10)",
     marginBottom: 12,
     marginTop: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 10 },
   },
   swapPlacesButton: {
     position: "absolute",
     right: 18,
-    top: 74,
+    top: 72,
     width: 48,
     height: 48,
-    borderRadius: 16,
+    borderRadius: 24,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(92,117,170,0.42)",
+    backgroundColor: "rgba(12,22,38,0.96)",
     borderWidth: 1,
-    borderColor: "rgba(126,164,255,0.28)",
+    borderColor: "rgba(52,245,179,0.26)",
     zIndex: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.28,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 7 },
   },
   favoriteSaveButton: {
     width: 38,
@@ -2503,20 +2513,22 @@ const styles = StyleSheet.create({
     marginRight: 2,
   },
   tripInputRow: {
-    minHeight: 56,
+    minHeight: 58,
     flexDirection: "row",
     alignItems: "center",
     gap: 11,
     paddingHorizontal: 8,
-    paddingVertical: 6,
+    paddingVertical: 7,
   },
   tripInputIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(53,242,180,0.16)",
+    backgroundColor: "rgba(53,242,180,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(53,242,180,0.10)",
   },
   tripInputLabel: {
     color: COLORS.muted,
@@ -2534,24 +2546,31 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   inlineInputRow: {
-    minHeight: 38,
-    borderRadius: 18,
+    minHeight: 40,
+    borderRadius: 20,
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.075)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.10)",
   },
   inlineInput: {
     flex: 1,
-    minHeight: 38,
+    minHeight: 40,
     paddingVertical: 0,
     color: COLORS.text,
     fontSize: T.body,
     lineHeight: LINE_HEIGHT.body,
     fontWeight: "800",
+  },
+  timePickerRowButton: {
+    minHeight: 58,
+    borderRadius: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 8,
   },
   tripDivider: {
     height: StyleSheet.hairlineWidth,
