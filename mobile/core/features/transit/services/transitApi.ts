@@ -690,24 +690,42 @@ function normalizeBackendPlan(
 }
 
 export async function getLiveBuses(): Promise<LiveBus[]> {
-  const response = await fetchWithRetry(API_ENDPOINTS.liveBuses);
+  const endpoints = [
+    API_ENDPOINTS.liveBuses,
+    `${API_BASE}/live-buses`,
+  ];
 
-  if (!response.ok) {
-    throw new Error(`Live buses failed: ${response.status}`);
+  let lastError: unknown = null;
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetchWithRetry(endpoint);
+
+      if (!response.ok) {
+        lastError = new Error(`Live buses failed: ${response.status}`);
+        continue;
+      }
+
+      const data = await safeJson<any>(response);
+      const rawBuses = Array.isArray(data)
+        ? data
+        : Array.isArray(data.buses)
+          ? data.buses
+          : Array.isArray(data.vehicles)
+            ? data.vehicles
+            : [];
+
+      return rawBuses
+        .map((bus: any, index: number) => normalizeLiveBus(bus, index))
+        .filter(Boolean) as LiveBus[];
+    } catch (error) {
+      lastError = error;
+    }
   }
 
-  const data = await safeJson<any>(response);
-  const rawBuses = Array.isArray(data)
-    ? data
-    : Array.isArray(data.buses)
-      ? data.buses
-      : Array.isArray(data.vehicles)
-        ? data.vehicles
-        : [];
-
-  return rawBuses
-    .map((bus: any, index: number) => normalizeLiveBus(bus, index))
-    .filter(Boolean) as LiveBus[];
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Live buses failed");
 }
 
 function normalizePlaceType(item: any): PlaceResult["type"] {

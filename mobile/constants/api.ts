@@ -10,7 +10,7 @@ export const API_BASE =
   process.env.EXPO_PUBLIC_API_BASE ||
   extra.API_BASE_URL ||
   extra.API_BASE ||
-  "https://arbebus-backend.onrender.com";
+  "https://arbebus-backed.onrender.com";
 
 export const API_ENDPOINTS = {
   health: `${API_BASE}/api/health`,
