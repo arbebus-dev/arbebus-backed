@@ -1,20 +1,20 @@
 {
   "private": true,
-  "name": "arbebus-monorepo",
+  "name": "arbebus-mobile",
   "version": "1.0.0",
-  "workspaces": [
-    "backend",
-    "mobile",
-    "shared"
-  ],
+  "main": "expo/AppEntry.js",
   "scripts": {
-    "dev:backend": "npm --workspace backend run dev",
-    "start:backend": "npm --workspace backend run start",
-    "dev:mobile": "npm --workspace mobile run start",
-    "lint": "echo \"TODO: add ESLint\"",
-    "test": "echo \"TODO: add Jest/Vitest tests\""
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "expo": "~54.0.34",
+    "expo-router": "~6.0.23",
+    "expo-splash-screen": "~31.0.12"
   },
   "devDependencies": {
-    "@testing-library/react-native": "^13.3.3"
+    "typescript": "~5.9.2"
   }
 }
