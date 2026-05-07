@@ -1,7 +1,7 @@
 /* eslint-env node */
 const path = require("path");
 const dotenv = require("dotenv");
-const logger = require("./logging/logger");
+const { logger } = require("./logging/logger");
 
 if (process.env.NODE_ENV !== "production") {
   const envPath = path.resolve(__dirname, "../../../infrastructure/.env");
@@ -20,7 +20,6 @@ if (process.env.NODE_ENV !== "production") {
 
 const { createApp } = require("./server/app");
 const { env } = require("./config/env");
-const { logger } = require("./logging/logger");
 const { initSentry } = require("./monitoring/sentry");
 const { initPeriodicRebuild } = require("../modules/search/cache/indexRebuild");
 

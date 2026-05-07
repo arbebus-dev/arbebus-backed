@@ -2,7 +2,7 @@ const path = require("path");
 const fs = require("fs");
 const { normalizeText, expandQuery } = require("../utils/normalizeText");
 const { toResult } = require("../utils/mapSearchResult");
-const logger = require("../../../core/logging/logger");
+const { logger } = require("../../../core/logging/logger");
 
 const DATA_ROOT = path.join(__dirname, "../../../data/poi");
 

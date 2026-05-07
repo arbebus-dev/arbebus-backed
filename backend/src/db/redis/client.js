@@ -1,5 +1,5 @@
 let redisClient = null;
-const logger = require("../../core/logging/logger");
+const { logger } = require("../../core/logging/logger");
 
 async function getRedisClient() {
   const redisUrl = process.env.REDIS_URL;

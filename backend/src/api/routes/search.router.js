@@ -1,6 +1,6 @@
 const express = require("express");
 const controller = require("../../modules/search/search.controller");
-const logger = require("../../core/logging/logger");
+const { logger } = require("../../core/logging/logger");
 
 const router = express.Router();
 
