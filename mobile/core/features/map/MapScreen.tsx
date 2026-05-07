@@ -7,11 +7,11 @@ import { useLiveBuses } from "../transit/hooks/useLiveBuses";
 import { useTransitPlanner } from "../transit/hooks/useTransitPlanner";
 import { useUserLocation } from "../transit/hooks/useUserLocation";
 import {
-    fetchPlaceDetails,
-    fetchStationAccess,
-    reverseGeocodePlace,
-    searchPlaces,
-    type StationAccessPoint,
+  fetchPlaceDetails,
+  fetchStationAccess,
+  reverseGeocodePlace,
+  searchPlaces,
+  type StationAccessPoint,
 } from "../transit/services/transitApi";
 
 import JourneySheet from "./JourneySheet";
@@ -29,24 +29,9 @@ type MapPoint = {
   longitude: number;
 };
 
-function cameraForFlow(flowState: string) {
-  switch (flowState) {
-    case "walking_to_stop":
-      return { zoom: 17.1, pitch: 50 };
-    case "waiting_bus":
-      return { zoom: 16.6, pitch: 45 };
-    case "onboard":
-      return { zoom: 15.8, pitch: 52 };
-    case "transfer":
-      return { zoom: 16.5, pitch: 48 };
-    case "arriving":
-      return { zoom: 17.2, pitch: 50 };
-    default:
-      return { zoom: 16.2, pitch: 45 };
-  }
-}
+type AnyRecord = Record<string, any>;
 
-function validPoints(points?: MapPoint[]) {
+function validPoints(points?: MapPoint[] | null) {
   return (points || []).filter(
     (point) =>
       point &&
@@ -69,10 +54,10 @@ function normalizeRouteNumber(value: unknown) {
 }
 
 function normalizeVehiclePoint(vehicle: unknown): MapPoint | null {
-  const latitude = Number(vehicle?.latitude ?? vehicle?.coordinate?.latitude);
-  const longitude = Number(
-    vehicle?.longitude ?? vehicle?.coordinate?.longitude,
-  );
+  const item = vehicle as AnyRecord | null | undefined;
+
+  const latitude = Number(item?.latitude ?? item?.coordinate?.latitude);
+  const longitude = Number(item?.longitude ?? item?.coordinate?.longitude);
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
 
@@ -88,23 +73,6 @@ function distanceMeters(a: MapPoint, b: MapPoint) {
     360;
 
   return Math.sqrt(dx * dx + dy * dy);
-}
-
-function cameraForFlow(flowState: string) {
-  switch (flowState) {
-    case "walking_to_stop":
-      return { zoom: 17.1, pitch: 50 };
-    case "waiting_bus":
-      return { zoom: 16.6, pitch: 45 };
-    case "onboard":
-      return { zoom: 15.8, pitch: 52 };
-    case "transfer":
-      return { zoom: 16.5, pitch: 48 };
-    case "arriving":
-      return { zoom: 17.2, pitch: 50 };
-    default:
-      return { zoom: 16.2, pitch: 45 };
-  }
 }
 
 function averagePoint(points: MapPoint[]): MapPoint | null {
@@ -125,9 +93,10 @@ function averagePoint(points: MapPoint[]): MapPoint | null {
   };
 }
 
-function placeFromMapData(input: any) {
+function placeFromMapData(input: AnyRecord | null | undefined) {
   const latitude = Number(input?.latitude ?? input?.coordinate?.latitude);
   const longitude = Number(input?.longitude ?? input?.coordinate?.longitude);
+
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
 
   const placeId =
@@ -167,17 +136,21 @@ export default function MapScreen() {
   const { buses } = useLiveBuses();
   const planner = useTransitPlanner(userLocation);
 
-  const selectedRoute = planner.selectedRoute;
-  const selectedDestination = planner.selectedDestination;
+  const selectedRoute = planner.selectedRoute as AnyRecord | null;
+  const selectedDestination = planner.selectedDestination as AnyRecord | null;
+
   const [stationAccessPoints, setStationAccessPoints] = useState<
     StationAccessPoint[]
   >([]);
-  const [selectedMapPlace, setSelectedMapPlace] = useState<any | null>(null);
+  const [selectedMapPlace, setSelectedMapPlace] = useState<AnyRecord | null>(
+    null,
+  );
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
   const [visibleRegion, setVisibleRegion] = useState<Region | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+
     const stopId =
       selectedRoute?.originStop?.id ||
       selectedRoute?.originStop?.stopId ||
@@ -190,7 +163,7 @@ export default function MapScreen() {
       return;
     }
 
-    fetchStationAccess(stopId)
+    fetchStationAccess(String(stopId))
       .then((items) => {
         if (!cancelled) setStationAccessPoints(items);
       })
@@ -237,29 +210,31 @@ export default function MapScreen() {
   const selectedLiveBus = useMemo(() => {
     if (!selectedRoute) return null;
 
-    const liveVehicle = selectedRoute.liveVehicle;
+    const liveVehicle = selectedRoute.liveVehicle as AnyRecord | null;
     const liveVehicleId = normalizeId(
       liveVehicle?.vehicleId || liveVehicle?.id || liveVehicle?.vehicleLabel,
     );
     const liveVehiclePoint = normalizeVehiclePoint(liveVehicle);
 
     if (liveVehicleId) {
-      const exact = buses.find((bus) => {
+      const exact = buses.find((rawBus) => {
+        const bus = rawBus as AnyRecord;
         const ids = [bus.vehicleId, bus.id, bus.vehicleLabel].map(normalizeId);
         return ids.includes(liveVehicleId);
       });
 
-      if (exact) return exact;
+      if (exact) return exact as AnyRecord;
     }
 
     if (liveVehiclePoint) {
       const closestByPoint = buses
-        .map((bus) => {
+        .map((rawBus) => {
+          const bus = rawBus as AnyRecord;
           const point = normalizeVehiclePoint(bus);
           if (!point) return null;
           return { bus, distance: distanceMeters(point, liveVehiclePoint) };
         })
-        .filter(Boolean) as { bus: (typeof buses)[number]; distance: number }[];
+        .filter(Boolean) as { bus: AnyRecord; distance: number }[];
 
       closestByPoint.sort((a, b) => a.distance - b.distance);
 
@@ -270,16 +245,20 @@ export default function MapScreen() {
 
     if (!selectedRouteNumber) return null;
 
-    const originPoint = selectedRoute.originStop?.coordinate;
+    const originPoint = selectedRoute.originStop?.coordinate as
+      | MapPoint
+      | undefined;
 
     const candidates = buses
-      .filter((bus) => {
+      .filter((rawBus) => {
+        const bus = rawBus as AnyRecord;
         const number = normalizeRouteNumber(
           bus.routeId || bus.route || bus.number,
         );
         return number === selectedRouteNumber;
       })
-      .map((bus) => {
+      .map((rawBus) => {
+        const bus = rawBus as AnyRecord;
         const point = normalizeVehiclePoint(bus);
         const distance =
           point && originPoint
@@ -356,28 +335,30 @@ export default function MapScreen() {
       coords.push(...routePreview);
     } else {
       if (userLocation) coords.push(userLocation);
-      if (selectedDestination?.coordinate)
+      if (selectedDestination?.coordinate) {
         coords.push(selectedDestination.coordinate);
+      }
     }
 
     return validPoints(coords);
   }, [selectedDestination, selectedRoute, userLocation]);
 
   useEffect(() => {
+    void focusCoords;
     // PRO FIX: do not auto zoom out after route selection.
     // User keeps full manual control over map zoom/pan like Apple Maps.
-    // Route fitting can be re-enabled later only from an explicit user button.
-    return;
   }, [focusCoords, planner.flowState, selectedRoute]);
 
   useEffect(() => {
+    void activeCameraTarget;
     // PRO FIX: automatic follow camera is disabled by default.
     // This prevents unwanted zoom-out/zoom-in while the user explores the map.
-    // Keep manual gestures stable during TestFlight QA.
-    return;
   }, [activeCameraTarget, planner.flowState, selectedLiveBus]);
 
-  const showPlacePreview = async (rawPlace: any, shouldReverse = true) => {
+  const showPlacePreview = async (
+    rawPlace: AnyRecord,
+    shouldReverse = true,
+  ) => {
     const provisional = placeFromMapData(rawPlace);
     if (!provisional) return;
 
@@ -385,6 +366,7 @@ export default function MapScreen() {
     setSelectedMapPlace(provisional);
 
     const placeId = provisional.placeId || provisional.googlePlaceId;
+
     if (!shouldReverse && !placeId) {
       setIsReverseGeocoding(false);
       return;
@@ -398,6 +380,7 @@ export default function MapScreen() {
           if (placeId) return fetchPlaceDetails(placeId);
 
           const title = String(provisional.title || "").trim();
+
           if (shouldReverse && title && title !== "Pasirinkta vieta") {
             const nearbyByName = await searchPlaces(title);
             const closest = nearbyByName
@@ -412,10 +395,12 @@ export default function MapScreen() {
             if (closest?.item && closest.distance <= 260) {
               const googleId =
                 closest.item.placeId || closest.item.googlePlaceId;
+
               if (googleId) {
                 const details = await fetchPlaceDetails(googleId);
                 return details || closest.item;
               }
+
               return closest.item;
             }
           }
@@ -447,7 +432,9 @@ export default function MapScreen() {
 
   const handleMapPress = (event: any) => {
     if (Date.now() - lastPoiClickAt.current < 650) return;
+
     const coordinate = event?.nativeEvent?.coordinate;
+
     void showPlacePreview(
       { coordinate, type: "address", source: "map_tap" },
       true,
@@ -456,6 +443,7 @@ export default function MapScreen() {
 
   const handlePoiClick = (event: any) => {
     lastPoiClickAt.current = Date.now();
+
     const native = event?.nativeEvent || {};
     const coordinate = native.coordinate ||
       native.position || {
@@ -481,12 +469,12 @@ export default function MapScreen() {
 
   const recenterToUser = async () => {
     Keyboard.dismiss();
+
     await refreshLocation();
+
     const target = userLocation;
     if (!target) return;
 
-    // UX rule: pressing My Location must immediately make origin usable.
-    // Reverse geocoding is nice-to-have and must never block routing.
     planner.selectOrigin({
       id: "current-location",
       title: "Mano vieta",
@@ -500,6 +488,7 @@ export default function MapScreen() {
     void reverseGeocodePlace(target)
       .then((place) => {
         if (!place?.coordinate) return;
+
         planner.selectOrigin({
           ...place,
           id: place.id || "current-location",
@@ -606,8 +595,6 @@ export default function MapScreen() {
         isRerouting={planner.isRerouting}
         reroutingMessage={planner.reroutingMessage}
         onChangeQuery={(text) => {
-          // Always route text changes through runSearch. It clears old results for
-          // short input, debounces valid searches, and prevents stale UI state.
           void planner.runSearch(text);
         }}
         onSubmitSearch={() => {
