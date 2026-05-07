@@ -3,38 +3,38 @@ import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useMemo, useRef } from "react";
 import {
-    ActivityIndicator,
-    Animated,
-    Dimensions,
-    Image,
-    Keyboard,
-    PanResponder,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Animated,
+  Dimensions,
+  Image,
+  Keyboard,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 
 import { useLanguage } from "@/core/i18n/LanguageContext";
 import { COLORS, LINE_HEIGHT, T } from "@/core/theme/typography";
 import TravelTimeModal, {
-    type TravelTimeMode,
-    type TravelTimeSelection,
+  type TravelTimeMode,
+  type TravelTimeSelection,
 } from "../rideBooking/components/TravelTimeModal";
 import {
-    buildJourneyViewModel,
-    cleanRouteNumber,
-    cleanStopName,
-    getSteps,
-    routeNumbersFromRoute,
+  buildJourneyViewModel,
+  cleanRouteNumber,
+  cleanStopName,
+  getSteps,
+  routeNumbersFromRoute,
 } from "../transit/models/journeyStateMachine";
 import type {
-    PlaceSearchResult,
-    TransitFlowState,
-    TransitRouteOption,
-    TransitStep,
+  PlaceSearchResult,
+  TransitFlowState,
+  TransitRouteOption,
+  TransitStep,
 } from "../transit/models/transitTypes";
 
 type Props = {
@@ -155,7 +155,10 @@ function timeText(value?: string | null) {
 }
 
 function stopTimeText(stop: unknown) {
-  const item = stop as { arrivalTime?: string | null; departureTime?: string | null };
+  const item = stop as {
+    arrivalTime?: string | null;
+    departureTime?: string | null;
+  };
   return timeText(item?.arrivalTime || item?.departureTime);
 }
 
@@ -389,7 +392,10 @@ function ProfileAvatar() {
 function AppleSearchHeader({ panHandlers }: { panHandlers?: unknown }) {
   const { t } = useLanguage();
   return (
-    <View {...(panHandlers || {})} style={styles.fixedHeaderCompact}>
+    <View
+      {...((panHandlers ?? {}) as Record<string, unknown>)}
+      style={styles.fixedHeaderCompact}
+    >
       <Text style={styles.appleSheetTitleCentered}>{t.common.appName}</Text>
     </View>
   );
@@ -415,7 +421,11 @@ function QuickMenuRow({
       }}
     >
       <View style={styles.quickMenuIcon}>
-        <MaterialCommunityIcons name={icon as any} size={17} color={COLORS.green} />
+        <MaterialCommunityIcons
+          name={icon as any}
+          size={17}
+          color={COLORS.green}
+        />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.quickMenuTitle} numberOfLines={1}>
@@ -453,7 +463,11 @@ function SuggestionChip({
         onPress();
       }}
     >
-      <MaterialCommunityIcons name={icon as any} size={15} color={COLORS.green} />
+      <MaterialCommunityIcons
+        name={icon as any}
+        size={15}
+        color={COLORS.green}
+      />
       <Text style={styles.suggestionChipText}>{label}</Text>
     </Pressable>
   );
@@ -473,7 +487,11 @@ function TripInputRow({
   return (
     <View style={styles.tripInputRow}>
       <View style={styles.tripInputIcon}>
-        <MaterialCommunityIcons name={icon as any} size={15} color={COLORS.green} />
+        <MaterialCommunityIcons
+          name={icon as any}
+          size={15}
+          color={COLORS.green}
+        />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.tripInputLabel}>{label}</Text>

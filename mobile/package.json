@@ -12,7 +12,9 @@
   "dependencies": {
     "expo": "~54.0.34",
     "expo-router": "~6.0.23",
-    "expo-splash-screen": "~31.0.12"
+    "expo-splash-screen": "~31.0.12",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-screens": "~4.16.0"
   },
   "devDependencies": {
     "typescript": "~5.9.2"
