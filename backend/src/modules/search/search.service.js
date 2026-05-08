@@ -181,7 +181,7 @@ async function index(query = {}) {
     120,
   );
 
-  const combined = [...fastIndex.results];
+  let combined = [...fastIndex.results];
   const providers = [fastIndex];
 
   const rankedFast = rankResults(dedupeResults(fastIndex.results), q);
