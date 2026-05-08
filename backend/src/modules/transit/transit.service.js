@@ -1544,6 +1544,29 @@ function parseHeuristicGpsFeed(text) {
   return buses;
 }
 
+
+function buildShapePointsByTripId(gtfs) {
+  const map = new Map();
+
+  if (!gtfs || !gtfs.tripsById || !gtfs.shapesByShapeId) return map;
+
+  for (const trip of gtfs.tripsById.values()) {
+    const tripId = String(trip.trip_id || "");
+    const routeId = String(trip.route_id || "");
+    const shapeId = String(trip.shape_id || "");
+
+    if (!tripId || !shapeId) continue;
+
+    const points = gtfs.shapesByShapeId.get(shapeId) || [];
+    if (points.length >= 2) {
+      map.set(tripId, points);
+      if (routeId && !map.has(routeId)) map.set(routeId, points);
+    }
+  }
+
+  return map;
+}
+
 function parseGpsFeed(text) {
   const structured = parseStructuredGpsFeed(text);
   if (structured.length > 5) return structured;
@@ -1558,8 +1581,10 @@ async function liveBuses() {
   }
 
   try {
-    const gtfsRealtime = await vehiclePositionsRealtime.getVehiclePositions();
     const gtfs = loadGtfs();
+    const gtfsRealtime = await vehiclePositionsRealtime.getVehiclePositions({
+      shapePointsByTripId: buildShapePointsByTripId(gtfs),
+    });
 
     const buses = (gtfsRealtime.buses || []).map((bus) => {
       const trip = bus.tripId ? gtfs.tripsById.get(String(bus.tripId)) : null;
