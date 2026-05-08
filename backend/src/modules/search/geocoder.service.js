@@ -17,24 +17,15 @@ function toNumber(value) {
 }
 
 function isLikelyAddressQuery(query) {
-  const q = normalizeText(query);
+  const q = normalizeText(query).replace(/[.,]/g, " ").replace(/\s+/g, " ").trim();
   if (!q || q.length < 3) return false;
 
+  // House numbers, Lithuanian street suffixes and common Klaipėda region names.
+  // Examples: "Taikos 32A", "Taikos pr 32", "H Manto g 5", "Liepų 10".
   return (
-    /\d/.test(q) ||
-    q.includes(" g ") ||
-    q.endsWith(" g") ||
-    q.includes(" gatve") ||
-    q.includes(" prospekt") ||
-    q.includes(" pr ") ||
-    q.includes(" pl ") ||
-    q.includes(" al ") ||
-    q.includes(" klaipeda") ||
-    q.includes(" radail") ||
-    q.includes("kreting") ||
-    q.includes("palang") ||
-    q.includes("gargzd") ||
-    q.includes("smiltyn")
+    /\d+[a-z]?/i.test(q) ||
+    /(g|gatve|g\.|pr|pr\.|prospektas|prospekt|pl|pl\.|al|al\.)/.test(q) ||
+    /(klaipeda|klaipėda|radail|kreting|palang|gargzd|gargžd|smiltyn|liepu|liepų|taikos|manto|minijos|tilzes|tilžes|debesu|debesų)/.test(q)
   );
 }
 

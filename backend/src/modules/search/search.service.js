@@ -7,6 +7,7 @@ const { searchOverpass } = require('./providers/overpass.provider');
 const { searchGooglePlaces, getGooglePlaceDetails, searchNearbyGooglePlaces, getGooglePhotoMediaUrl } = require('./providers/googlePlaces.provider');
 const { searchGtfsStops, gtfsHealth, loadGtfsStops } = require('./providers/gtfsStops.provider');
 const { searchFastIndex, searchIndexHealth } = require('./index/searchIndex');
+const { geocode, isLikelyAddressQuery } = require('./geocoder.service');
 
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 30;
@@ -56,6 +57,7 @@ async function index(query = {}) {
   const type = String(query.type || 'all').toLowerCase();
   const limit = limitValue(query.limit);
   const nq = normalizeText(q);
+  const addressLike = isLikelyAddressQuery(q);
 
   if (nq.length < 2) {
     return { ok: true, query: q, count: 0, results: [], places: [], stops: [], addresses: [], meta: healthMeta() };
@@ -86,14 +88,21 @@ async function index(query = {}) {
   const hasStrongFastResult = rankedFast.some((item) => Number(item.score || 0) >= 360);
   const includeExternal = shouldUseExternalSearch(query);
 
-  if (includeExternal && !hasStrongFastResult) {
-    const [google, nominatim, overpass] = await Promise.all([
-      runProvider('google_places', () => searchGooglePlaces(q, { limit: 8 }), 1200),
-      runProvider('nominatim', () => searchNominatim(q, { limit: 8 }), 1200),
-      runProvider('overpass', () => searchOverpass(q, { limit: 6 }), 900),
+  // Address/street fallback is required for Apple Maps style search.
+  // It is intentionally allowed for likely address queries even when global
+  // SEARCH_EXTERNAL_ENABLED is false, because local GTFS/POI data will never
+  // contain every house number, street and village address.
+  const shouldRunAddressFallback = addressLike || (includeExternal && !hasStrongFastResult);
+
+  if (shouldRunAddressFallback) {
+    const [geocoder, google, nominatim, overpass] = await Promise.all([
+      runProvider('address_geocoder', () => geocode(q, { limit: 8 }), 1800),
+      includeExternal ? runProvider('google_places', () => searchGooglePlaces(q, { limit: 8 }), 1200) : Promise.resolve({ name: 'google_places', ok: true, results: [], error: null }),
+      includeExternal ? runProvider('nominatim', () => searchNominatim(q, { limit: 8 }), 1200) : Promise.resolve({ name: 'nominatim', ok: true, results: [], error: null }),
+      includeExternal ? runProvider('overpass', () => searchOverpass(q, { limit: 6 }), 900) : Promise.resolve({ name: 'overpass', ok: true, results: [], error: null }),
     ]);
-    providers.push(google, nominatim, overpass);
-    combined = [...combined, ...google.results, ...nominatim.results, ...overpass.results];
+    providers.push(geocoder, google, nominatim, overpass);
+    combined = [...combined, ...geocoder.results, ...google.results, ...nominatim.results, ...overpass.results];
   }
 
   if (type !== 'all') combined = combined.filter((item) => item.type === type);
@@ -114,7 +123,8 @@ async function index(query = {}) {
       cached: false,
       instant: true,
       externalEnabled: includeExternal,
-      externalSkipped: !includeExternal || hasStrongFastResult,
+      addressFallback: addressLike,
+      externalSkipped: !shouldRunAddressFallback,
       tookMs: Date.now() - startedAt,
       providers: compactProviderMeta(providers),
     },

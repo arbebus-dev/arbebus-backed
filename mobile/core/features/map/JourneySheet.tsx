@@ -1374,18 +1374,26 @@ export default function JourneySheet(props: Props) {
   );
   const startY = useRef(translateYValue.current);
   const keyboardOpen = useRef(false);
+  const userSnapRef = useRef(snapForStage(stage, props.query, props.searchResults.length));
 
   useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", () => {
       keyboardOpen.current = true;
-      const next = SNAP_MID;
+
+      // Do not collapse the sheet while the user is typing. If the user has
+      // already dragged it higher than MID, keep that expanded position.
+      const next = Math.min(translateYValue.current, SNAP_MID);
       translateYValue.current = next;
+      userSnapRef.current = next;
       animateTo(translateY, next);
     });
+
     const hideSub = Keyboard.addListener("keyboardDidHide", () => {
       keyboardOpen.current = false;
-      const next = snapForStage(stage, props.query, props.searchResults.length);
+      const suggested = snapForStage(stage, props.query, props.searchResults.length);
+      const next = props.query.trim().length >= 2 ? Math.min(userSnapRef.current, suggested) : suggested;
       translateYValue.current = next;
+      userSnapRef.current = next;
       animateTo(translateY, next);
     });
 
@@ -1397,8 +1405,11 @@ export default function JourneySheet(props: Props) {
 
   useEffect(() => {
     if (keyboardOpen.current) return;
-    const next = snapForStage(stage, props.query, props.searchResults.length);
+
+    const suggested = snapForStage(stage, props.query, props.searchResults.length);
+    const next = props.query.trim().length >= 2 ? Math.min(userSnapRef.current, suggested) : suggested;
     translateYValue.current = next;
+    userSnapRef.current = next;
     animateTo(translateY, next);
   }, [stage, props.query, props.searchResults.length, translateY]);
 
@@ -1427,14 +1438,18 @@ export default function JourneySheet(props: Props) {
         },
         onPanResponderRelease: (_evt, gesture) => {
           const projected = translateYValue.current + gesture.vy * 165;
-          const snap = nearestSnap(projected, stage);
+          const rawSnap = nearestSnap(projected, stage);
+          const snap = keyboardOpen.current ? Math.min(rawSnap, SNAP_MID) : rawSnap;
           translateYValue.current = snap;
+          userSnapRef.current = snap;
           animateTo(translateY, snap);
           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         },
         onPanResponderTerminate: () => {
-          const snap = nearestSnap(translateYValue.current, stage);
+          const rawSnap = nearestSnap(translateYValue.current, stage);
+          const snap = keyboardOpen.current ? Math.min(rawSnap, SNAP_MID) : rawSnap;
           translateYValue.current = snap;
+          userSnapRef.current = snap;
           animateTo(translateY, snap);
         },
       }),
