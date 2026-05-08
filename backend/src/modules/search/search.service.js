@@ -40,10 +40,26 @@ function searchCacheKey(q, type, limit) {
   return `v2:${normalizeText(q)}:${String(type || 'all').toLowerCase()}:${Number(limit || DEFAULT_LIMIT)}`;
 }
 
+function isAddressLikeQuery(value = '') {
+  const q = String(value || '').trim();
+  return (
+    /\d/.test(q) ||
+    /\b(g|g\.|gatv[eė]|pr|pr\.|prospektas|al|al\.|pl|pl\.|kelias)\b/i.test(q) ||
+    q.split(/\s+/).length >= 2
+  );
+}
+
 function shouldUseExternalSearch(query = {}) {
   const explicit = String(query.external ?? query.includeExternal ?? '').toLowerCase();
   if (explicit === 'false' || explicit === '0') return false;
   if (explicit === 'true' || explicit === '1') return true;
+
+  const q = String(query.q || query.query || query.text || query.search || '').trim();
+
+  // Address search must not depend on stops/POI cache. Without this fallback,
+  // queries like "Taikos 32" or "Laivų g." return only GTFS stops.
+  if (q.length >= 3 && isAddressLikeQuery(q)) return true;
+
   return envBool('SEARCH_EXTERNAL_ENABLED', false);
 }
 
@@ -88,9 +104,10 @@ async function index(query = {}) {
 
   const rankedFast = rankResults(dedupeResults(fastCombined), q);
   const hasStrongFastResult = rankedFast.some((item) => Number(item.score || 0) >= 360);
+  const addressLike = isAddressLikeQuery(q);
   const includeExternal = shouldUseExternalSearch(query);
 
-  if (includeExternal && !hasStrongFastResult) {
+  if (includeExternal && (addressLike || !hasStrongFastResult)) {
     const [google, nominatim, overpass] = await Promise.all([
       runProvider('google_places', () => searchGooglePlaces(q, { limit: 8 }), 1200),
       runProvider('nominatim', () => searchNominatim(q, { limit: 8 }), 1200),
@@ -118,7 +135,7 @@ async function index(query = {}) {
       cached: false,
       instant: true,
       externalEnabled: includeExternal,
-      externalSkipped: !includeExternal || hasStrongFastResult,
+      externalSkipped: !includeExternal || (!addressLike && hasStrongFastResult),
       tookMs: Date.now() - startedAt,
       providers: compactProviderMeta(providers),
     },

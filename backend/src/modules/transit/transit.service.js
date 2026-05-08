@@ -1562,13 +1562,31 @@ async function liveBuses() {
     const gtfs = loadGtfs();
 
     const buses = (gtfsRealtime.buses || []).map((bus) => {
-      const route = gtfs.routesById.get(String(bus.routeId || bus.route || bus.number));
+      const trip = bus.tripId ? gtfs.tripsById.get(String(bus.tripId)) : null;
+      const resolvedRouteId = String(
+        bus.routeId || bus.route || bus.number || trip?.route_id || "",
+      ).trim();
+
+      const route =
+        gtfs.routesById.get(resolvedRouteId) ||
+        (trip?.route_id ? gtfs.routesById.get(String(trip.route_id)) : null);
+
       const routePublic = route ? publicRoute(route) : null;
+      const displayNumber =
+        routePublic?.routeShortName ||
+        routePublic?.routeLabel ||
+        resolvedRouteId ||
+        bus.number ||
+        "BUS";
 
       return {
         ...bus,
-        routeLabel: routePublic?.routeLabel || bus.number || bus.routeId,
-        routeShortName: routePublic?.routeShortName || bus.number || bus.routeId,
+        number: displayNumber,
+        route: displayNumber,
+        routeId: route?.route_id ? String(route.route_id) : resolvedRouteId,
+        routeNumber: displayNumber,
+        routeLabel: routePublic?.routeLabel || displayNumber,
+        routeShortName: routePublic?.routeShortName || displayNumber,
         routeLongName: routePublic?.routeLongName || "",
         routeColor: routePublic?.routeColor || null,
         routeTextColor: routePublic?.routeTextColor || null,

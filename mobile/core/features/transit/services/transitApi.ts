@@ -189,7 +189,9 @@ function normalizeLiveBus(raw: any, index = 0): LiveBus | null {
   if (!coordinate) return null;
 
   const number = String(
-    raw?.number ??
+    raw?.routeShortName ??
+      raw?.routeLabel ??
+      raw?.number ??
       raw?.route ??
       raw?.routeId ??
       raw?.line ??
