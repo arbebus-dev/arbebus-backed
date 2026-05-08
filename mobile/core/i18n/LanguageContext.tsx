@@ -11,6 +11,7 @@ import { useLanguageStore } from "../state/languageStore";
 import {
     AppLanguage,
     LANGUAGE_STORAGE_KEY,
+    LEGACY_LANGUAGE_STORAGE_KEY,
     translations,
 } from "./translations";
 
@@ -30,19 +31,47 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Initialize from storage if not ready
     if (!store.isLanguageReady) {
-      AsyncStorage.getItem(LANGUAGE_STORAGE_KEY).then((stored) => {
-        if (stored === "lt" || stored === "en") {
-          store.setLanguage(stored);
+      const resolveLanguage = async () => {
+        const keys = [LANGUAGE_STORAGE_KEY, LEGACY_LANGUAGE_STORAGE_KEY];
+        let nextLanguage: AppLanguage | null = null;
+
+        for (const key of keys) {
+          const stored = await AsyncStorage.getItem(key);
+          if (!stored) continue;
+
+          try {
+            const parsed = JSON.parse(stored);
+            if (parsed?.language === "lt" || parsed?.language === "en") {
+              nextLanguage = parsed.language;
+              break;
+            }
+          } catch {
+            // ignore invalid JSON
+          }
+
+          if (stored === "lt" || stored === "en") {
+            nextLanguage = stored;
+            break;
+          }
         }
+
+        if (nextLanguage) {
+          store.setLanguage(nextLanguage);
+        }
+
         store.setLanguageReady();
-      });
+      };
+
+      resolveLanguage();
     }
   }, [store]);
 
-  const setLanguage = useCallback(async (next: AppLanguage) => {
-    store.setLanguage(next);
-    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, next);
-  }, []);
+  const setLanguage = useCallback(
+    async (next: AppLanguage) => {
+      store.setLanguage(next);
+    },
+    [store],
+  );
 
   const value = useMemo<LanguageContextValue>(
     () => ({

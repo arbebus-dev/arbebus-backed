@@ -1,6 +1,7 @@
 export type AppLanguage = "lt" | "en";
 
-export const LANGUAGE_STORAGE_KEY = "arbebus.language.v1";
+export const LANGUAGE_STORAGE_KEY = "arbebus.language.v2";
+export const LEGACY_LANGUAGE_STORAGE_KEY = "arbebus.language.v1";
 
 export const translations = {
   lt: {
