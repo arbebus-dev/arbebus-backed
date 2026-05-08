@@ -13,6 +13,7 @@
     "express": "^5.1.0",
     "pg": "^8.16.3",
     "pino": "^9.7.0",
-    "redis": "^5.12.1"
+    "redis": "^5.12.1",
+    "gtfs-realtime-bindings": "^1.1.1"
   }
 }

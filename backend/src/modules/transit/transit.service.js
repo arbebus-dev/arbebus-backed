@@ -4,6 +4,7 @@ const path = require("path");
 const https = require("https");
 const http = require("http");
 const orsClient = require("../routing/ors.client");
+const vehiclePositionsRealtime = require("./realtime/vehiclePositions");
 
 const KLAIPEDA_BOUNDS = {
   // Expanded Klaipėda region bounds. The live stops.lt feed also contains
@@ -1551,23 +1552,62 @@ function parseGpsFeed(text) {
 
 async function liveBuses() {
   const now = Date.now();
-  if (liveCache.data && now - liveCache.fetchedAt < LIVE_CACHE_MS)
-    return liveCache.data;
-  const url = process.env.STOPS_LT_GPS_URL || DEFAULT_GPS_URL;
-  const text = await requestText(url);
-  const buses = parseGpsFeed(text);
-  const response = {
-    ok: true,
-    source: "stops.lt",
-    count: buses.length,
-    buses,
-    vehicles: buses,
-    fetchedAt: new Date().toISOString(),
-  };
-  liveCache = { fetchedAt: now, data: response };
-  return response;
-}
 
+  if (liveCache.data && now - liveCache.fetchedAt < LIVE_CACHE_MS) {
+    return liveCache.data;
+  }
+
+  try {
+    const gtfsRealtime = await vehiclePositionsRealtime.getVehiclePositions();
+    const gtfs = loadGtfs();
+
+    const buses = (gtfsRealtime.buses || []).map((bus) => {
+      const route = gtfs.routesById.get(String(bus.routeId || bus.route || bus.number));
+      const routePublic = route ? publicRoute(route) : null;
+
+      return {
+        ...bus,
+        routeLabel: routePublic?.routeLabel || bus.number || bus.routeId,
+        routeShortName: routePublic?.routeShortName || bus.number || bus.routeId,
+        routeLongName: routePublic?.routeLongName || "",
+        routeColor: routePublic?.routeColor || null,
+        routeTextColor: routePublic?.routeTextColor || null,
+      };
+    });
+
+    const response = {
+      ok: true,
+      source: "gtfs-rt",
+      count: buses.length,
+      buses,
+      vehicles: buses,
+      fetchedAt: gtfsRealtime.fetchedAt || new Date().toISOString(),
+      feedTimestamp: gtfsRealtime.feedTimestamp || null,
+      meta: gtfsRealtime.meta || {},
+    };
+
+    liveCache = { fetchedAt: now, data: response };
+    return response;
+  } catch (error) {
+    // Safe fallback, so production app does not die if GTFS-RT protobuf feed is temporarily unavailable.
+    const url = process.env.STOPS_LT_GPS_URL || DEFAULT_GPS_URL;
+    const text = await requestText(url);
+    const buses = parseGpsFeed(text);
+
+    const response = {
+      ok: true,
+      source: "stops.lt-fallback",
+      fallbackReason: error.message,
+      count: buses.length,
+      buses,
+      vehicles: buses,
+      fetchedAt: new Date().toISOString(),
+    };
+
+    liveCache = { fetchedAt: now, data: response };
+    return response;
+  }
+}
 async function liveEta(query = {}) {
   const live = await liveBuses();
   const routeId = String(query.routeId || query.routeNumber || "").replace(

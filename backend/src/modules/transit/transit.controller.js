@@ -44,7 +44,7 @@ async function shape(req, res, next) {
 
 async function alerts(_req, res, next) {
   try {
-    res.json(realtimeAlerts.getRealtimeAlerts());
+    res.json(await realtimeAlerts.getRealtimeAlerts());
   } catch (error) {
     next(error);
   }

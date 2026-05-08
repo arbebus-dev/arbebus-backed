@@ -9,6 +9,7 @@ router.get('/', controller.index);
 
 // Real-time stops.lt vehicle positions
 router.get('/live-buses', controller.liveBuses);
+router.get('/vehicle-positions', controller.liveBuses);
 
 // Live ETA calculated from live vehicle location + selected boarding stop
 router.get('/live-eta', controller.liveEta);

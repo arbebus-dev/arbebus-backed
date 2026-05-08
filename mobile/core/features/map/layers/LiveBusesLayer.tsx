@@ -284,7 +284,7 @@ export default function LiveBusesLayer({
     const max =
       selectedNumber || selectedVehicle ? MAX_ROUTE_BUSES : MAX_IDLE_BUSES;
 
-    return inViewport
+    const sorted = inViewport
       .sort((a, b) => {
         if (a.isSelectedVehicle !== b.isSelectedVehicle) {
           return a.isSelectedVehicle ? -1 : 1;
@@ -300,6 +300,14 @@ export default function LiveBusesLayer({
         );
       })
       .slice(0, max);
+
+    const uniqueByStableKey = new Map<string, VisibleBus>();
+    for (const item of sorted) {
+      const key = stableBusKey(item.bus, item.label);
+      if (!uniqueByStableKey.has(key)) uniqueByStableKey.set(key, item);
+    }
+
+    return Array.from(uniqueByStableKey.values());
   }, [buses, selectedNumber, selectedVehicle, visibleRegion]);
 
   return (
