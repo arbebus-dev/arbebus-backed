@@ -24,6 +24,8 @@ function normalizeLiveBus(bus: ApiLiveBus, index: number): LiveBus | null {
 
   const number = String(
     (bus as any).number ??
+      (bus as any).routeShortName ??
+      (bus as any).routeLabel ??
       bus.route ??
       bus.routeId ??
       (bus as any).routeNumber ??
@@ -37,9 +39,10 @@ function normalizeLiveBus(bus: ApiLiveBus, index: number): LiveBus | null {
   );
 
   return {
+    ...(bus as any),
     id: normalizeId(bus.id ?? vehicleId),
     number,
-    route: bus.route,
+    route: bus.route ?? number,
     routeId: bus.routeId,
     vehicleId,
     vehicleLabel: bus.vehicleLabel,
@@ -65,6 +68,7 @@ function normalizeLiveBus(bus: ApiLiveBus, index: number): LiveBus | null {
     snappedToShape: (bus as any).snappedToShape,
     snapDistanceMeters: (bus as any).snapDistanceMeters,
     filteredJump: (bus as any).filteredJump,
+    predictedSeconds: (bus as any).predictedSeconds,
     fetchedAt: bus.fetchedAt,
   } as LiveBus;
 }
@@ -80,6 +84,7 @@ function busStableKey(bus: LiveBus) {
 
 function mergeWithPrevious(previous: LiveBus[], next: LiveBus[]) {
   const previousByKey = new Map(previous.map((bus) => [busStableKey(bus), bus]));
+  const nextKeys = new Set(next.map(busStableKey));
   const now = Date.now();
 
   const merged = next.map((bus) => {
@@ -104,7 +109,7 @@ function mergeWithPrevious(previous: LiveBus[], next: LiveBus[]) {
   });
 
   for (const [key, old] of previousByKey.entries()) {
-    if (next.some((bus) => busStableKey(bus) === key)) continue;
+    if (nextKeys.has(key)) continue;
 
     const timestamp =
       Number((old as any).timestamp) > 0

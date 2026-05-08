@@ -5,6 +5,7 @@ const https = require("https");
 const http = require("http");
 const orsClient = require("../routing/ors.client");
 const vehiclePositionsRealtime = require("./realtime/vehiclePositions");
+const ETAEngine = require("./ETA.engine");
 
 const KLAIPEDA_BOUNDS = {
   // Expanded Klaipėda region bounds. The live stops.lt feed also contains
@@ -1671,7 +1672,7 @@ async function liveEta(query = {}) {
         : null;
       const etaMinutes =
         distance != null
-          ? Math.max(1, Math.round(distance / BUS_AVG_SPEED_M_PER_MIN))
+          ? ETAEngine.calculateEtaMinutes(distance, bus.speedKph || 24)
           : 4;
       return { bus, distance, etaMinutes };
     })
