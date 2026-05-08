@@ -4,7 +4,7 @@
  */
 
 const { getRedisClient } = require("../../../db/redis/client");
-const logger = require("../../../core/logging/logger");
+const { logger } = require("../../../core/logging/logger");
 
 const INDEX_REBUILD_INTERVAL_MS = Number(
   process.env.SEARCH_INDEX_REBUILD_INTERVAL_MS || 3600000,
