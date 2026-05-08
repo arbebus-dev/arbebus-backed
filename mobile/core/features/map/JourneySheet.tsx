@@ -467,7 +467,8 @@ function InlineInput({
         onFocus={onFocus}
         onSubmitEditing={() => {
           Keyboard.dismiss();
-          onSubmit?.();
+          // Do not auto-plan on keyboard submit. Search results are only suggestions;
+          // route planning starts after the user taps a concrete result.
         }}
         placeholder={placeholder}
         placeholderTextColor="rgba(248,251,255,0.42)"
@@ -608,6 +609,7 @@ function iconForPlaceType(type?: string) {
   if (value === "ferry") return "ferry";
   if (value === "city" || value === "region") return "map-marker-radius";
   if (value === "address") return "map-marker-outline";
+  if (value === "street") return "road-variant";
   return "map-marker";
 }
 
@@ -881,12 +883,23 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
                     setActiveField("to");
                     return;
                   }
+                  const isStreetOnly =
+                    String(place.type || "").toLowerCase() === "street" &&
+                    !/\b\d+[a-z]?\b/i.test(String(place.title || ""));
+                  if (isStreetOnly) {
+                    props.onChangeQuery(`${place.title} `);
+                    return;
+                  }
                   props.onChangeQuery("");
                   props.onSelectDestination(place);
                 }}
               >
                 <View style={styles.resultIcon}>
-                  <Ionicons name="location" size={12} color={COLORS.green} />
+                  <MaterialCommunityIcons
+                    name={iconForPlaceType(place.type) as any}
+                    size={14}
+                    color={COLORS.green}
+                  />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.resultTitle} numberOfLines={1}>

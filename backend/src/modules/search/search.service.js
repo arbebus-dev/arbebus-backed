@@ -37,7 +37,7 @@ async function runProvider(name, fn, timeoutMs = 1600) {
 }
 
 function searchCacheKey(q, type, limit) {
-  return `v2:${normalizeText(q)}:${String(type || 'all').toLowerCase()}:${Number(limit || DEFAULT_LIMIT)}`;
+  return `v3:${normalizeText(q)}:${String(type || 'all').toLowerCase()}:${Number(limit || DEFAULT_LIMIT)}`;
 }
 
 function isAddressLikeQuery(value = '') {
@@ -62,6 +62,37 @@ function shouldUseExternalSearch(query = {}) {
 
   return envBool('SEARCH_EXTERNAL_ENABLED', false);
 }
+
+
+function hasHouseNumberQuery(value = '') {
+  return /\b\d+[a-z]?\b/i.test(String(value || ''));
+}
+
+function isStreetOnlyQuery(value = '') {
+  return isAddressLikeQuery(value) && !hasHouseNumberQuery(value);
+}
+
+function filterUnsafeSearchResults(items, query) {
+  const streetOnly = isStreetOnlyQuery(query);
+  const addressWithNumber = hasHouseNumberQuery(query);
+
+  if (!streetOnly && !addressWithNumber) return items;
+
+  return items.filter((item) => {
+    const type = String(item.type || '').toLowerCase();
+
+    // For address-like search, random stops/cities/villages must not outrank
+    // real street/address suggestions. This prevents "Taikos pr 8" -> Radailiai.
+    if (['city', 'region', 'village'].includes(type)) return false;
+    if (type === 'stop' && !/\b(st|stotele|stotis|bus|autobus)\b/i.test(String(query))) return false;
+
+    if (streetOnly) return ['street', 'address', 'poi', 'station', 'ferry'].includes(type);
+    if (addressWithNumber) return ['address', 'street', 'poi', 'station', 'ferry'].includes(type);
+
+    return true;
+  });
+}
+
 
 function compactProviderMeta(providers) {
   return providers.map((p) => ({ name: p.name, ok: p.ok, count: p.results.length, error: p.error }));
@@ -120,7 +151,8 @@ async function index(query = {}) {
   if (type !== 'all') combined = combined.filter((item) => item.type === type);
 
   const ranked = rankResults(dedupeResults(combined), q);
-  const results = dedupeResults(ranked).slice(0, limit);
+  const safeRanked = filterUnsafeSearchResults(ranked, q);
+  const results = dedupeResults(safeRanked).slice(0, limit);
 
   const payload = {
     ok: true,

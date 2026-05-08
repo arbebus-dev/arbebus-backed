@@ -107,6 +107,21 @@ function toCoordinate(input: any): Coordinate | null {
   return { latitude, longitude };
 }
 
+
+function hasHouseNumberText(value: unknown) {
+  return /\b\d+[a-z]?\b/i.test(String(value || ""));
+}
+
+function isStreetSuggestion(place: PlaceSearchResult | null | undefined) {
+  return String(place?.type || "").toLowerCase() === "street";
+}
+
+function canPlanToPlace(place: PlaceSearchResult | null | undefined) {
+  if (!place?.coordinate) return false;
+  if (isStreetSuggestion(place) && !hasHouseNumberText(place.title)) return false;
+  return true;
+}
+
 // ====== STEP 9 GPS NAVIGATION HELPERS ======
 function distanceMeters(a: Coordinate, b: Coordinate) {
   const dx = (a.latitude - b.latitude) * 111320;
@@ -1257,6 +1272,20 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
   const selectDestination = useCallback(
     async (rawDestination: PlaceSearchResult) => {
       const destination = normalizePlace(rawDestination) ?? rawDestination;
+
+      if (!canPlanToPlace(destination)) {
+        setSelectedDestination(null);
+        setSelectedRoute(null);
+        setRouteOptions([]);
+        setCurrentStepIndex(0);
+        setSearchResults([]);
+        setQuery(destination.title || "");
+        setFlowState("searching");
+        setError("Įvesk namo numerį ir pasirink tikslų adresą, pvz. Taikos pr. 8.");
+        setIsPlanning(false);
+        return;
+      }
+
       const routeOrigin = selectedOrigin?.coordinate ?? userLocation;
       const requestId = planRequestId.current + 1;
       planRequestId.current = requestId;

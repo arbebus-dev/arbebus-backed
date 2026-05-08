@@ -3,6 +3,16 @@ function numberOrNull(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function hasHouseNumberText(value) {
+  return /\b\d+[a-z]?\b/i.test(String(value || ''));
+}
+
+function hasStreetToken(value) {
+  return /\b(g|g\.|gatv[eė]|pr|pr\.|prospektas|al|al\.|pl|pl\.|kelias)\b/i.test(
+    String(value || ''),
+  );
+}
+
 function inferType(input) {
   const rawType = String(input.type || '').toLowerCase();
   const category = String(input.category || '').toLowerCase();
@@ -13,12 +23,32 @@ function inferType(input) {
   if (['stop', 'station', 'ferry', 'address', 'street', 'city', 'region', 'poi'].includes(rawType)) return rawType;
 
   if (['city', 'town', 'village', 'hamlet', 'municipality', 'county'].includes(addressType)) return addressType === 'village' ? 'city' : addressType;
+
   if (['administrative', 'boundary'].includes(category) || ['boundary', 'place'].includes(osmClass)) {
     if (['village', 'town', 'city', 'municipality', 'county'].includes(addressType)) return addressType === 'village' ? 'city' : addressType;
     return 'region';
   }
-  if (['house', 'road', 'residential', 'postcode', 'amenity'].includes(addressType) && raw.house_number) return 'address';
-  if (raw.house_number || raw.road || raw.street || /\b\d+[a-z]?\b/i.test(String(input.subtitle || input.title || ''))) return 'address';
+
+  const combinedText = `${input.title || ''} ${input.subtitle || ''} ${input.address || ''}`;
+
+  if (raw.house_number || hasHouseNumberText(combinedText)) return 'address';
+
+  // Important: road/street without house number must stay a STREET suggestion,
+  // not a stop/POI/final address. Route planning happens only after user selects
+  // a concrete address/POI/stop.
+  if (
+    raw.road ||
+    raw.street ||
+    addressType === 'road' ||
+    addressType === 'residential' ||
+    osmClass === 'highway' ||
+    hasStreetToken(combinedText)
+  ) {
+    return 'street';
+  }
+
+  if (['house', 'postcode', 'amenity'].includes(addressType)) return 'address';
+
   return rawType || 'poi';
 }
 
@@ -47,6 +77,8 @@ function toResult(input) {
     priority: Number(input.priority || 0),
     keywords: Array.isArray(input.keywords) ? input.keywords : [],
     raw: input.raw,
+    selectable: input.selectable,
+    requiresHouseNumber: input.requiresHouseNumber,
   };
 }
 
