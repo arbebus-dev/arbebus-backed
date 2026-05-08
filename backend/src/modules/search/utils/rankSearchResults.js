@@ -18,7 +18,6 @@ const TYPE_WEIGHT = {
 };
 
 const SOURCE_WEIGHT = {
-  local_address: 180,
   google_places: 150,
   nominatim: 128,
   local_poi: 115,
@@ -82,13 +81,15 @@ function textScore(item, query) {
 function missingImportantQueryParts(item, query) {
   const parts = queryParts(query);
   if (!parts.length) return false;
-  const field = normalizeText([
-    item.title,
-    item.name,
-    item.subtitle,
-    item.category,
-    ...(item.keywords || []),
-  ].join(" "));
+  const field = normalizeText(
+    [
+      item.title,
+      item.name,
+      item.subtitle,
+      item.category,
+      ...(item.keywords || []),
+    ].join(" "),
+  );
   return !parts.every((part) => field.includes(part));
 }
 
@@ -114,11 +115,11 @@ function rankResults(items, query) {
       if (streetQuery || queryHasNumber) {
         if (type === "address") score += 260;
         if (type === "street") score += queryHasNumber ? 80 : 240;
-        if (source === "local_address") score += 260;
         if (source === "google_places" || source === "nominatim") score += 120;
 
         if (type === "stop" && !stopQuery) score -= 520;
-        if (type === "city" || type === "region" || type === "village") score -= 420;
+        if (type === "city" || type === "region" || type === "village")
+          score -= 420;
 
         if (missingImportantQueryParts(item, query)) score -= 520;
       }
@@ -126,11 +127,12 @@ function rankResults(items, query) {
       // When user typed a house number, exact addresses must win.
       if (queryHasNumber) {
         if (type === "address") score += 320;
-        if (source === "local_address" && match >= 180) score += 240;
         if (source === "nominatim") score += 100;
 
-        if (type === "poi" && source !== "local_poi" && match < 180) score -= 220;
-        if (type === "street" && !String(item.title || "").match(/\d/)) score -= 80;
+        if (type === "poi" && source !== "local_poi" && match < 180)
+          score -= 220;
+        if (type === "street" && !String(item.title || "").match(/\d/))
+          score -= 80;
       }
 
       // Stops are fallback unless user clearly searches for a stop/station.
