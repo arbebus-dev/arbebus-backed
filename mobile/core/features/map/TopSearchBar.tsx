@@ -1,3 +1,4 @@
+import { useLanguage } from "@/core/i18n/LanguageContext";
 import { COLORS, LINE_HEIGHT, T } from "@/core/theme/typography";
 import { Ionicons } from "@expo/vector-icons";
 import {

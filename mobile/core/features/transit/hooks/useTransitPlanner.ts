@@ -1167,7 +1167,14 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
 
   const runSearch = useCallback(
     async (text?: string) => {
-      const nextQuery = (text ?? query).trim();
+      // IMPORTANT:
+      // Keep the raw controlled TextInput value almost unchanged so users can type
+      // addresses with spaces, e.g. "Taikos 32A" or "Taikos pr. 32A".
+      // Only collapse repeated whitespace; do NOT trim before setQuery(), because
+      // trimming removes the trailing space immediately and makes space typing feel broken.
+      const nextQuery = String(text ?? query ?? "").replace(/\s{2,}/g, " ");
+      const searchQuery = nextQuery.trim();
+
       setQuery(nextQuery);
 
       searchRequestId.current += 1;
@@ -1178,7 +1185,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         searchTimerRef.current = null;
       }
 
-      if (nextQuery.length < 2) {
+      if (searchQuery.length < 2) {
         setSearchResults([]);
         setFlowState("idle");
         setIsSearching(false);
@@ -1201,7 +1208,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       if (requestId !== searchRequestId.current) return;
 
       try {
-        const rawResults = await searchPlaces(nextQuery);
+        const rawResults = await searchPlaces(searchQuery);
         if (requestId !== searchRequestId.current) return;
 
         const results = safeArray(rawResults)

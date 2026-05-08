@@ -501,7 +501,7 @@ function TripSearchForm({
   activeField: "from" | "to";
   setActiveField: (field: "from" | "to") => void;
 }) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [timeModalOpen, setTimeModalOpen] = React.useState(false);
   const fromValue =
     activeField === "from" ? props.query : props.selectedOrigin?.title || "";
@@ -750,8 +750,12 @@ function PlacePreviewCard({ props }: { props: Props }) {
 
       {hours.length ? (
         <View style={styles.placeHoursBox}>
-          {hours.map((line: string) => (
-            <Text key={line} style={styles.placeHoursText} numberOfLines={1}>
+          {hours.map((line: string, index: number) => (
+            <Text
+              key={`place-hour-${line}-${index}`}
+              style={styles.placeHoursText}
+              numberOfLines={1}
+            >
               {line}
             </Text>
           ))}
@@ -865,9 +869,9 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
         ) : null}
 
         {hasResults
-          ? props.searchResults.slice(0, 8).map((place) => (
+          ? props.searchResults.slice(0, 8).map((place, index) => (
               <Pressable
-                key={place.id}
+                key={`search-result-${place.id || place.title || "place"}-${index}`}
                 style={styles.searchResultRow}
                 onPress={() => {
                   void Haptics.selectionAsync();
@@ -987,8 +991,8 @@ function RoutePills({ route }: { route: TransitRouteOption }) {
   const s = routeSummary(route);
   return (
     <View style={styles.pillRow}>
-      {labels.map((item) => (
-        <View key={item} style={styles.busBadge}>
+      {labels.map((item, index) => (
+        <View key={`route-pill-${item}-${index}`} style={styles.busBadge}>
           <Text style={styles.busBadgeText}>{item}</Text>
         </View>
       ))}
@@ -1051,7 +1055,7 @@ function RouteCard({
       </View>
       <View style={styles.routeMiniTimeline}>
         {steps.map((step, index) => (
-          <View key={step.id || index} style={styles.routeMiniStep}>
+          <View key={`route-mini-step-${step.id || step.title || step.type || "step"}-${index}`} style={styles.routeMiniStep}>
             <View style={styles.routeMiniIcon}>
               <MaterialCommunityIcons
                 name={stepIcon(step) as any}
@@ -1120,9 +1124,9 @@ function RoutesListState(props: Props) {
         {props.error ? (
           <Text style={styles.inlineError}>{props.error}</Text>
         ) : null}
-        {props.routeOptions.map((route) => (
+        {props.routeOptions.map((route, index) => (
           <RouteCard
-            key={route.id}
+            key={`route-option-${route.id || route.routeId || route.routeLabel || "route"}-${index}`}
             route={route}
             selected={route.id === props.selectedRoute?.id}
             onPress={() => props.onChooseRoute(route)}
@@ -1275,7 +1279,11 @@ function RouteDetailsState(props: Props) {
         showsVerticalScrollIndicator={false}
       >
         {steps.map((step, index) => (
-          <StepRow key={step.id || index} step={step} active={index === 0} />
+          <StepRow
+            key={`details-step-${step.id || step.title || step.type || "step"}-${index}`}
+            step={step}
+            active={index === 0}
+          />
         ))}
       </ScrollView>
       <View style={styles.stickyCtaWrap}>
@@ -1329,7 +1337,7 @@ function NavigationState(props: Props) {
             const absolute = Math.max(0, vm.activeStepIndex - 1) + idx;
             return (
               <StepRow
-                key={step.id || absolute}
+                key={`navigation-step-${step.id || step.title || step.type || "step"}-${absolute}`}
                 step={step}
                 active={absolute === vm.activeStepIndex}
               />
@@ -1463,8 +1471,8 @@ export default function JourneySheet(props: Props) {
 }
 
 const styles = StyleSheet.create({
-  sheetShellLight: { backgroundColor: "rgba(246,248,252,0.92)" },
-  blurSurfaceLight: { backgroundColor: "rgba(255,255,255,0.88)" },
+  sheetShellLight: { backgroundColor: "rgb(246,248,252)" },
+  blurSurfaceLight: { backgroundColor: "rgb(255,255,255)" },
   searchSkeletonWrap: { gap: 10, paddingTop: 10, paddingBottom: 8 },
   searchSkeletonRow: {
     flexDirection: "row",
@@ -1505,11 +1513,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.32,
     shadowRadius: 32,
     shadowOffset: { width: 0, height: -8 },
-    backgroundColor: "rgba(5,10,18,0.98)",
+    backgroundColor: "rgb(5,10,18)",
   },
   blurSurface: {
     flex: 1,
-    backgroundColor: "rgba(5,10,18,0.88)",
+    backgroundColor: "rgb(5,10,18)",
     borderTopWidth: 1,
     borderColor: "rgba(255,255,255,0.10)",
   },
