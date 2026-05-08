@@ -6,10 +6,13 @@ const http = require("http");
 const orsClient = require("../routing/ors.client");
 
 const KLAIPEDA_BOUNDS = {
-  minLat: 55.55,
-  maxLat: 55.85,
-  minLon: 20.95,
-  maxLon: 21.35,
+  // Expanded Klaipėda region bounds. The live stops.lt feed also contains
+  // regional routes to Palanga, Gargždai, Ditūva, etc. Tight city-only bounds
+  // make vehicles appear/disappear at the edge of the map.
+  minLat: 55.50,
+  maxLat: 56.08,
+  minLon: 20.70,
+  maxLon: 21.65,
 };
 
 const GTFS_DIR = path.resolve(__dirname, "../../data/gtfs");
@@ -1403,7 +1406,96 @@ function detectBearing(tokens, latIndex, lonIndex) {
   return bearing ? Math.round(bearing.value) : 0;
 }
 
-function parseGpsFeed(text) {
+function sanitizeVehicleId(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function parseStructuredGpsFeed(text) {
+  const fetchedAt = new Date().toISOString();
+  const raw = String(text || "").replace(/^\uFEFF/, "");
+  const tokens = parseCsvLine(raw.replace(/\r?\n/g, " "));
+  const header = [
+    "Transportas",
+    "Marsrutas",
+    "ReisoID",
+    "MasinosNumeris",
+    "Ilguma",
+    "Platuma",
+    "Greitis",
+    "Azimutas",
+    "ReisoPradziaMinutemis",
+    "NuokrypisSekundemis",
+    "KryptiesPavadinimas",
+  ];
+
+  const startsWithHeader = header.every(
+    (name, index) => String(tokens[index] || "").trim() === name,
+  );
+
+  if (!startsWithHeader) return [];
+
+  const buses = [];
+  const seen = new Set();
+  const width = header.length;
+
+  for (let i = width; i + width - 1 < tokens.length; i += width) {
+    const row = {};
+    header.forEach((name, offset) => {
+      row[name] = String(tokens[i + offset] ?? "").trim();
+    });
+
+    const longitude = normalizeCoordinate(row.Ilguma);
+    const latitude = normalizeCoordinate(row.Platuma);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+    if (!isInKlaipeda(latitude, longitude)) continue;
+
+    const routeNumber = String(row.Marsrutas || "bus").trim();
+    const tripId = sanitizeVehicleId(row.ReisoID);
+    const plate = sanitizeVehicleId(row.MasinosNumeris);
+    const vehicleId = plate || tripId || `${routeNumber}-${latitude.toFixed(5)}-${longitude.toFixed(5)}`;
+    const id = `${vehicleId}-${routeNumber}`;
+
+    // The same feed sometimes repeats a vehicle inside one response. Keep only
+    // one stable record so React markers do not remount and jump.
+    const seenKey = `${vehicleId}-${routeNumber}`;
+    if (seen.has(seenKey)) continue;
+    seen.add(seenKey);
+
+    const speedKph = toNumber(row.Greitis);
+    const bearing = toNumber(row.Azimutas);
+    const delaySeconds = toNumber(row.NuokrypisSekundemis);
+    const tripStartMinutes = toNumber(row.ReisoPradziaMinutemis);
+
+    buses.push({
+      id,
+      vehicleId: String(vehicleId),
+      number: String(routeNumber),
+      route: String(routeNumber),
+      routeId: String(routeNumber),
+      routeNumber: String(routeNumber),
+      vehicleLabel: String(plate || vehicleId),
+      tripId: tripId || null,
+      latitude,
+      longitude,
+      coordinate: { latitude, longitude },
+      bearing: Number.isFinite(bearing) ? Math.round(bearing) : 0,
+      heading: Number.isFinite(bearing) ? Math.round(bearing) : 0,
+      speedKph: Number.isFinite(speedKph) ? speedKph : null,
+      tripStart: Number.isFinite(tripStartMinutes) ? tripStartMinutes : null,
+      delaySeconds: Number.isFinite(delaySeconds) ? delaySeconds : 0,
+      directionName: row.KryptiesPavadinimas || null,
+      raw: row,
+      source: "stops.lt",
+      fetchedAt,
+    });
+  }
+
+  return buses;
+}
+
+function parseHeuristicGpsFeed(text) {
   const fetchedAt = new Date().toISOString();
   const lines = String(text || "")
     .split(/\r?\n/)
@@ -1423,7 +1515,7 @@ function parseGpsFeed(text) {
     const routeNumber =
       detectRouteNumber(tokens, coords.latIndex, coords.lonIndex) || "bus";
     const vehicleId = detectVehicleId(
-      tokens,
+      tokens.filter((token) => String(token).toLowerCase() !== "autobusai"),
       `${routeNumber}-${coords.latitude.toFixed(5)}-${coords.longitude.toFixed(5)}`,
     );
     const id = `${vehicleId}-${routeNumber}`;
@@ -1449,6 +1541,12 @@ function parseGpsFeed(text) {
     });
   }
   return buses;
+}
+
+function parseGpsFeed(text) {
+  const structured = parseStructuredGpsFeed(text);
+  if (structured.length > 5) return structured;
+  return parseHeuristicGpsFeed(text);
 }
 
 async function liveBuses() {

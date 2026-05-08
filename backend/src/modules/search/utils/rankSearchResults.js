@@ -8,6 +8,7 @@ const TYPE_WEIGHT = {
   saved_place_template: 72,
   poi: 92,
   address: 86,
+  street: 84,
   city: 82,
   region: 78,
   village: 78,
@@ -18,6 +19,7 @@ const TYPE_WEIGHT = {
 
 const SOURCE_WEIGHT = {
   local_poi: 120,
+  local_address: 118,
   google_places: 110,
   nominatim: 92,
   overpass: 82,

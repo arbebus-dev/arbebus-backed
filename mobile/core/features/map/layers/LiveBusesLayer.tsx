@@ -223,15 +223,17 @@ export default function LiveBusesLayer({
   const selectedNumber = cleanRouteNumber(selectedRouteLabel);
   const selectedVehicle = normalizeId(selectedVehicleId);
   const lastUpdateAt = useRef(Date.now());
-  const [animationMs, setAnimationMs] = useState(2800);
+  const [animationMs, setAnimationMs] = useState(6200);
 
   useEffect(() => {
     const now = Date.now();
     const diff = now - lastUpdateAt.current;
     lastUpdateAt.current = now;
 
-    if (diff > 800 && diff < 15000) {
-      setAnimationMs(Math.max(1100, Math.min(diff, 3600)));
+    if (diff > 800 && diff < 20000) {
+      // Animate almost through the full polling interval. Without this, markers
+      // move for ~3s, then freeze, then jump on the next GPS packet.
+      setAnimationMs(Math.max(2500, Math.min(Math.round(diff * 0.92), 8500)));
     }
   }, [buses]);
 
@@ -267,7 +269,15 @@ export default function LiveBusesLayer({
       })
       .filter(Boolean) as VisibleBus[];
 
-    const inViewport = normalized.filter(
+    const dedupedByVehicle = new Map<string, VisibleBus>();
+
+    for (const item of normalized) {
+      const stableKey = `${stableBusKey(item.bus, item.label)}-${item.normalizedRoute || item.label}`;
+      const existing = dedupedByVehicle.get(stableKey);
+      if (!existing || item.isImportant) dedupedByVehicle.set(stableKey, item);
+    }
+
+    const inViewport = [...dedupedByVehicle.values()].filter(
       (item) => item.isImportant || isInRegion(item.coordinate, visibleRegion),
     );
 
@@ -295,15 +305,12 @@ export default function LiveBusesLayer({
   return (
     <>
       {visibleBuses.map(
-        (
-          { bus, coordinate, label, isSelectedRoute, isSelectedVehicle },
-          index,
-        ) => {
+        ({ bus, coordinate, label, isSelectedRoute, isSelectedVehicle }) => {
           const heading = Number(bus.heading ?? bus.bearing ?? 0);
 
           return (
             <BusMarker
-              key={`bus-${stableBusKey(bus, label)}-${index}`}
+              key={`bus-${stableBusKey(bus, label)}-${cleanRouteNumber(bus.routeId || bus.route || label)}`}
               coordinate={coordinate}
               label={label}
               active={isSelectedVehicle || isSelectedRoute}

@@ -10,7 +10,7 @@ function inferType(input) {
   const addressType = String(raw.addresstype || raw.type || '').toLowerCase();
   const osmClass = String(raw.class || raw.category || '').toLowerCase();
 
-  if (['stop', 'station', 'ferry', 'address', 'city', 'region', 'poi'].includes(rawType)) return rawType;
+  if (['stop', 'station', 'ferry', 'address', 'street', 'city', 'region', 'poi'].includes(rawType)) return rawType;
 
   if (['city', 'town', 'village', 'hamlet', 'municipality', 'county'].includes(addressType)) return addressType === 'village' ? 'city' : addressType;
   if (['administrative', 'boundary'].includes(category) || ['boundary', 'place'].includes(osmClass)) {
