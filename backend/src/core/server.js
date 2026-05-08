@@ -1,23 +1,36 @@
 /* eslint-env node */
+const fs = require("fs");
 const path = require("path");
 const dotenv = require("dotenv");
-const { logger } = require("./logging/logger");
 
-if (process.env.NODE_ENV !== "production") {
-  const envPath = path.resolve(__dirname, "../../../infrastructure/.env");
-  const envResult = dotenv.config({ path: envPath });
+function loadEnv() {
+  const envPaths = [
+    path.resolve(__dirname, "../../..", ".env"),
+    path.resolve(__dirname, "../../..", "infrastructure", ".env"),
+  ];
 
-  if (envResult.error) {
-    logger.warn(
-      `[env] infrastructure/.env not loaded: ${envResult.error.message}`,
-    );
-  } else {
-    logger.info(
-      `[env] loaded ${Object.keys(envResult.parsed || {}).length} keys from ${envPath}`,
-    );
+  for (const envPath of envPaths) {
+    if (!fs.existsSync(envPath)) continue;
+
+    const envResult = dotenv.config({ path: envPath });
+
+    if (envResult.error) {
+      console.warn(`[env] ${envPath} not loaded: ${envResult.error.message}`);
+      continue;
+    }
+
+    console.log(`[env] loaded ${Object.keys(envResult.parsed || {}).length} keys from ${envPath}`);
+    return;
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    console.warn("[env] no .env file found in backend root. Using process.env only.");
   }
 }
 
+loadEnv();
+
+const { logger } = require("./logging/logger");
 const { createApp } = require("./server/app");
 const { env } = require("./config/env");
 const { initSentry } = require("./monitoring/sentry");
