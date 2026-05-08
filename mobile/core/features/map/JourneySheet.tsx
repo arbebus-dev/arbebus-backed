@@ -159,37 +159,62 @@ function timeText(value?: string | null) {
   return raw;
 }
 
-function stopTimeText(stop: unknown) {
-  return timeText(stop?.arrivalTime || stop?.departureTime);
+function stopTimeText(stop: any) {
+  return timeText(
+    stop?.departureTime ||
+      stop?.arrivalTime ||
+      stop?.departureText ||
+      stop?.arrivalText,
+  );
 }
 
-function travelTimeLabel(mode?: TravelTimeMode, value?: Date | string | null) {
-  if (!mode || mode === "now" || !value) return "Išvykti dabar";
+function travelTimeLabel(
+  mode?: TravelTimeMode,
+  value?: Date | string | null,
+  language: string = "lt",
+  t?: any,
+) {
+  if (!mode || mode === "now" || !value)
+    return t?.common?.leaveNow ?? "Išvykti dabar";
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime()))
-    return mode === "arrive" ? "Atvykti iki" : "Išvykti";
+    return mode === "arrive"
+      ? (t?.common?.arriveBy ?? "Atvykti iki")
+      : (t?.common?.leaveNow ?? "Išvykti");
   const hh = String(date.getHours()).padStart(2, "0");
   const mm = String(date.getMinutes()).padStart(2, "0");
   const today = new Date();
   const sameDay = date.toDateString() === today.toDateString();
   const day = sameDay
-    ? "Šiandien"
-    : date.toLocaleDateString("lt-LT", {
+    ? language === "en"
+      ? "Today"
+      : "Šiandien"
+    : new Intl.DateTimeFormat(language === "en" ? "en-US" : "lt-LT", {
         weekday: "short",
         day: "numeric",
         month: "short",
-      });
-  return `${mode === "arrive" ? "Atvykti iki" : "Išvykti"}: ${day} ${hh}:${mm}`;
+      }).format(date);
+  const prefix =
+    mode === "arrive"
+      ? (t?.common?.arriveBy ?? "Atvykti iki")
+      : (t?.common?.leaveNow ?? "Išvykti");
+  return `${prefix}: ${day} ${hh}:${mm}`;
 }
 
-function stepMetaLine(step: TransitStep) {
+function stepMetaLine(step: TransitStep, t: any) {
   const items = [
-    step.departureTime ? `išvyksta ${timeText(step.departureTime)}` : null,
-    step.arrivalTime ? `atvyksta ${timeText(step.arrivalTime)}` : null,
-    step.stopCount != null && Number(step.stopCount) > 0
-      ? `${Number(step.stopCount)} stotelės`
+    step.departureTime
+      ? `${t.common.departureAt} ${timeText(step.departureTime)}`
       : null,
-    step.durationMinutes != null ? `${Number(step.durationMinutes)} min` : null,
+    step.arrivalTime
+      ? `${t.common.arrivalAt} ${timeText(step.arrivalTime)}`
+      : null,
+    step.stopCount != null && Number(step.stopCount) > 0
+      ? `${Number(step.stopCount)} ${t.common.stopLabelPlural}`
+      : null,
+    step.durationMinutes != null
+      ? `${Number(step.durationMinutes)} ${t.common.minutes}`
+      : null,
   ].filter(Boolean);
   return items.join(" • ");
 }
@@ -552,7 +577,12 @@ function TripSearchForm({
         <TripInputRow
           icon="clock-outline"
           label={t.sheet.when}
-          value={travelTimeLabel(props.travelTimeMode, props.travelTimeDate)}
+          value={travelTimeLabel(
+            props.travelTimeMode,
+            props.travelTimeDate,
+            language,
+            t,
+          )}
         />
       </Pressable>
       <TravelTimeModal
@@ -829,7 +859,7 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
 
         {props.error && hasQuery && !props.isSearching ? (
           <View style={styles.emptyBlockCompact}>
-            <Text style={styles.emptyTitle}>Paieška nepavyko</Text>
+            <Text style={styles.emptyTitle}>{t.common.routeSearchFailed}</Text>
             <Text style={styles.emptyText}>{props.error}</Text>
           </View>
         ) : null}
@@ -929,22 +959,21 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
 }
 
 function LoadingState({ onReset }: Pick<Props, "onReset">) {
+  const { t } = useLanguage();
   return (
     <View style={styles.stateRoot}>
       <View style={styles.fixedHeader}>
         <Header
-          title="Ieškome maršrutų"
-          subtitle="Tikriname stoteles ir tvarkaraščius"
+          title={t.common.loadingRoutes}
+          subtitle={t.common.checkingStops}
           icon="bus-clock"
           onClose={onReset}
         />
       </View>
       <View style={styles.loadingBox}>
         <ActivityIndicator color={COLORS.green} />
-        <Text style={styles.loadingText}>Tikriname artimiausias stoteles…</Text>
-        <Text style={styles.loadingSubtext}>
-          Maršruto korteles parodysime iškart, o detales patikslinsime fone.
-        </Text>
+        <Text style={styles.loadingText}>{t.common.loadingNearbyStops}</Text>
+        <Text style={styles.loadingSubtext}>{t.common.loadingSubtext}</Text>
         <View style={styles.skeletonCard} />
         <View style={[styles.skeletonCard, styles.skeletonCardShort]} />
       </View>
@@ -953,6 +982,7 @@ function LoadingState({ onReset }: Pick<Props, "onReset">) {
 }
 
 function RoutePills({ route }: { route: TransitRouteOption }) {
+  const { t } = useLanguage();
   const labels = routeNumbersFromRoute(route).slice(0, 4);
   const s = routeSummary(route);
   return (
@@ -964,17 +994,23 @@ function RoutePills({ route }: { route: TransitRouteOption }) {
       ))}
       <View style={styles.neutralBadge}>
         <Text style={styles.neutralBadgeText}>
-          {s.stops ? `${s.stops} st.` : "stotelės"}
+          {s.stops
+            ? `${s.stops} ${t.common.stopCountShort}`
+            : t.common.stopLabelPlural}
         </Text>
       </View>
       {s.walk ? (
         <View style={styles.neutralBadge}>
-          <Text style={styles.neutralBadgeText}>eiti {s.walk} min</Text>
+          <Text style={styles.neutralBadgeText}>
+            {`${t.common.walk} ${s.walk} ${t.common.minutes}`}
+          </Text>
         </View>
       ) : null}
       <View style={styles.neutralBadge}>
         <Text style={styles.neutralBadgeText}>
-          {s.transfers ? `${s.transfers} pers.` : "tiesiogiai"}
+          {s.transfers
+            ? `${s.transfers} ${t.common.transferShort}`
+            : t.common.direct}
         </Text>
       </View>
     </View>
@@ -990,6 +1026,7 @@ function RouteCard({
   selected?: boolean;
   onPress: () => void;
 }) {
+  const { t } = useLanguage();
   const s = routeSummary(route);
   const steps = getSteps(route).slice(0, 4);
   return (
@@ -1032,7 +1069,7 @@ function RouteCard({
       <RoutePills route={route} />
       <View style={styles.routeSelectRow}>
         <Text style={styles.routeSelectHint}>
-          {selected ? "Pasirinktas maršrutas" : "Peržiūrėti detales"}
+          {selected ? t.common.selectedRoute : t.common.viewDetails}
         </Text>
         <View style={styles.routeGoPill}>
           <Text style={styles.routeGoText}>GO</Text>
@@ -1043,6 +1080,7 @@ function RouteCard({
 }
 
 function RoutesListState(props: Props) {
+  const { t, language } = useLanguage();
   const destination =
     props.routeOptions[0]?.destinationStop?.name ||
     props.routeOptions[0]?.alightStopName ||
@@ -1051,8 +1089,8 @@ function RoutesListState(props: Props) {
     <View style={styles.stateRoot}>
       <View style={styles.fixedHeader}>
         <Header
-          title="Maršrutai"
-          subtitle={`Mano vieta → ${cleanStopName(destination)}`}
+          title={t.common.routeListTitle}
+          subtitle={`${t.common.currentLocation} → ${cleanStopName(destination)}`}
           icon="bus"
           onClose={props.onReset}
           onBack={props.onBackToSearch}
@@ -1061,11 +1099,16 @@ function RoutesListState(props: Props) {
         <View style={styles.toolbarRow}>
           <Pressable style={styles.blueChip}>
             <Text style={styles.blueChipText}>
-              {travelTimeLabel(props.travelTimeMode, props.travelTimeDate)}
+              {travelTimeLabel(
+                props.travelTimeMode,
+                props.travelTimeDate,
+                language,
+                t,
+              )}
             </Text>
           </Pressable>
           <Pressable style={styles.grayChip}>
-            <Text style={styles.grayChipText}>Mažiau ėjimo</Text>
+            <Text style={styles.grayChipText}>{t.common.lessWalking}</Text>
           </Pressable>
         </View>
       </View>
@@ -1091,6 +1134,7 @@ function RoutesListState(props: Props) {
 }
 
 function StopTimeline({ step }: { step: TransitStep }) {
+  const { t } = useLanguage();
   const stops = Array.isArray(
     step.stops?.length ? step.stops : step.rideStops || step.routeStops,
   )
@@ -1109,15 +1153,15 @@ function StopTimeline({ step }: { step: TransitStep }) {
     <View style={styles.stopTimelineBox}>
       {compactStops.map((stop: any, index: number) => {
         const name = cleanStopName(
-          stop.stopName || stop.name || stop.title || "Stotelė",
+          stop.stopName || stop.name || stop.title || t.common.stopLabel,
         );
-        const t = stopTimeText(stop);
+        const tText = stopTimeText(stop);
         return (
           <View
             key={`${stop.id || name}-${index}`}
             style={styles.stopTimelineRow}
           >
-            <Text style={styles.stopTimelineTime}>{t || "—"}</Text>
+            <Text style={styles.stopTimelineTime}>{tText || "—"}</Text>
             <View style={styles.stopTimelineDot} />
             <Text style={styles.stopTimelineName} numberOfLines={1}>
               {name}
@@ -1126,14 +1170,17 @@ function StopTimeline({ step }: { step: TransitStep }) {
         );
       })}
       {hidden ? (
-        <Text style={styles.stopTimelineMore}>+ dar {hidden} stotelės</Text>
+        <Text style={styles.stopTimelineMore}>
+          {t.common.moreStops.replace("{count}", String(hidden))}
+        </Text>
       ) : null}
     </View>
   );
 }
 
 function StepRow({ step, active }: { step: TransitStep; active?: boolean }) {
-  const meta = stepMetaLine(step);
+  const { t } = useLanguage();
+  const meta = stepMetaLine(step, t);
   const subtitle =
     step.subtitle ||
     [
@@ -1395,7 +1442,11 @@ export default function JourneySheet(props: Props) {
       ]}
       pointerEvents="box-none"
     >
-      <BlurView intensity={theme.isLight ? 58 : 92} tint={theme.isLight ? "light" : "dark"} style={[styles.blurSurface, theme.isLight && styles.blurSurfaceLight]}>
+      <BlurView
+        intensity={theme.isLight ? 58 : 92}
+        tint={theme.isLight ? "light" : "dark"}
+        style={[styles.blurSurface, theme.isLight && styles.blurSurfaceLight]}
+      >
         <View {...panResponder.panHandlers} style={styles.dragArea}>
           <View style={styles.grabber} />
         </View>
@@ -2503,7 +2554,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.18)",
     zIndex: 20,
     shadowColor: "#000",
-    shadowOpacity: 0.20,
+    shadowOpacity: 0.2,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 6 },
   },

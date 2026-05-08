@@ -1,7 +1,12 @@
-import { Ionicons } from "@expo/vector-icons";
-import React from "react";
-import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { COLORS, LINE_HEIGHT, T } from "@/core/theme/typography";
+import { Ionicons } from "@expo/vector-icons";
+import {
+    ActivityIndicator,
+    Pressable,
+    StyleSheet,
+    TextInput,
+    View,
+} from "react-native";
 
 type Props = {
   value: string;
@@ -11,7 +16,14 @@ type Props = {
   onClear: () => void;
 };
 
-export default function TopSearchBar({ value, isSearching, onChangeText, onSubmit, onClear }: Props) {
+export default function TopSearchBar({
+  value,
+  isSearching,
+  onChangeText,
+  onSubmit,
+  onClear,
+}: Props) {
+  const { t } = useLanguage();
   return (
     <View style={styles.wrapper} pointerEvents="box-none">
       <View style={styles.searchBox}>
@@ -20,7 +32,7 @@ export default function TopSearchBar({ value, isSearching, onChangeText, onSubmi
           value={value}
           onChangeText={onChangeText}
           onSubmitEditing={onSubmit}
-          placeholder="Kur važiuojam? Pvz. Akropolis"
+          placeholder={t.common.searchPlaceholder}
           placeholderTextColor="#7F8AB0"
           returnKeyType="search"
           autoCorrect={false}
@@ -28,7 +40,9 @@ export default function TopSearchBar({ value, isSearching, onChangeText, onSubmi
           clearButtonMode="never"
           style={styles.input}
         />
-        {isSearching ? <ActivityIndicator size="small" color={COLORS.green} /> : null}
+        {isSearching ? (
+          <ActivityIndicator size="small" color={COLORS.green} />
+        ) : null}
         {value.trim().length > 0 ? (
           <Pressable onPress={onClear} hitSlop={12} style={styles.clearButton}>
             <Ionicons name="close-circle" size={19} color="#AEB7D8" />
@@ -40,8 +54,42 @@ export default function TopSearchBar({ value, isSearching, onChangeText, onSubmi
 }
 
 const styles = StyleSheet.create({
-  wrapper: { position: "absolute", top: 58, left: 16, right: 16, zIndex: 45, elevation: 45 },
-  searchBox: { minHeight: 52, borderRadius: 22, paddingHorizontal: 13, flexDirection: "row", alignItems: "center", gap: 9, backgroundColor: "rgba(8, 13, 27, 0.94)", borderWidth: 1, borderColor: "rgba(255,255,255,0.13)", shadowColor: "#000", shadowOpacity: 0.24, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } },
-  input: { flex: 1, color: "white", fontSize: T.body, lineHeight: LINE_HEIGHT.body, fontWeight: "700", paddingVertical: 11 },
-  clearButton: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  wrapper: {
+    position: "absolute",
+    top: 58,
+    left: 16,
+    right: 16,
+    zIndex: 45,
+    elevation: 45,
+  },
+  searchBox: {
+    minHeight: 52,
+    borderRadius: 22,
+    paddingHorizontal: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    backgroundColor: "rgba(8, 13, 27, 0.94)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.13)",
+    shadowColor: "#000",
+    shadowOpacity: 0.24,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  input: {
+    flex: 1,
+    color: "white",
+    fontSize: T.body,
+    lineHeight: LINE_HEIGHT.body,
+    fontWeight: "700",
+    paddingVertical: 11,
+  },
+  clearButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });
