@@ -124,15 +124,18 @@ function rankResults(items, query) {
         if (missingImportantQueryParts(item, query)) score -= 520;
       }
 
-      // When user typed a house number, exact addresses must win.
+      // When user typed a house number, exact address/geocoding must win.
+      // POI results at the same address can be shown below, but must not become
+      // the main destination before a real address result.
       if (queryHasNumber) {
-        if (type === "address") score += 320;
-        if (source === "nominatim") score += 100;
+        if (type === "address") score += 760;
+        if (source === "google_geocoding") score += 520;
+        if (source === "nominatim") score += 180;
 
-        if (type === "poi" && source !== "local_poi" && match < 180)
-          score -= 220;
-        if (type === "street" && !String(item.title || "").match(/\d/))
-          score -= 80;
+        if (type === "poi") score -= match >= 360 ? 80 : 360;
+        if (type === "street") score -= 260;
+        if (item.selectable === false || item.requiresHouseNumber === true)
+          score -= 650;
       }
 
       // Stops are fallback unless user clearly searches for a stop/station.

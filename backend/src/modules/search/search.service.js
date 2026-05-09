@@ -133,6 +133,32 @@ function filterUnsafeSearchResults(items, query) {
   });
 }
 
+
+function forceExactAddressPriority(items, query) {
+  const qHasNumber = hasHouseNumberQuery(query);
+  if (!qHasNumber) return items;
+
+  return [...items].sort((a, b) => {
+    const aType = String(a.type || "").toLowerCase();
+    const bType = String(b.type || "").toLowerCase();
+    const aSource = String(a.source || "").toLowerCase();
+    const bSource = String(b.source || "").toLowerCase();
+
+    const power = (item, type, source) => {
+      let value = Number(item.score || 0);
+      if (type === "address") value += 5000;
+      if (source === "google_geocoding") value += 2500;
+      if (source === "nominatim") value += 900;
+      if (type === "street") value -= 1500;
+      if (type === "stop") value -= 2500;
+      if (item.selectable === false || item.requiresHouseNumber === true) value -= 3000;
+      return value;
+    };
+
+    return power(b, bType, bSource) - power(a, aType, aSource);
+  });
+}
+
 function compactProviderMeta(providers) {
   return providers.map((p) => ({
     name: p.name,
@@ -225,7 +251,8 @@ async function index(query = {}) {
 
   const ranked = rankResults(dedupeResults(combined), q);
   const safeRanked = filterUnsafeSearchResults(ranked, q);
-  const results = dedupeResults(safeRanked).slice(0, limit);
+  const priorityRanked = forceExactAddressPriority(safeRanked, q);
+  const results = dedupeResults(priorityRanked).slice(0, limit);
 
   const payload = {
     ok: true,

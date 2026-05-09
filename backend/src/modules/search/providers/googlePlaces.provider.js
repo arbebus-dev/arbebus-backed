@@ -82,6 +82,122 @@ function googleSearchQueries(query) {
   return Array.from(new Set(variants));
 }
 
+
+function hasHouseNumberQuery(value) {
+  return /\b\d+[a-z]?\b/i.test(String(value || ""));
+}
+
+function geocodeQueries(query) {
+  const q = String(query || "").replace(/\s{2,}/g, " ").trim();
+  const variants = [
+    q,
+    `${q}, Klaipėda, Lietuva`,
+    `${q}, Klaipeda, Lithuania`,
+    `${q}, Klaipėdos m. sav., Lietuva`,
+  ];
+  return Array.from(new Set(variants.map((item) => item.trim()).filter(Boolean)));
+}
+
+function mapGeocodeResult(item, index, originalQuery) {
+  const loc = item?.geometry?.location || {};
+  const latitude = Number(loc.lat);
+  const longitude = Number(loc.lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+  const components = Array.isArray(item.address_components)
+    ? item.address_components
+    : [];
+  const component = (type) =>
+    components.find((part) => Array.isArray(part.types) && part.types.includes(type));
+  const road = component("route")?.long_name || null;
+  const house = component("street_number")?.long_name || null;
+  const city =
+    component("locality")?.long_name ||
+    component("postal_town")?.long_name ||
+    component("administrative_area_level_2")?.long_name ||
+    "Klaipėda";
+
+  const title = road && house ? `${road} ${house}` : item.formatted_address || originalQuery;
+  const locationType = String(item?.geometry?.location_type || "").toUpperCase();
+  const precisionBoost =
+    locationType === "ROOFTOP" ? 900 :
+    locationType === "RANGE_INTERPOLATED" ? 720 :
+    locationType === "GEOMETRIC_CENTER" ? 420 : 320;
+
+  return toResult({
+    id: item.place_id || `google-geocode-${index}`,
+    type: house ? "address" : "street",
+    title,
+    name: title,
+    subtitle: item.formatted_address || [title, city, "Lietuva"].filter(Boolean).join(", "),
+    latitude,
+    longitude,
+    source: "google_geocoding",
+    category: "address",
+    priority: precisionBoost,
+    score: precisionBoost,
+    selectable: Boolean(house),
+    requiresHouseNumber: !house,
+    keywords: [title, item.formatted_address, road, house, city, originalQuery].filter(Boolean),
+    raw: item,
+  });
+}
+
+async function geocodeAddress(query, limit) {
+  if (!enabled() || typeof fetch !== "function") return [];
+  if (!hasHouseNumberQuery(query)) return [];
+
+  const key = `google:geocode:v2:${normalizeText(query)}:${limit}:${languageCode()}`;
+  const cached = await getCache(key);
+  if (Array.isArray(cached) && cached.length) return cached;
+
+  const results = [];
+  const errors = [];
+
+  for (const address of geocodeQueries(query)) {
+    const params = new URLSearchParams({
+      address,
+      key: process.env.GOOGLE_PLACES_API_KEY || "",
+      language: languageCode(),
+      region: regionCode().toLowerCase(),
+      components: "country:LT",
+      bounds: "55.60,21.05|55.80,21.30",
+    });
+
+    try {
+      const response = await fetchGoogle(`https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`);
+      if (!response.ok) continue;
+      const json = await response.json();
+      if (json.status && !["OK", "ZERO_RESULTS"].includes(json.status)) {
+        errors.push(`${json.status}: ${json.error_message || ""}`.trim());
+        continue;
+      }
+      const mapped = (json.results || [])
+        .map((item, index) => mapGeocodeResult(item, index, query))
+        .filter(Boolean);
+      results.push(...mapped);
+      if (mapped.some((item) => item.type === "address")) break;
+    } catch (error) {
+      errors.push(error?.message || String(error));
+    }
+  }
+
+  const unique = [];
+  const seen = new Set();
+  for (const item of results) {
+    const keyPart = `${item.title}|${Number(item.latitude).toFixed(6)}|${Number(item.longitude).toFixed(6)}`.toLowerCase();
+    if (seen.has(keyPart)) continue;
+    seen.add(keyPart);
+    unique.push(item);
+  }
+
+  if (unique.length) await setCache(key, unique.slice(0, limit));
+  if (!unique.length && errors.length && process.env.DEBUG_SEARCH === "true") {
+    console.warn("Google geocoding failed", errors.join(" | "));
+  }
+  return unique.slice(0, limit);
+}
+
 function enrich(base, place) {
   if (!base || !place) return base;
 
@@ -250,6 +366,24 @@ async function searchGooglePlaces(query, options = {}) {
   if (Array.isArray(cached) && cached.length) return cached;
 
   const errors = [];
+  const geocoded = await geocodeAddress(q, limit).catch((error) => {
+    errors.push(error?.message || String(error));
+    return [];
+  });
+
+  if (geocoded.length) {
+    const textResults = [];
+    for (const textQuery of googleSearchQueries(q).slice(0, 2)) {
+      try {
+        textResults.push(...(await searchTextOnce(textQuery, limit)));
+      } catch (error) {
+        errors.push(error?.message || String(error));
+      }
+    }
+    const combined = [...geocoded, ...textResults].slice(0, limit);
+    await setCache(key, combined);
+    return combined;
+  }
 
   for (const textQuery of googleSearchQueries(q)) {
     try {

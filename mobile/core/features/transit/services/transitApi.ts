@@ -813,12 +813,25 @@ function rankPlaceResult(
 
   let score = Number((item as any).score ?? (item as any).priority ?? 0);
 
+  const hasHouseNumber = hasHouseNumberSearchQuery(query);
+  const isAddressLike = isAddressLikeSearchQuery(query);
+
   // Mobile-side safety ranking. Backend already ranks, but this protects old builds
   // and aliases that still route through /places/search.
-  if (item.type === "poi") score += 500;
-  if (item.type === "address") score += 420;
-  if (item.type === "city" || item.type === "region") score += 260;
-  if (item.type === "stop") score += 80;
+  if (hasHouseNumber) {
+    if (item.type === "address") score += 1500;
+    if (source.includes("google_geocoding")) score += 900;
+    if (source.includes("nominatim")) score += 320;
+    if (item.type === "street") score -= 650;
+    if (item.type === "stop") score -= 900;
+    if (item.type === "poi") score += title === q || title.includes(q) ? 80 : -240;
+    if ((item as any).selectable === false || (item as any).requiresHouseNumber === true) score -= 1200;
+  } else {
+    if (item.type === "poi") score += 500;
+    if (item.type === "address") score += 420;
+    if (item.type === "city" || item.type === "region") score += 260;
+    if (item.type === "stop") score += isAddressLike ? -220 : 80;
+  }
 
   if (source.includes("local_poi")) score += 300;
   if (source.includes("nominatim")) score += 180;
@@ -868,6 +881,10 @@ function normalizePhotos(raw: any): any[] {
       };
     })
     .filter((photo: any) => photo?.url || photo?.name);
+}
+
+function hasHouseNumberSearchQuery(query: string) {
+  return /\b\d+[a-z]?\b/i.test(String(query || ""));
 }
 
 function isAddressLikeSearchQuery(query: string) {
@@ -946,6 +963,8 @@ function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
     phone: item.phone,
     website: item.website,
     googleMapsUri: item.googleMapsUri,
+    selectable: item.selectable,
+    requiresHouseNumber: item.requiresHouseNumber,
     ...(item.score != null ? { score: Number(item.score) } : {}),
     ...(item.priority != null ? { priority: Number(item.priority) } : {}),
   } as PlaceResult;

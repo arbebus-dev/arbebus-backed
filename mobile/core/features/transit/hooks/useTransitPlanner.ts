@@ -23,6 +23,7 @@ import type {
 } from "../models/transitTypes";
 import {
     fetchLiveEta,
+    fetchPlaceDetails,
     fetchTransitShape,
     fetchWalkingRoute,
     planTransitRoute,
@@ -122,6 +123,47 @@ function canPlanToPlace(place: PlaceSearchResult | null | undefined) {
   if ((place as any).requiresHouseNumber === true) return false;
   if (isStreetSuggestion(place)) return false;
   return true;
+}
+
+async function resolvePreciseDestination(
+  place: PlaceSearchResult,
+): Promise<PlaceSearchResult> {
+  const placeId = String(
+    (place as any).googlePlaceId || (place as any).placeId || "",
+  ).trim();
+
+  // Google/Places results can initially be a POI/search result. Details can return
+  // the final navigation coordinate and formatted address. Never block planning if
+  // details endpoint fails.
+  if (!placeId) return place;
+
+  try {
+    const details = await fetchPlaceDetails(placeId);
+    const coordinate = toCoordinate(details);
+    if (!details || !coordinate) return place;
+
+    return {
+      ...place,
+      ...details,
+      id: String((details as any).id || place.id),
+      title: String((details as any).title || place.title),
+      name: String((details as any).name || (details as any).title || place.name),
+      subtitle:
+        (details as any).subtitle ||
+        (details as any).formattedAddress ||
+        place.subtitle,
+      coordinate,
+      latitude: coordinate.latitude,
+      longitude: coordinate.longitude,
+      type: (details as any).type || place.type,
+      selectable: (details as any).selectable ?? (place as any).selectable,
+      requiresHouseNumber:
+        (details as any).requiresHouseNumber ??
+        (place as any).requiresHouseNumber,
+    } as PlaceSearchResult;
+  } catch {
+    return place;
+  }
 }
 
 // ====== STEP 9 GPS NAVIGATION HELPERS ======
@@ -1283,7 +1325,8 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
 
   const selectDestination = useCallback(
     async (rawDestination: PlaceSearchResult) => {
-      const destination = normalizePlace(rawDestination) ?? rawDestination;
+      let destination = normalizePlace(rawDestination) ?? rawDestination;
+      destination = await resolvePreciseDestination(destination);
 
       if (!canPlanToPlace(destination)) {
         setSelectedDestination(null);
@@ -1407,26 +1450,12 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           source: "useTransitPlanner.selectDestination",
         });
 
-        const cached = await loadCachedTransitPlan();
-        if (cached) {
-          setSelectedDestination(cached.destination);
-          setRouteOptions(cached.routeOptions);
-          setSelectedRoute(
-            cached.selectedRoute || cached.routeOptions[0] || null,
-          );
-          setCurrentStepIndex(0);
-          setFlowState("route_options");
-          setIsOffline(true);
-          setOfflineMessage(
-            "Nėra stabilaus ryšio – rodome paskutinį išsaugotą maršrutą.",
-          );
-          setError("Offline režimas: maršrutas paimtas iš telefono cache.");
-          return;
-        }
-
+        // IMPORTANT: never show an old route for a newly selected destination.
+        // The previous cache fallback caused "Akropolis" or any new address to open
+        // an unrelated old trip from the phone cache.
         setIsOffline(true);
         setOfflineMessage(
-          "Nepavyko prisijungti prie maršrutų serverio ir telefone nėra išsaugoto maršruto.",
+          "Nepavyko prisijungti prie maršrutų serverio. Senas maršrutas nerodomas, kad nenuvestų į neteisingą vietą.",
         );
         setError(err?.message || "Nepavyko suplanuoti maršruto");
         setRouteOptions([]);
