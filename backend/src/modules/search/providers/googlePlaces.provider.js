@@ -5,8 +5,6 @@ const { toResult } = require("../utils/mapSearchResult");
 const GOOGLE_BASE = "https://places.googleapis.com/v1";
 
 function enabled() {
-  // Arbebus production: if GOOGLE_PLACES_API_KEY exists, Places should work by default.
-  // SEARCH_PROVIDER_GOOGLE_ENABLED can still explicitly disable it with "false".
   const flag = process.env.SEARCH_PROVIDER_GOOGLE_ENABLED;
   const hasKey = Boolean(process.env.GOOGLE_PLACES_API_KEY);
   if (!hasKey) return false;
@@ -24,14 +22,15 @@ function regionCode() {
 
 function timeoutMs() {
   return Math.min(
-    Math.max(Number(process.env.GOOGLE_PLACES_DETAILS_TIMEOUT_MS || 2000), 800),
-    5000,
+    Math.max(Number(process.env.GOOGLE_PLACES_DETAILS_TIMEOUT_MS || 3500), 1000),
+    7000,
   );
 }
 
 async function fetchGoogle(url, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs());
+
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
@@ -41,7 +40,9 @@ async function fetchGoogle(url, options = {}) {
 
 function photoProxyUrl(photoName) {
   if (!photoName) return null;
-  return `/api/search/photo?name=${encodeURIComponent(photoName)}&maxWidthPx=${encodeURIComponent(process.env.GOOGLE_PLACES_PHOTO_MAX_WIDTH || "900")}`;
+  return `/api/search/photo?name=${encodeURIComponent(photoName)}&maxWidthPx=${encodeURIComponent(
+    process.env.GOOGLE_PLACES_PHOTO_MAX_WIDTH || "900",
+  )}`;
 }
 
 function normalizeCategory(types = []) {
@@ -66,8 +67,24 @@ function hoursFromPlace(place) {
   return Array.isArray(weekday) ? weekday.slice(0, 7) : [];
 }
 
+function googleSearchQueries(query) {
+  const q = String(query || "").replace(/\s{2,}/g, " ").trim();
+  const variants = [
+    q,
+    `${q} Klaipėda Lithuania`,
+    `${q} Klaipeda Lithuania`,
+    `${q} Klaipėda Lietuva`,
+    `${q} Lithuania`,
+  ]
+    .map((item) => item.replace(/\s{2,}/g, " ").trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(variants));
+}
+
 function enrich(base, place) {
   if (!base || !place) return base;
+
   const photos = Array.isArray(place.photos)
     ? place.photos
         .slice(0, 6)
@@ -110,82 +127,135 @@ function enrich(base, place) {
 
 function mapPlace(place, index) {
   const loc = place.location || {};
+  const latitude = Number(loc.latitude);
+  const longitude = Number(loc.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+  const title =
+    place.displayName?.text ||
+    place.displayName?.name ||
+    place.name ||
+    place.formattedAddress ||
+    "Vieta";
+
   const base = toResult({
     id: place.id || `google-${index}`,
     type: "poi",
-    title: place.displayName?.text || place.name || "Vieta",
-    subtitle: place.formattedAddress || "Lietuva",
-    latitude: loc.latitude,
-    longitude: loc.longitude,
+    title,
+    name: title,
+    subtitle: place.formattedAddress || "Klaipėda, Lietuva",
+    latitude,
+    longitude,
     source: "google_places",
-    category: Array.isArray(place.types) ? place.types[0] : null,
-    keywords: place.types || [],
+    category: Array.isArray(place.types) ? place.types[0] : "place",
+    keywords: [
+      title,
+      place.formattedAddress,
+      ...(Array.isArray(place.types) ? place.types : []),
+    ].filter(Boolean),
+    selectable: true,
+    requiresHouseNumber: false,
     raw: place,
   });
+
   return enrich(base, place);
+}
+
+async function searchTextOnce(textQuery, limit) {
+  const response = await fetchGoogle(`${GOOGLE_BASE}/places:searchText`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": process.env.GOOGLE_PLACES_API_KEY,
+      "X-Goog-FieldMask": [
+        "places.id",
+        "places.displayName",
+        "places.formattedAddress",
+        "places.location",
+        "places.types",
+        "places.rating",
+        "places.userRatingCount",
+        "places.currentOpeningHours",
+        "places.photos",
+        "places.googleMapsUri",
+      ].join(","),
+    },
+    body: JSON.stringify({
+      textQuery,
+      maxResultCount: limit,
+      languageCode: languageCode(),
+      regionCode: regionCode(),
+      locationBias: {
+        circle: {
+          center: {
+            latitude: Number(process.env.SEARCH_REGION_LAT || 55.7033),
+            longitude: Number(process.env.SEARCH_REGION_LNG || 21.1443),
+          },
+          radius: Math.min(
+            Math.max(Number(process.env.SEARCH_REGION_RADIUS_METERS || 50000), 1000),
+            50000,
+          ),
+        },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
+    throw new Error(
+      `Google Places searchText HTTP ${response.status}: ${message.slice(0, 500)}`,
+    );
+  }
+
+  const json = await response.json();
+  return (json.places || []).map(mapPlace).filter(Boolean);
 }
 
 async function searchGooglePlaces(query, options = {}) {
   if (!enabled() || typeof fetch !== "function") return [];
+
   const q = String(query || "").trim();
   const nq = normalizeText(q);
   if (nq.length < 3) return [];
 
-  const limit = Math.min(Math.max(Number(options.limit || 6), 1), 10);
-  const key = `google:text:${nq}:${limit}:${languageCode()}:${regionCode()}`;
-  const cached = getCache(key);
-  if (cached) return cached;
+  const limit = Math.min(Math.max(Number(options.limit || 8), 1), 10);
+  const key = `google:text:v3:${nq}:${limit}:${languageCode()}:${regionCode()}`;
+  const cached = await getCache(key);
+  if (Array.isArray(cached) && cached.length) return cached;
 
-  try {
-    const response = await fetchGoogle(`${GOOGLE_BASE}/places:searchText`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": process.env.GOOGLE_PLACES_API_KEY,
-        "X-Goog-FieldMask": [
-          "places.id",
-          "places.displayName",
-          "places.formattedAddress",
-          "places.location",
-          "places.types",
-          "places.rating",
-          "places.userRatingCount",
-          "places.currentOpeningHours",
-          "places.photos",
-          "places.googleMapsUri",
-        ].join(","),
-      },
-      body: JSON.stringify({
-        textQuery: /lietuva|klaipeda|klaipėda/i.test(q)
-          ? q
-          : `${q} Klaipėda Lietuva`,
-        maxResultCount: limit,
-        languageCode: languageCode(),
-        regionCode: regionCode(),
-      }),
-    });
-    if (!response.ok) return [];
-    const json = await response.json();
-    const results = (json.places || []).map(mapPlace).filter(Boolean);
-    setCache(key, results);
-    return results;
-  } catch {
-    return [];
+  const errors = [];
+
+  for (const textQuery of googleSearchQueries(q)) {
+    try {
+      const results = await searchTextOnce(textQuery, limit);
+      if (results.length) {
+        await setCache(key, results);
+        return results;
+      }
+    } catch (error) {
+      errors.push(error?.message || String(error));
+    }
   }
+
+  if (errors.length) throw new Error(errors.join(" | "));
+  return [];
 }
 
 async function getGooglePlaceDetails(placeId) {
   if (!enabled() || typeof fetch !== "function") return null;
+
   const id = String(placeId || "").trim();
   if (!id) return null;
 
-  const key = `google:details:${id}:${languageCode()}`;
-  const cached = getCache(key);
+  const key = `google:details:v3:${id}:${languageCode()}`;
+  const cached = await getCache(key);
   if (cached) return cached;
 
   try {
     const response = await fetchGoogle(
-      `${GOOGLE_BASE}/places/${encodeURIComponent(id)}?languageCode=${encodeURIComponent(languageCode())}&regionCode=${encodeURIComponent(regionCode())}`,
+      `${GOOGLE_BASE}/places/${encodeURIComponent(id)}?languageCode=${encodeURIComponent(
+        languageCode(),
+      )}&regionCode=${encodeURIComponent(regionCode())}`,
       {
         headers: {
           "X-Goog-Api-Key": process.env.GOOGLE_PLACES_API_KEY,
@@ -208,10 +278,17 @@ async function getGooglePlaceDetails(placeId) {
         },
       },
     );
-    if (!response.ok) return null;
+
+    if (!response.ok) {
+      const message = await response.text().catch(() => "");
+      throw new Error(
+        `Google Places details HTTP ${response.status}: ${message.slice(0, 500)}`,
+      );
+    }
+
     const place = await response.json();
     const mapped = mapPlace(place, 0);
-    setCache(key, mapped);
+    await setCache(key, mapped);
     return mapped;
   } catch {
     return null;
@@ -220,6 +297,7 @@ async function getGooglePlaceDetails(placeId) {
 
 async function searchNearbyGooglePlaces(latitude, longitude, options = {}) {
   if (!enabled() || typeof fetch !== "function") return [];
+
   const lat = Number(latitude);
   const lng = Number(longitude);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
@@ -236,9 +314,9 @@ async function searchNearbyGooglePlaces(latitude, longitude, options = {}) {
     300,
   );
   const limit = Math.min(Math.max(Number(options.limit || 3), 1), 5);
-  const key = `google:nearby:${lat.toFixed(5)}:${lng.toFixed(5)}:${radius}:${limit}`;
-  const cached = getCache(key);
-  if (cached) return cached;
+  const key = `google:nearby:v3:${lat.toFixed(5)}:${lng.toFixed(5)}:${radius}:${limit}`;
+  const cached = await getCache(key);
+  if (Array.isArray(cached) && cached.length) return cached;
 
   try {
     const response = await fetchGoogle(`${GOOGLE_BASE}/places:searchNearby`, {
@@ -271,10 +349,17 @@ async function searchNearbyGooglePlaces(latitude, longitude, options = {}) {
         },
       }),
     });
-    if (!response.ok) return [];
+
+    if (!response.ok) {
+      const message = await response.text().catch(() => "");
+      throw new Error(
+        `Google Places nearby HTTP ${response.status}: ${message.slice(0, 500)}`,
+      );
+    }
+
     const json = await response.json();
     const results = (json.places || []).map(mapPlace).filter(Boolean);
-    setCache(key, results);
+    if (results.length) await setCache(key, results);
     return results;
   } catch {
     return [];
@@ -283,8 +368,10 @@ async function searchNearbyGooglePlaces(latitude, longitude, options = {}) {
 
 async function getGooglePhotoMediaUrl(name, maxWidthPx) {
   if (!enabled() || typeof fetch !== "function") return null;
+
   const photoName = String(name || "").trim();
   if (!photoName || !photoName.startsWith("places/")) return null;
+
   const width = Math.min(
     Math.max(
       Number(maxWidthPx || process.env.GOOGLE_PLACES_PHOTO_MAX_WIDTH || 900),
@@ -300,6 +387,7 @@ async function getGooglePhotoMediaUrl(name, maxWidthPx) {
         headers: { "X-Goog-Api-Key": process.env.GOOGLE_PLACES_API_KEY },
       },
     );
+
     if (!response.ok) return null;
     const json = await response.json();
     return json.photoUri || null;

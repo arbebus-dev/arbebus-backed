@@ -150,6 +150,32 @@ function gtfsTimeFromSeconds(value) {
   return [h, m, s].map((n) => String(n).padStart(2, "0")).join(":");
 }
 
+function nextTripTimeWindow(rawDepartureSeconds, rawArrivalSeconds, afterSeconds) {
+  let departureSeconds = Number(rawDepartureSeconds);
+  let arrivalSeconds = Number(rawArrivalSeconds);
+  const after = Number.isFinite(Number(afterSeconds)) ? Number(afterSeconds) : nowSeconds() - 120;
+
+  if (!Number.isFinite(departureSeconds) || !Number.isFinite(arrivalSeconds)) {
+    return null;
+  }
+
+  // GTFS service times are often stored as "same service day" seconds.
+  // If user searches late evening/early morning, do not return walk-only just
+  // because today's matching trip already passed. Shift the trip to the next
+  // service day and keep the same HH:mm display through humanGtfsTime().
+  while (departureSeconds < after && departureSeconds + 86400 <= after + 86400) {
+    departureSeconds += 86400;
+  }
+
+  while (arrivalSeconds < departureSeconds) {
+    arrivalSeconds += 86400;
+  }
+
+  if (departureSeconds < after) return null;
+
+  return { departureSeconds, arrivalSeconds };
+}
+
 function nowSeconds() {
   const now = new Date();
   return now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
@@ -572,14 +598,20 @@ function findTripSegment(
 
     const fromTime = times[fromIndex];
     const toTime = times[toIndex];
-    const departureSeconds = secondsFromGtfsTime(
+    const rawDepartureSeconds = secondsFromGtfsTime(
       fromTime.departure_time || fromTime.arrival_time,
     );
-    const arrivalSeconds = secondsFromGtfsTime(
+    const rawArrivalSeconds = secondsFromGtfsTime(
       toTime.arrival_time || toTime.departure_time,
     );
-    if (departureSeconds == null || arrivalSeconds == null) continue;
-    if (departureSeconds < afterSeconds) continue;
+    const tripWindow = nextTripTimeWindow(
+      rawDepartureSeconds,
+      rawArrivalSeconds,
+      afterSeconds,
+    );
+    if (!tripWindow) continue;
+
+    const { departureSeconds, arrivalSeconds } = tripWindow;
 
     const segmentStops = times
       .slice(fromIndex, toIndex + 1)
@@ -1215,6 +1247,28 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
   return attachChildGuide(route);
 }
 
+function buildTransitCandidatesForStops(originStops, destinationStops, planTimeOptions, limit = 8) {
+  return rankAndDedupeCandidates(
+    [
+      ...candidateDirectRoutes(originStops, destinationStops, planTimeOptions),
+      ...candidateTransferRoutes(originStops, destinationStops, planTimeOptions),
+    ],
+    limit,
+  );
+}
+
+function planSearchProfiles(from, to) {
+  return [
+    { limit: 6, radius: 2200, label: "nearby" },
+    { limit: 10, radius: 3500, label: "expanded" },
+    { limit: 14, radius: 5200, label: "wide" },
+  ].map((profile) => ({
+    ...profile,
+    originStops: nearestStops(from, profile.limit, profile.radius),
+    destinationStops: nearestStops(to, profile.limit, profile.radius),
+  }));
+}
+
 async function plan(body = {}) {
   const from = toCoordinate(body.origin) ||
     toCoordinate(body.from) || { latitude: 55.7033, longitude: 21.1443 };
@@ -1247,12 +1301,27 @@ async function plan(body = {}) {
             timeMode === "depart" ? requestedSeconds : nowSeconds() - 120,
         };
 
-  const originStops = nearestStops(from, 6, 2200);
-  const destinationStops = nearestStops(to, 6, 2200);
-  let candidates = rankAndDedupeCandidates([
-    ...candidateDirectRoutes(originStops, destinationStops, planTimeOptions),
-    ...candidateTransferRoutes(originStops, destinationStops, planTimeOptions),
-  ], 8);
+  const profiles = planSearchProfiles(from, to);
+  let selectedProfile = profiles[0];
+  let candidates = [];
+
+  for (const profile of profiles) {
+    const profileCandidates = buildTransitCandidatesForStops(
+      profile.originStops,
+      profile.destinationStops,
+      planTimeOptions,
+      8,
+    );
+
+    if (profileCandidates.length) {
+      selectedProfile = profile;
+      candidates = profileCandidates;
+      break;
+    }
+  }
+
+  const originStops = selectedProfile.originStops;
+  const destinationStops = selectedProfile.destinationStops;
 
   const basePlans = candidates
     .slice(0, 4)
@@ -1281,6 +1350,10 @@ async function plan(body = {}) {
         routingVersion: "child-routing-v1",
         hasRealBusRoute: false,
         walkingGeometryHydrated: shouldEnrichWalkingGeometry,
+        originStops: originStops.length,
+        destinationStops: destinationStops.length,
+        searchProfile: selectedProfile?.label || "none",
+        searchRadiusMeters: selectedProfile?.radius || null,
       },
     };
   }
@@ -1295,6 +1368,8 @@ async function plan(body = {}) {
       originStops: originStops.length,
       destinationStops: destinationStops.length,
       candidates: candidates.length,
+      searchProfile: selectedProfile?.label || "nearby",
+      searchRadiusMeters: selectedProfile?.radius || 2200,
       routingVersion: "child-routing-v1",
       fields: ["journeySteps", "childGuide", "parentSummary", "legs", "stopCount", "transfersCount", "departureText", "arrivalText", "routingQuality"],
       walkingGeometryHydrated: shouldEnrichWalkingGeometry,
