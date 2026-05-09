@@ -22,6 +22,10 @@ const {
   loadGtfsStops,
 } = require("./providers/gtfsStops.provider");
 const { searchFastIndex, searchIndexHealth } = require("./index/searchIndex");
+const {
+  searchLocalAddresses,
+  localAddressHealth,
+} = require("./providers/localAddress.provider");
 
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 30;
@@ -64,7 +68,7 @@ async function runProvider(name, fn, timeoutMs = 1600) {
 }
 
 function searchCacheKey(q, type, limit) {
-  return `v3:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(limit || DEFAULT_LIMIT)}`;
+  return `v4:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(limit || DEFAULT_LIMIT)}`;
 }
 
 function isAddressLikeQuery(value = "") {
@@ -174,17 +178,24 @@ async function index(query = {}) {
   }
 
   // Apple Maps style: first answer from in-memory/local sources.
-  // External providers are optional fallback only, never a blocker for typing suggestions.
-  const fastIndex = await runProvider(
-    "fast_local_index",
-    () => searchFastIndex(q, { limit: Math.max(18, limit) }),
-    120,
-  );
+  // Local address fallback is mandatory, because Google/OSM can return 0 or be rate-limited.
+  const [fastIndex, localAddress] = await Promise.all([
+    runProvider(
+      "fast_local_index",
+      () => searchFastIndex(q, { limit: Math.max(18, limit) }),
+      120,
+    ),
+    runProvider(
+      "local_address",
+      () => searchLocalAddresses(q, { limit: Math.max(8, limit) }),
+      80,
+    ),
+  ]);
 
-  let combined = [...fastIndex.results];
-  const providers = [fastIndex];
+  let combined = [...localAddress.results, ...fastIndex.results];
+  const providers = [localAddress, fastIndex];
 
-  const rankedFast = rankResults(dedupeResults(fastIndex.results), q);
+  const rankedFast = rankResults(dedupeResults(combined), q);
   const hasStrongFastResult = rankedFast.some(
     (item) => Number(item.score || 0) >= 360,
   );
@@ -295,6 +306,7 @@ function healthMeta() {
       SEARCH_REGION_RADIUS_METERS:
         process.env.SEARCH_REGION_RADIUS_METERS || "55000",
     },
+    ...localAddressHealth(),
     ...localPoiHealth(),
     ...gtfsHealth(),
     ...searchIndexHealth(),
