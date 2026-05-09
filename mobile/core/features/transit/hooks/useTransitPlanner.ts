@@ -73,6 +73,15 @@ async function saveCachedTransitPlan(
   }
 }
 
+
+async function clearCachedTransitPlan() {
+  try {
+    await AsyncStorage.removeItem(TRANSIT_PLAN_CACHE_KEY);
+  } catch {
+    // Cache cleanup is best-effort only.
+  }
+}
+
 async function loadCachedTransitPlan(): Promise<CachedTransitPlan | null> {
   try {
     const raw = await AsyncStorage.getItem(TRANSIT_PLAN_CACHE_KEY);
@@ -1344,6 +1353,8 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       const routeOrigin = selectedOrigin?.coordinate ?? userLocation;
       const requestId = planRequestId.current + 1;
       planRequestId.current = requestId;
+
+      await clearCachedTransitPlan();
 
       setSelectedDestination(destination);
       setSelectedRoute(null);

@@ -1143,38 +1143,96 @@ export async function planTransitRoute(params: {
     coordinate: params.to,
   };
 
-  const response = await fetchWithTimeout(
-    API_ENDPOINTS.transitPlan,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        origin: {
-          latitude: params.from.latitude,
-          longitude: params.from.longitude,
-        },
-        destination: {
-          latitude: params.to.latitude,
-          longitude: params.to.longitude,
-        },
-        from: params.from,
-        to: params.to,
-        selectedDestination: destination,
-        timeMode: params.timeMode || "now",
-        travelAt:
-          params.travelAt instanceof Date
-            ? params.travelAt.toISOString()
-            : params.travelAt || null,
-        includeWalkingGeometry: true,
-      }),
+  const travelAt =
+    params.travelAt instanceof Date
+      ? params.travelAt.toISOString()
+      : params.travelAt || null;
+
+  const requestBody = {
+    origin: {
+      latitude: params.from.latitude,
+      longitude: params.from.longitude,
     },
-    8000,
-  );
+    destination: {
+      latitude: params.to.latitude,
+      longitude: params.to.longitude,
+      title: destination.title,
+      name: destination.name || destination.title,
+    },
+    from: params.from,
+    to: params.to,
+    fromLat: params.from.latitude,
+    fromLng: params.from.longitude,
+    toLat: params.to.latitude,
+    toLng: params.to.longitude,
+    destinationTitle: destination.title,
+    selectedDestination: {
+      ...destination,
+      latitude: params.to.latitude,
+      longitude: params.to.longitude,
+      coordinate: params.to,
+    },
+    timeMode: params.timeMode || "now",
+    travelAt,
+    includeWalkingGeometry: true,
+  };
 
-  const data = await safeJson<any>(response);
+  let data: any = null;
+  let responseStatus = 0;
+  let lastError: unknown = null;
 
-  if (!response.ok || data?.ok === false) {
-    throw new Error(data?.error || `Transit plan failed: ${response.status}`);
+  try {
+    const response = await fetchWithTimeout(
+      API_ENDPOINTS.transitPlan,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      },
+      15000,
+    );
+
+    responseStatus = response.status;
+    data = await safeJson<any>(response);
+
+    if (!response.ok || data?.ok === false) {
+      throw new Error(data?.error || `Transit plan failed: ${response.status}`);
+    }
+  } catch (error) {
+    lastError = error;
+
+    // Compatibility fallback for Render/browser debugging and older backend builds.
+    // Backend now supports these query params; keeping this fallback makes the app
+    // resistant to POST/body parsing issues.
+    const query = new URLSearchParams({
+      fromLat: String(params.from.latitude),
+      fromLng: String(params.from.longitude),
+      toLat: String(params.to.latitude),
+      toLng: String(params.to.longitude),
+      destinationTitle: destination.title || "Tikslas",
+      timeMode: params.timeMode || "now",
+      includeWalkingGeometry: "true",
+    });
+
+    if (travelAt) query.set("travelAt", String(travelAt));
+
+    const fallbackResponse = await fetchWithTimeout(
+      `${API_ENDPOINTS.transitPlan}?${query.toString()}`,
+      undefined,
+      15000,
+    );
+
+    responseStatus = fallbackResponse.status;
+    data = await safeJson<any>(fallbackResponse);
+
+    if (!fallbackResponse.ok || data?.ok === false) {
+      throw new Error(
+        data?.error ||
+          (lastError instanceof Error
+            ? lastError.message
+            : `Transit plan failed: ${responseStatus}`),
+      );
+    }
   }
 
   const rawRoutes = [

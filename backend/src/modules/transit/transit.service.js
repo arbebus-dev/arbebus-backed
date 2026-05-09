@@ -206,6 +206,8 @@ function toCoordinate(input, fallback) {
       input?.lat ??
       input?.stop_lat ??
       input?.coordinate?.latitude ??
+      input?.location?.latitude ??
+      input?.location?.lat ??
       fallback?.latitude,
   );
   const longitude = Number(
@@ -214,10 +216,76 @@ function toCoordinate(input, fallback) {
       input?.lng ??
       input?.stop_lon ??
       input?.coordinate?.longitude ??
+      input?.location?.longitude ??
+      input?.location?.lng ??
       fallback?.longitude,
   );
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
+}
+
+function toCoordinateFromKeys(input, latKeys = [], lngKeys = []) {
+  if (!input || typeof input !== "object") return null;
+
+  for (const latKey of latKeys) {
+    for (const lngKey of lngKeys) {
+      const latitude = Number(String(input?.[latKey] ?? "").replace(",", "."));
+      const longitude = Number(String(input?.[lngKey] ?? "").replace(",", "."));
+
+      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        return { latitude, longitude };
+      }
+    }
+  }
+
+  return null;
+}
+
+function coordinateFromPlanInput(body = {}, role = "to") {
+  const prefix = role === "from" ? "from" : "to";
+  const altPrefix = role === "from" ? "origin" : "destination";
+
+  return (
+    toCoordinate(body?.[altPrefix]) ||
+    toCoordinate(body?.[prefix]) ||
+    toCoordinate(body?.selectedDestination) ||
+    toCoordinateFromKeys(
+      body,
+      [
+        `${prefix}Lat`,
+        `${prefix}Latitude`,
+        `${altPrefix}Lat`,
+        `${altPrefix}Latitude`,
+        role === "from" ? "originLat" : "destinationLat",
+        role === "from" ? "originLatitude" : "destinationLatitude",
+        role === "from" ? "startLat" : "endLat",
+        role === "from" ? "startLatitude" : "endLatitude",
+        role === "from" ? "from_lat" : "to_lat",
+        role === "from" ? "origin_lat" : "destination_lat",
+        role === "from" ? "start_lat" : "end_lat",
+      ],
+      [
+        `${prefix}Lng`,
+        `${prefix}Lon`,
+        `${prefix}Longitude`,
+        `${altPrefix}Lng`,
+        `${altPrefix}Lon`,
+        `${altPrefix}Longitude`,
+        role === "from" ? "originLng" : "destinationLng",
+        role === "from" ? "originLon" : "destinationLon",
+        role === "from" ? "originLongitude" : "destinationLongitude",
+        role === "from" ? "startLng" : "endLng",
+        role === "from" ? "startLon" : "endLon",
+        role === "from" ? "startLongitude" : "endLongitude",
+        role === "from" ? "from_lng" : "to_lng",
+        role === "from" ? "from_lon" : "to_lon",
+        role === "from" ? "origin_lng" : "destination_lng",
+        role === "from" ? "origin_lon" : "destination_lon",
+        role === "from" ? "start_lng" : "end_lng",
+        role === "from" ? "start_lon" : "end_lon",
+      ],
+    )
+  );
 }
 
 function makeWalkPolyline(from, to) {
@@ -1270,18 +1338,19 @@ function planSearchProfiles(from, to) {
 }
 
 async function plan(body = {}) {
-  const from = toCoordinate(body.origin) ||
-    toCoordinate(body.from) || { latitude: 55.7033, longitude: 21.1443 };
-  const to = toCoordinate(body.destination) ||
-    toCoordinate(body.to) ||
-    toCoordinate(body.selectedDestination) || {
-      latitude: 55.68962,
-      longitude: 21.14691,
-    };
+  const defaultOrigin = { latitude: 55.7033, longitude: 21.1443 };
+  const defaultDestination = { latitude: 55.68962, longitude: 21.14691 };
+
+  const from = coordinateFromPlanInput(body, "from") || defaultOrigin;
+  const to = coordinateFromPlanInput(body, "to") || defaultDestination;
+
   const destinationTitle =
     body.selectedDestination?.title ||
     body.destination?.title ||
     body.to?.title ||
+    body.destinationTitle ||
+    body.toTitle ||
+    body.title ||
     "Tikslas";
   const timeMode = ["now", "depart", "arrive"].includes(String(body.timeMode))
     ? String(body.timeMode)
@@ -1375,6 +1444,8 @@ async function plan(body = {}) {
       walkingGeometryHydrated: shouldEnrichWalkingGeometry,
       timeMode,
       travelAt: body.travelAt || null,
+      from,
+      to,
     },
   };
 }
