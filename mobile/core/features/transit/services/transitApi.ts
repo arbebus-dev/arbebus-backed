@@ -1,4 +1,4 @@
-import { API_BASE, API_ENDPOINTS } from "@/constants/api";
+import { API_BASE, API_ENDPOINTS, apiUrl } from "@/constants/api";
 import type {
     Coordinate,
     LiveBus,
@@ -81,6 +81,11 @@ async function fetchWithTimeout(
   try {
     return await fetch(input, {
       ...(init || {}),
+      headers: {
+        Accept: "application/json",
+        ...((init?.headers as Record<string, string>) || {}),
+      },
+      cache: "no-store" as RequestCache,
       signal: controller.signal,
     });
   } finally {
@@ -695,10 +700,15 @@ function normalizeBackendPlan(
 }
 
 export async function getLiveBuses(): Promise<LiveBus[]> {
-  const endpoints = [
-    API_ENDPOINTS.liveBuses,
-    `${API_BASE}/live-buses`,
-  ];
+  const endpoints = Array.from(
+    new Set([
+      API_ENDPOINTS.liveBuses,
+      apiUrl("/api/transit/live-buses"),
+      apiUrl("/transit/live-buses"),
+      apiUrl("/api/live-buses"),
+      apiUrl("/live-buses"),
+    ]),
+  );
 
   let lastError: unknown = null;
 
@@ -714,11 +724,13 @@ export async function getLiveBuses(): Promise<LiveBus[]> {
       const data = await safeJson<any>(response);
       const rawBuses = Array.isArray(data)
         ? data
-        : Array.isArray(data.buses)
+        : Array.isArray(data?.buses)
           ? data.buses
-          : Array.isArray(data.vehicles)
+          : Array.isArray(data?.vehicles)
             ? data.vehicles
-            : [];
+            : Array.isArray(data?.data)
+              ? data.data
+              : [];
 
       return rawBuses
         .map((bus: any, index: number) => normalizeLiveBus(bus, index))
@@ -949,10 +961,12 @@ function searchUrls(params: string) {
     new Set(
       [
         primary ? `${primary}?${params}` : "",
+        apiUrl(`/api/search?${params}`),
+        apiUrl(`/search?${params}`),
+        apiUrl(`/api/places/search?${params}`),
+        apiUrl(`/places/search?${params}`),
         `${base}/api/search?${params}`,
         `${base}/search?${params}`,
-        `${base}/api/places/search?${params}`,
-        `${base}/places/search?${params}`,
       ].filter(Boolean),
     ),
   );
@@ -1004,7 +1018,7 @@ async function runSearchRequest(
 }
 
 export async function searchPlaces(query: string): Promise<PlaceResult[]> {
-  const q = query.replace(/\s{2,}/g, " ").trim();
+  const q = String(query || "").replace(/\s{2,}/g, " ").trim();
   if (q.length < 2) return [];
 
   const cached = getSearchMemoryCache(q);

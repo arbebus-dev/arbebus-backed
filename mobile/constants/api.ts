@@ -8,56 +8,67 @@ const extra = (Constants.expoConfig?.extra ?? {}) as Record<
 function cleanApiBase(value?: string | null) {
   const cleaned = String(value || "")
     .trim()
-    .replace(/^['\"]|['\"]$/g, "")
+    .replace(/^['"]|['"]$/g, "")
     .replace(/\/+$/g, "");
 
   if (!cleaned || !/^https?:\/\//i.test(cleaned)) return null;
   return cleaned;
 }
 
+// IMPORTANT:
+// Mobile must never use backend-only keys (GOOGLE_PLACES_API_KEY, ORS_API_KEY).
+// It only needs the public backend base URL. Keep several names for old builds
+// and EAS/Expo extra compatibility.
 const resolvedApiBase =
   cleanApiBase(process.env.EXPO_PUBLIC_API_BASE_URL) ||
   cleanApiBase(process.env.EXPO_PUBLIC_API_BASE) ||
+  cleanApiBase(extra.EXPO_PUBLIC_API_BASE_URL) ||
   cleanApiBase(extra.API_BASE_URL) ||
+  cleanApiBase(extra.apiBaseUrl) ||
   cleanApiBase(extra.API_BASE) ||
   "https://arbebus-backed.onrender.com";
 
 export const API_BASE = resolvedApiBase;
 
+export function apiUrl(path: string) {
+  const suffix = String(path || "").startsWith("/") ? path : `/${path}`;
+  return `${API_BASE}${suffix}`;
+}
+
 export const API_ENDPOINTS = {
-  health: `${API_BASE}/api/health`,
+  health: apiUrl("/api/health"),
 
   // Transit
-  liveBuses: `${API_BASE}/api/transit/live-buses`,
-  liveEta: `${API_BASE}/api/transit/live-eta`,
-  transitPlan: `${API_BASE}/api/transit/plan`,
+  liveBuses: apiUrl("/api/transit/live-buses"),
+  liveEta: apiUrl("/api/transit/live-eta"),
+  transitPlan: apiUrl("/api/transit/plan"),
   transitShape: (shapeId: string) =>
-    `${API_BASE}/api/transit/shape/${encodeURIComponent(shapeId)}`,
+    apiUrl(`/api/transit/shape/${encodeURIComponent(shapeId)}`),
   departures: (stopId: string | number) =>
-    `${API_BASE}/api/transit/departures?stopId=${encodeURIComponent(String(stopId))}`,
+    apiUrl(`/api/transit/departures?stopId=${encodeURIComponent(String(stopId))}`),
   vehicle: (id: string | number) =>
-    `${API_BASE}/api/transit/vehicle/${encodeURIComponent(String(id))}`,
+    apiUrl(`/api/transit/vehicle/${encodeURIComponent(String(id))}`),
   stationAccess: (stopId: string | number) =>
-    `${API_BASE}/api/transit/station-access?stopId=${encodeURIComponent(String(stopId))}`,
+    apiUrl(`/api/transit/station-access?stopId=${encodeURIComponent(String(stopId))}`),
 
   // Search / places
-  placesSearch: `${API_BASE}/api/search`,
-  stopsSearch: `${API_BASE}/api/search/stops`,
+  placesSearch: apiUrl("/api/search"),
+  stopsSearch: apiUrl("/api/search/stops"),
 
   // Routing
-  routingWalk: `${API_BASE}/api/routing/walk`,
-  routingDirections: `${API_BASE}/api/routing/directions`,
+  routingWalk: apiUrl("/api/routing/walk"),
+  routingDirections: apiUrl("/api/routing/directions"),
 
   // Alerts / push
-  alerts: `${API_BASE}/api/alerts`,
-  leaveAlerts: `${API_BASE}/api/alerts/leave`,
-  pushTokens: `${API_BASE}/api/alerts/tokens`,
+  alerts: apiUrl("/api/alerts"),
+  leaveAlerts: apiUrl("/api/alerts/leave"),
+  pushTokens: apiUrl("/api/alerts/tokens"),
 
   // Parent / child / trips foundation
-  parentDashboard: `${API_BASE}/api/parent/dashboard`,
-  childProfiles: `${API_BASE}/api/child/profiles`,
-  savedPlaces: `${API_BASE}/api/child/saved-places`,
-  childTripsStart: `${API_BASE}/api/trips/start`,
+  parentDashboard: apiUrl("/api/parent/dashboard"),
+  childProfiles: apiUrl("/api/child/profiles"),
+  savedPlaces: apiUrl("/api/child/saved-places"),
+  childTripsStart: apiUrl("/api/trips/start"),
   childTripEvent: (tripId: string) =>
-    `${API_BASE}/api/trips/${encodeURIComponent(tripId)}/event`,
+    apiUrl(`/api/trips/${encodeURIComponent(tripId)}/event`),
 } as const;

@@ -1709,22 +1709,47 @@ async function liveBuses() {
     return response;
   } catch (error) {
     // Safe fallback, so production app does not die if GTFS-RT protobuf feed is temporarily unavailable.
-    const url = process.env.STOPS_LT_GPS_URL || DEFAULT_GPS_URL;
-    const text = await requestText(url);
-    const buses = parseGpsFeed(text);
+    try {
+      const url = process.env.STOPS_LT_GPS_URL || DEFAULT_GPS_URL;
+      const text = await requestText(url);
+      const buses = parseGpsFeed(text);
 
-    const response = {
-      ok: true,
-      source: "stops.lt-fallback",
-      fallbackReason: error.message,
-      count: buses.length,
-      buses,
-      vehicles: buses,
-      fetchedAt: new Date().toISOString(),
-    };
+      const response = {
+        ok: true,
+        source: "stops.lt-fallback",
+        fallbackReason: error.message,
+        count: buses.length,
+        buses,
+        vehicles: buses,
+        fetchedAt: new Date().toISOString(),
+      };
 
-    liveCache = { fetchedAt: now, data: response };
-    return response;
+      liveCache = { fetchedAt: now, data: response };
+      return response;
+    } catch (fallbackError) {
+      // Last-resort response: keep API contract stable. Mobile should never lose
+      // the whole map layer because an external live feed is temporarily down.
+      const stale = liveCache.data;
+      if (stale?.buses?.length) {
+        return {
+          ...stale,
+          ok: true,
+          stale: true,
+          source: `${stale.source || "cache"}-stale`,
+          fallbackReason: fallbackError.message || error.message,
+        };
+      }
+
+      return {
+        ok: true,
+        source: "live-feed-unavailable",
+        fallbackReason: fallbackError.message || error.message,
+        count: 0,
+        buses: [],
+        vehicles: [],
+        fetchedAt: new Date().toISOString(),
+      };
+    }
   }
 }
 async function liveEta(query = {}) {

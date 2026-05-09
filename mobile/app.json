@@ -25,7 +25,11 @@
       "buildNumber": "102",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["location", "fetch", "remote-notification"],
+        "UIBackgroundModes": [
+          "location",
+          "fetch",
+          "remote-notification"
+        ],
         "NSLocationWhenInUseUsageDescription": "Arbebus naudoja tavo lokaciją maršrutams, artimiausiems autobusams ir tiksliems kelionės priminimams.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Arbebus gali naudoti lokaciją fone, kad primintų kada išeiti ir perskaičiuotų kelionės priminimus.",
         "NSUserNotificationsUsageDescription": "Arbebus siunčia kelionės priminimus ir įlipimo / išlipimo pranešimus."
@@ -49,7 +53,9 @@
       "router": {},
       "eas": {
         "projectId": "c06c6105-b193-40a0-995d-18c86f91f089"
-      }
+      },
+      "API_BASE_URL": "https://arbebus-backed.onrender.com",
+      "EXPO_PUBLIC_API_BASE_URL": "https://arbebus-backed.onrender.com"
     }
   }
 }

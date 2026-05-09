@@ -1254,7 +1254,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         monitoring.captureException(err as Error, {
           source: "useTransitPlanner.search",
         });
-        setError("Paieška nepavyko – patikrink internetą");
+        setError("Paieška nepavyko – backend nepasiekiamas arba grąžino neteisingą atsakymą");
         setIsOffline(true);
         setOfflineMessage(
           "Paieška neveikia be ryšio. Paskutinis maršrutas, jei yra, liks saugiai telefone.",
