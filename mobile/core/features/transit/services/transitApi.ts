@@ -35,10 +35,13 @@ export type WalkingRouteResult = {
 };
 
 function apiBase() {
-  return API_BASE.replace(/\/$/, "");
+  return String(API_BASE || "")
+    .trim()
+    .replace(/^['\"]|['\"]$/g, "")
+    .replace(/\/+$/g, "");
 }
 
-const API_TIMEOUT_MS = 8000;
+const API_TIMEOUT_MS = 12000;
 const SEARCH_MEMORY_TTL_MS = 5 * 60 * 1000;
 const API_RETRY_COUNT = 0;
 
@@ -747,8 +750,12 @@ function normalizePlaceType(item: any): PlaceResult["type"] {
     return "stop" as PlaceResult["type"];
   }
 
-  if (rawType === "address" || rawType === "street" || rawType === "house") {
+  if (rawType === "address" || rawType === "house") {
     return "address" as PlaceResult["type"];
+  }
+
+  if (rawType === "street" || rawType === "road") {
+    return "street" as PlaceResult["type"];
   }
 
   if (
@@ -934,12 +941,17 @@ function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
 
 function searchUrls(params: string) {
   const base = apiBase();
+  const primary = String(API_ENDPOINTS.placesSearch || "")
+    .trim()
+    .replace(/\/+$/g, "");
+
   return Array.from(
     new Set(
       [
+        primary ? `${primary}?${params}` : "",
         `${base}/api/search?${params}`,
         `${base}/search?${params}`,
-        API_ENDPOINTS.placesSearch ? `${API_ENDPOINTS.placesSearch}?${params}` : "",
+        `${base}/api/places/search?${params}`,
         `${base}/places/search?${params}`,
       ].filter(Boolean),
     ),
@@ -950,14 +962,18 @@ async function runSearchRequest(
   q: string,
   external: boolean,
 ): Promise<PlaceResult[]> {
-  const params = `q=${encodeURIComponent(q)}&limit=8&external=${external ? "true" : "false"}`;
+  const params = `q=${encodeURIComponent(q)}&limit=8&external=${external ? "true" : "false"}&includeExternal=${external ? "true" : "false"}`;
 
   for (const url of searchUrls(params)) {
     try {
       const response = await fetchWithTimeout(
         url,
-        undefined,
-        external ? 1700 : 900,
+        {
+          headers: {
+            Accept: "application/json",
+          },
+        },
+        external ? 12000 : 6000,
       );
       if (!response.ok) continue;
 
@@ -976,7 +992,10 @@ async function runSearchRequest(
           (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
         )
         .slice(0, 8);
-    } catch {
+    } catch (error) {
+      if (__DEV__) {
+        console.warn("[Arbebus search] endpoint failed", url, error);
+      }
       // Try next compatible endpoint. Search must never freeze the UI.
     }
   }

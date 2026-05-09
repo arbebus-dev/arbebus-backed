@@ -1,1 +1,1 @@
-module.exports = require('../../api/routes/search.routes');
+module.exports = require('../../api/routes/search.router');

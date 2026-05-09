@@ -5,12 +5,24 @@ const extra = (Constants.expoConfig?.extra ?? {}) as Record<
   string | undefined
 >;
 
-export const API_BASE =
-  process.env.EXPO_PUBLIC_API_BASE_URL ||
-  process.env.EXPO_PUBLIC_API_BASE ||
-  extra.API_BASE_URL ||
-  extra.API_BASE ||
+function cleanApiBase(value?: string | null) {
+  const cleaned = String(value || "")
+    .trim()
+    .replace(/^['\"]|['\"]$/g, "")
+    .replace(/\/+$/g, "");
+
+  if (!cleaned || !/^https?:\/\//i.test(cleaned)) return null;
+  return cleaned;
+}
+
+const resolvedApiBase =
+  cleanApiBase(process.env.EXPO_PUBLIC_API_BASE_URL) ||
+  cleanApiBase(process.env.EXPO_PUBLIC_API_BASE) ||
+  cleanApiBase(extra.API_BASE_URL) ||
+  cleanApiBase(extra.API_BASE) ||
   "https://arbebus-backed.onrender.com";
+
+export const API_BASE = resolvedApiBase;
 
 export const API_ENDPOINTS = {
   health: `${API_BASE}/api/health`,

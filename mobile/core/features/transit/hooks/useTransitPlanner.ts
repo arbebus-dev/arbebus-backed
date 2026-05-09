@@ -118,7 +118,9 @@ function isStreetSuggestion(place: PlaceSearchResult | null | undefined) {
 
 function canPlanToPlace(place: PlaceSearchResult | null | undefined) {
   if (!place?.coordinate) return false;
-  if (isStreetSuggestion(place) && !hasHouseNumberText(place.title)) return false;
+  if ((place as any).selectable === false) return false;
+  if ((place as any).requiresHouseNumber === true) return false;
+  if (isStreetSuggestion(place)) return false;
   return true;
 }
 

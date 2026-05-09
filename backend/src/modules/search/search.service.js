@@ -68,7 +68,7 @@ async function runProvider(name, fn, timeoutMs = 1600) {
 }
 
 function searchCacheKey(q, type, limit) {
-  return `v4:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(limit || DEFAULT_LIMIT)}`;
+  return `v5:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(limit || DEFAULT_LIMIT)}`;
 }
 
 function isAddressLikeQuery(value = "") {
@@ -207,10 +207,10 @@ async function index(query = {}) {
       runProvider(
         "google_places",
         () => searchGooglePlaces(q, { limit: 8 }),
-        1200,
+        4500,
       ),
-      runProvider("nominatim", () => searchNominatim(q, { limit: 8 }), 1200),
-      runProvider("overpass", () => searchOverpass(q, { limit: 6 }), 900),
+      runProvider("nominatim", () => searchNominatim(q, { limit: 8 }), 4500),
+      runProvider("overpass", () => searchOverpass(q, { limit: 6 }), 2500),
     ]);
     providers.push(google, nominatim, overpass);
     combined = [

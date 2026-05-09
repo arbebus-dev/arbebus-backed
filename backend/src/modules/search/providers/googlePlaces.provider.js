@@ -125,6 +125,32 @@ function enrich(base, place) {
   };
 }
 
+
+function hasHouseNumberText(value) {
+  return /\b\d+[a-z]?\b/i.test(String(value || ""));
+}
+
+function inferGooglePlaceType(place) {
+  const types = Array.isArray(place?.types) ? place.types.map((t) => String(t).toLowerCase()) : [];
+  const text = `${place?.displayName?.text || ""} ${place?.formattedAddress || ""}`;
+
+  if (
+    types.includes("street_address") ||
+    types.includes("premise") ||
+    types.includes("subpremise") ||
+    hasHouseNumberText(text)
+  ) {
+    return "address";
+  }
+
+  if (types.includes("route")) return "street";
+  if (types.includes("locality") || types.includes("postal_town")) return "city";
+  if (types.includes("administrative_area_level_1") || types.includes("administrative_area_level_2")) return "region";
+  if (types.includes("transit_station") || types.includes("bus_station")) return "station";
+
+  return "poi";
+}
+
 function mapPlace(place, index) {
   const loc = place.location || {};
   const latitude = Number(loc.latitude);
@@ -140,7 +166,7 @@ function mapPlace(place, index) {
 
   const base = toResult({
     id: place.id || `google-${index}`,
-    type: "poi",
+    type: inferGooglePlaceType(place),
     title,
     name: title,
     subtitle: place.formattedAddress || "Klaipėda, Lietuva",

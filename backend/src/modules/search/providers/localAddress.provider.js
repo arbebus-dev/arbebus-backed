@@ -62,23 +62,28 @@ function searchLocalAddresses(query, options = {}) {
   for (const street of STREETS) {
     if (!matchesStreet(q, street)) continue;
 
-    const coordinate = offsetCoordinate(street, house);
+    // Local streets are only suggestions. They are not precise house-number
+    // coordinates. Exact addresses must come from Google/Nominatim, otherwise
+    // the map can jump to the wrong point on the street.
+    const coordinate = { latitude: street.lat, longitude: street.lon };
     const exactTitle = house ? `${street.title} ${house}` : street.title;
 
     results.push(
       toResult({
-        id: `local-address-${normalizeText(exactTitle).replace(/\s+/g, "-")}`,
-        type: house ? "address" : "street",
+        id: `local-street-${normalizeText(exactTitle).replace(/\s+/g, "-")}`,
+        type: "street",
         title: exactTitle,
-        subtitle: "Klaipėda, Lietuva",
+        subtitle: house
+          ? "Gatvė rasta – tikslų namo adresą tikrina Google/OSM"
+          : "Įvesk namo numerį, pvz. Taikos pr. 8",
         latitude: coordinate.latitude,
         longitude: coordinate.longitude,
         source: "local_address",
-        category: house ? "Adresas" : "Gatvė",
-        priority: house ? 180 : 130,
-        score: house ? 520 : 390,
-        selectable: Boolean(house),
-        requiresHouseNumber: !house,
+        category: "Gatvė",
+        priority: house ? 35 : 90,
+        score: house ? 120 : 240,
+        selectable: false,
+        requiresHouseNumber: true,
         keywords: [street.title, ...street.names, "Klaipėda", "adresas", "gatvė"],
       }),
     );
