@@ -35,7 +35,7 @@ export type WalkingRouteResult = {
 };
 
 function apiBase() {
-  return API_ENDPOINTS.transitPlan.replace(/\/transit\/plan$/, "");
+  return API_BASE.replace(/\/$/, "");
 }
 
 const API_TIMEOUT_MS = 8000;
@@ -776,8 +776,10 @@ function normalizeSearchPayload(data: any): any[] {
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.results)) return data.results;
   if (Array.isArray(data?.places)) return data.places;
+  if (Array.isArray(data?.addresses)) return data.addresses;
   if (Array.isArray(data?.items)) return data.items;
   if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.data?.results)) return data.data.results;
   return [];
 }
 
@@ -847,6 +849,15 @@ function normalizePhotos(raw: any): any[] {
       };
     })
     .filter((photo: any) => photo?.url || photo?.name);
+}
+
+function isAddressLikeSearchQuery(query: string) {
+  const q = String(query || "").trim();
+  return (
+    /\d/.test(q) ||
+    /\b(g|g\.|gatv[eė]|pr|pr\.|prospektas|al|al\.|pl|pl\.|kelias)\b/i.test(q) ||
+    q.split(/\s+/).length >= 2
+  );
 }
 
 function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
@@ -922,14 +933,17 @@ function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
 }
 
 function searchUrls(params: string) {
-  // Keep the correct /api/search endpoint first. The other endpoints are only
-  // compatibility fallbacks for older backend builds.
-  return [
-    `${apiBase()}/search?${params}`,
-    API_ENDPOINTS.placesSearch ? `${API_ENDPOINTS.placesSearch}?${params}` : "",
-    `${apiBase()}/search/stops?${params}`,
-    `${apiBase()}/places/search?${params}`,
-  ].filter(Boolean);
+  const base = apiBase();
+  return Array.from(
+    new Set(
+      [
+        `${base}/api/search?${params}`,
+        `${base}/search?${params}`,
+        API_ENDPOINTS.placesSearch ? `${API_ENDPOINTS.placesSearch}?${params}` : "",
+        `${base}/places/search?${params}`,
+      ].filter(Boolean),
+    ),
+  );
 }
 
 async function runSearchRequest(
@@ -971,37 +985,20 @@ async function runSearchRequest(
 }
 
 export async function searchPlaces(query: string): Promise<PlaceResult[]> {
-  const q = query.trim();
+  const q = query.replace(/\s{2,}/g, " ").trim();
   if (q.length < 2) return [];
 
   const cached = getSearchMemoryCache(q);
-  if (cached) return cached.slice(0, 8);
+  if (cached && cached.length) return cached.slice(0, 8);
 
-  // 1) Instant local-first search.
-  const localResults = await runSearchRequest(q, false);
+  const results = await runSearchRequest(q, true);
 
-  // 2) If local index has a usable exact/strong result, return immediately.
-  const strongLocal = localResults.some((item: any) => {
-    const title = String(item.title ?? "").toLowerCase();
-    const queryText = q.toLowerCase();
-    const score = Number(item.score ?? item.priority ?? 0);
-    return title === queryText || title.startsWith(queryText) || score >= 320;
-  });
-
-  if (localResults.length && strongLocal) {
-    setSearchMemoryCache(q, localResults);
-    return localResults;
-  }
-
-  // 3) If local search finds nothing or weak results only, allow Google/OSM fallback.
-  // This is required for places like Radailiai or addresses not present in local JSON.
-  const externalResults = await runSearchRequest(q, true);
-  const merged = dedupePlaceResults([...localResults, ...externalResults])
+  const ranked = dedupePlaceResults(results)
     .sort((a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q))
     .slice(0, 8);
 
-  setSearchMemoryCache(q, merged);
-  return merged;
+  if (ranked.length) setSearchMemoryCache(q, ranked);
+  return ranked;
 }
 
 export async function reverseGeocodePlace(
@@ -1116,6 +1113,7 @@ export async function planTransitRoute(params: {
           params.travelAt instanceof Date
             ? params.travelAt.toISOString()
             : params.travelAt || null,
+        includeWalkingGeometry: true,
       }),
     },
     8000,

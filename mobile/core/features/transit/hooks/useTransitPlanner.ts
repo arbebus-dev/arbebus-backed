@@ -280,28 +280,43 @@ function normalizePlace(item: ApiPlaceResult | any): PlaceSearchResult | null {
   const coordinate = toCoordinate(item);
   if (!coordinate) return null;
 
+  const type = item.type ?? (item.stop_id ? "stop" : "place");
+
   return {
+    ...(item || {}),
     id: String(
       item.id ??
+        item.placeId ??
+        item.googlePlaceId ??
         item.stop_id ??
         `${coordinate.latitude},${coordinate.longitude}`,
     ),
     title: String(
       item.title ?? item.name ?? item.stopName ?? item.stop_name ?? "Vieta",
     ),
+    name: String(
+      item.name ?? item.title ?? item.stopName ?? item.stop_name ?? "Vieta",
+    ),
     subtitle:
       item.subtitle ??
       item.address ??
       item.description ??
       item.stop_desc ??
-      "Klaipėda",
-    type: item.type ?? (item.stop_id ? "stop" : "place"),
+      (type === "address" ? "Adresas" : type === "stop" ? "Stotelė" : "Klaipėda"),
+    type,
+    source: item.source,
+    selectable: item.selectable,
+    requiresHouseNumber: item.requiresHouseNumber,
+    score: item.score,
+    priority: item.priority,
+    placeId: item.placeId,
+    googlePlaceId: item.googlePlaceId,
     distanceMeters:
       item.distanceMeters != null ? Number(item.distanceMeters) : undefined,
     latitude: coordinate.latitude,
     longitude: coordinate.longitude,
     coordinate,
-  };
+  } as PlaceSearchResult;
 }
 
 function normalizeStopPoint(raw: any) {
@@ -631,8 +646,8 @@ function hasRealBusSegment(route: TransitRouteOption | null) {
   const hasUsableGeometry =
     !!route.shapeId ||
     (Array.isArray(busStep?.polyline) && busStep.polyline.length >= 2) ||
-    (Array.isArray(route.polyline) && route.polyline.length > 2) ||
-    (Array.isArray(route.previewPoints) && route.previewPoints.length > 2);
+    (Array.isArray(route.polyline) && route.polyline.length >= 2) ||
+    (Array.isArray(route.previewPoints) && route.previewPoints.length >= 2);
 
   return (
     !looksLikeFakeRouteNumber(routeNumber) &&
@@ -641,8 +656,6 @@ function hasRealBusSegment(route: TransitRouteOption | null) {
     !!alightName &&
     boardName.toLowerCase() !== "undefined" &&
     alightName.toLowerCase() !== "undefined" &&
-    !!route.originStop?.coordinate &&
-    !!route.destinationStop?.coordinate &&
     hasUsableGeometry
   );
 }
@@ -1232,10 +1245,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           .slice(0, SEARCH_RESULTS_LIMIT) as PlaceSearchResult[];
 
         setSearchResults(results);
-
-        if (!results.length) {
-          setError("Nieko nerasta");
-        }
+        setError(results.length ? null : "Nieko nerasta");
       } catch (err: any) {
         if (requestId !== searchRequestId.current) return;
 

@@ -863,7 +863,7 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
 
         {showSkeleton ? <SearchSkeletonRows /> : null}
 
-        {props.error && hasQuery && !props.isSearching ? (
+        {props.error && hasQuery && !props.isSearching && !hasResults ? (
           <View style={styles.emptyBlockCompact}>
             <Text style={styles.emptyTitle}>{t.common.routeSearchFailed}</Text>
             <Text style={styles.emptyText}>{props.error}</Text>
@@ -873,7 +873,7 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
         {hasResults
           ? props.searchResults.slice(0, 8).map((place, index) => (
               <Pressable
-                key={`search-result-${place.id || place.title || "place"}-${index}`}
+                key={`search-result-${place.id || place.title || "place"}-${place.latitude || ""}-${place.longitude || ""}-${index}`}
                 style={styles.searchResultRow}
                 onPress={() => {
                   void Haptics.selectionAsync();
@@ -884,7 +884,8 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
                     return;
                   }
                   const isStreetOnly =
-                    String(place.type || "").toLowerCase() === "street" &&
+                    (String(place.type || "").toLowerCase() === "street" ||
+                      Boolean((place as any).requiresHouseNumber)) &&
                     !/\b\d+[a-z]?\b/i.test(String(place.title || ""));
                   if (isStreetOnly) {
                     props.onChangeQuery(`${place.title} `);
