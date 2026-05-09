@@ -286,8 +286,9 @@ function animateTo(value: Animated.Value, toValue: number) {
 }
 
 function ModeSelector() {
+  const { theme } = useAppPreferences();
   return (
-    <View style={styles.modeSelector}>
+    <View style={[styles.modeSelector, { backgroundColor: theme.surfaceSoft }]}>
       {[
         ["car", "car"],
         ["walk", "walk"],
@@ -296,12 +297,12 @@ function ModeSelector() {
       ].map(([key, icon]) => (
         <View
           key={key}
-          style={[styles.modeItem, key === "bus" && styles.modeItemActive]}
+          style={[styles.modeItem, key === "bus" && [styles.modeItemActive, { backgroundColor: theme.accentSoft, shadowColor: theme.shadow }]]}
         >
           <MaterialCommunityIcons
             name={icon as any}
             size={15}
-            color={key === "bus" ? COLORS.greenDark : "#273144"}
+            color={key === "bus" ? theme.accentText : theme.dim}
           />
         </View>
       ))}
@@ -324,38 +325,39 @@ function Header({
   onClose: () => void;
   onBack?: () => void;
 }) {
+  const { theme } = useAppPreferences();
   return (
     <View style={styles.headerRow}>
       {onBack ? (
-        <Pressable onPress={onBack} style={styles.roundControl} hitSlop={12}>
-          <Ionicons name="chevron-back" size={17} color={COLORS.text} />
+        <Pressable onPress={onBack} style={[styles.roundControl, { backgroundColor: theme.surfaceMuted }]} hitSlop={12}>
+          <Ionicons name="chevron-back" size={17} color={theme.text} />
         </Pressable>
       ) : null}
-      <View style={styles.headerIcon}>
+      <View style={[styles.headerIcon, { backgroundColor: theme.accentSoft }]}>
         <MaterialCommunityIcons
           name={icon || "directions-fork"}
           size={17}
-          color={COLORS.green}
+          color={theme.accent}
         />
       </View>
       <View style={styles.headerTextBlock}>
-        <Text style={styles.kicker}>ARBE NAVIGATION</Text>
-        <Text style={styles.sheetTitle} numberOfLines={1}>
+        <Text style={[styles.kicker, { color: theme.muted }]}>ARBE NAVIGATION</Text>
+        <Text style={[styles.sheetTitle, { color: theme.text }]} numberOfLines={1}>
           {title}
         </Text>
         {subtitle ? (
-          <Text style={styles.sheetSubtitle} numberOfLines={1}>
+          <Text style={[styles.sheetSubtitle, { color: theme.muted }]} numberOfLines={1}>
             {subtitle}
           </Text>
         ) : null}
       </View>
       {badge ? (
-        <View style={styles.headerBadge}>
-          <Text style={styles.headerBadgeText}>{badge}</Text>
+        <View style={[styles.headerBadge, { backgroundColor: theme.accentSoft }]}>
+          <Text style={[styles.headerBadgeText, { color: theme.accentText }]}>{badge}</Text>
         </View>
       ) : null}
-      <Pressable onPress={onClose} style={styles.roundControl} hitSlop={12}>
-        <Ionicons name="close" size={16} color={COLORS.text} />
+      <Pressable onPress={onClose} style={[styles.roundControl, { backgroundColor: theme.surfaceMuted }]} hitSlop={12}>
+        <Ionicons name="close" size={16} color={theme.text} />
       </Pressable>
     </View>
   );
@@ -363,9 +365,10 @@ function Header({
 
 function AppleSearchHeader({ panHandlers }: { panHandlers?: unknown }) {
   const { t } = useLanguage();
+  const { theme } = useAppPreferences();
   return (
     <View {...(panHandlers || {})} style={styles.fixedHeaderCompact}>
-      <Text style={styles.appleSheetTitleCentered}>{t.common.appName}</Text>
+      <Text style={[styles.appleSheetTitleCentered, { color: theme.text }]}>{t.common.appName}</Text>
     </View>
   );
 }
@@ -381,6 +384,7 @@ function QuickMenuRow({
   subtitle?: string;
   onPress: () => void;
 }) {
+  const { theme } = useAppPreferences();
   return (
     <Pressable
       style={styles.quickMenuRow}
@@ -389,15 +393,15 @@ function QuickMenuRow({
         onPress();
       }}
     >
-      <View style={styles.quickMenuIcon}>
-        <MaterialCommunityIcons name={icon} size={17} color={COLORS.green} />
+      <View style={[styles.quickMenuIcon, { backgroundColor: theme.accentSoft }]}> 
+        <MaterialCommunityIcons name={icon} size={17} color={theme.accent} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={styles.quickMenuTitle} numberOfLines={1}>
+        <Text style={[styles.quickMenuTitle, { color: theme.text }]} numberOfLines={1}>
           {title}
         </Text>
         {subtitle ? (
-          <Text style={styles.quickMenuSubtitle} numberOfLines={1}>
+          <Text style={[styles.quickMenuSubtitle, { color: theme.muted }]} numberOfLines={1}>
             {subtitle}
           </Text>
         ) : null}
@@ -405,7 +409,7 @@ function QuickMenuRow({
       <Ionicons
         name="chevron-forward"
         size={15}
-        color="rgba(248,251,255,0.42)"
+        color={theme.dim}
       />
     </Pressable>
   );
@@ -422,17 +426,18 @@ function TripInputRow({
   value?: string;
   children?: React.ReactNode;
 }) {
+  const { theme } = useAppPreferences();
   return (
     <View style={styles.tripInputRow}>
-      <View style={styles.tripInputIcon}>
-        <MaterialCommunityIcons name={icon} size={15} color={COLORS.green} />
+      <View style={[styles.tripInputIcon, { backgroundColor: theme.accentSoft }]}> 
+        <MaterialCommunityIcons name={icon} size={15} color={theme.accent} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={styles.tripInputLabel}>{label}</Text>
+        <Text style={[styles.tripInputLabel, { color: theme.muted }]}>{label}</Text>
         {children ? (
           children
         ) : (
-          <Text style={styles.tripInputValue} numberOfLines={1}>
+          <Text style={[styles.tripInputValue, { color: theme.text }]} numberOfLines={1}>
             {value}
           </Text>
         )}
@@ -458,9 +463,10 @@ function InlineInput({
   onClear?: () => void;
   isLoading?: boolean;
 }) {
+  const { theme } = useAppPreferences();
   return (
-    <View style={styles.inlineInputRow}>
-      <Ionicons name="search" size={16} color="rgba(248,251,255,0.58)" />
+    <View style={[styles.inlineInputRow, { backgroundColor: theme.inputBackground }]}> 
+      <Ionicons name="search" size={16} color={theme.dim} />
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -471,11 +477,11 @@ function InlineInput({
           // route planning starts after the user taps a concrete result.
         }}
         placeholder={placeholder}
-        placeholderTextColor="rgba(248,251,255,0.42)"
+        placeholderTextColor={theme.dim}
         returnKeyType="search"
         autoCorrect={false}
         autoCapitalize="none"
-        style={styles.inlineInput}
+        style={[styles.inlineInput, { color: theme.text }]}
       />
       {isLoading ? (
         <ActivityIndicator size="small" color={COLORS.green} />
@@ -486,7 +492,7 @@ function InlineInput({
           hitSlop={12}
           style={styles.searchClearButton}
         >
-          <Ionicons name="close" size={13} color="rgba(248,251,255,0.58)" />
+          <Ionicons name="close" size={13} color={theme.dim} />
         </Pressable>
       ) : null}
     </View>
@@ -503,6 +509,7 @@ function TripSearchForm({
   setActiveField: (field: "from" | "to") => void;
 }) {
   const { t, language } = useLanguage();
+  const { theme } = useAppPreferences();
   const [timeModalOpen, setTimeModalOpen] = React.useState(false);
   const fromValue =
     activeField === "from" ? props.query : props.selectedOrigin?.title || "";
@@ -519,7 +526,7 @@ function TripSearchForm({
   };
 
   return (
-    <View style={styles.tripFormCard}>
+    <View style={[styles.tripFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
       <TripInputRow icon="crosshairs-gps" label={t.sheet.from}>
         <InlineInput
           value={fromValue}
@@ -541,16 +548,16 @@ function TripSearchForm({
         />
       </TripInputRow>
       <Pressable
-        style={styles.swapPlacesButton}
+        style={[styles.swapPlacesButton, { backgroundColor: theme.surfaceMuted, borderColor: theme.border }]}
         onPress={() => {
           void Haptics.selectionAsync();
           props.onSwapPlaces?.();
         }}
         hitSlop={12}
       >
-        <Ionicons name="swap-vertical" size={23} color="#7EA4FF" />
+        <Ionicons name="swap-vertical" size={23} color={theme.accent} />
       </Pressable>
-      <View style={styles.tripDivider} />
+      <View style={[styles.tripDivider, { backgroundColor: theme.border }]} />
       <TripInputRow icon="map-marker" label={t.sheet.to}>
         <InlineInput
           value={toValue}
@@ -568,7 +575,7 @@ function TripSearchForm({
           isLoading={activeField === "to" && props.isSearching}
         />
       </TripInputRow>
-      <View style={styles.tripDivider} />
+      <View style={[styles.tripDivider, { backgroundColor: theme.border }]} />
       <Pressable
         onPress={() => {
           void Haptics.selectionAsync();
@@ -621,6 +628,7 @@ function normalizeDisplayCategory(value?: string | null) {
 
 function PlacePreviewCard({ props }: { props: Props }) {
   const { t } = useLanguage();
+  const { theme } = useAppPreferences();
   const place = props.selectedMapPlace;
   if (!place) return null;
 
@@ -665,7 +673,7 @@ function PlacePreviewCard({ props }: { props: Props }) {
     : [];
 
   return (
-    <View style={styles.placePreviewCardPro}>
+    <View style={[styles.placePreviewCardPro, { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow }]}>
       {photos.length ? (
         <ScrollView
           horizontal
@@ -685,7 +693,7 @@ function PlacePreviewCard({ props }: { props: Props }) {
       ) : null}
 
       <View style={styles.placePreviewTopPro}>
-        <View style={styles.placePreviewIcon}>
+        <View style={[styles.placePreviewIcon, { backgroundColor: theme.accentSoft }]}>
           <MaterialCommunityIcons
             name={iconForPlaceType(place.type) as any}
             size={18}
@@ -693,37 +701,37 @@ function PlacePreviewCard({ props }: { props: Props }) {
           />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.placePreviewKicker}>{t.sheet.selectedPlace}</Text>
-          <Text style={styles.placePreviewTitle} numberOfLines={2}>
+          <Text style={[styles.placePreviewKicker, { color: theme.accent }]}>{t.sheet.selectedPlace}</Text>
+          <Text style={[styles.placePreviewTitle, { color: theme.text }]} numberOfLines={2}>
             {place.title}
           </Text>
-          <Text style={styles.placePreviewSubtitle} numberOfLines={2}>
+          <Text style={[styles.placePreviewSubtitle, { color: theme.muted }]} numberOfLines={2}>
             {place.subtitle || placeSubtitle(place)}
           </Text>
         </View>
         <Pressable
           onPress={props.onClearMapPlace}
           hitSlop={12}
-          style={styles.placePreviewClosePro}
+          style={[styles.placePreviewClosePro, { backgroundColor: theme.surfaceMuted }]}
         >
-          <Ionicons name="close" size={16} color="rgba(248,251,255,0.58)" />
+          <Ionicons name="close" size={16} color={theme.dim} />
         </Pressable>
       </View>
 
       {props.isReverseGeocoding ? (
         <View style={styles.placeLoadingRowPro}>
           <ActivityIndicator size="small" color={COLORS.green} />
-          <Text style={styles.placeLoadingText}>{t.sheet.locatingPlace}</Text>
+          <Text style={[styles.placeLoadingText, { color: theme.muted }]}>{t.sheet.locatingPlace}</Text>
         </View>
       ) : null}
 
       <View style={styles.placeMetaGrid}>
-        <View style={styles.placeMetaPill}>
-          <Text style={styles.placeMetaText}>{category}</Text>
+        <View style={[styles.placeMetaPill, { backgroundColor: theme.surfaceMuted }]}>
+          <Text style={[styles.placeMetaText, { color: theme.muted }]}>{category}</Text>
         </View>
         {hasRating ? (
-          <View style={styles.placeMetaPill}>
-            <Text style={styles.placeMetaText}>
+          <View style={[styles.placeMetaPill, { backgroundColor: theme.surfaceMuted }]}>
+            <Text style={[styles.placeMetaText, { color: theme.muted }]}>
               ★ {rating.toFixed(1)}
               {userRatingCount ? ` (${userRatingCount})` : ""}
             </Text>
@@ -751,11 +759,11 @@ function PlacePreviewCard({ props }: { props: Props }) {
       </View>
 
       {hours.length ? (
-        <View style={styles.placeHoursBox}>
+        <View style={[styles.placeHoursBox, { backgroundColor: theme.surfaceSoft, borderColor: theme.border }]}>
           {hours.map((line: string, index: number) => (
             <Text
               key={`place-hour-${line}-${index}`}
-              style={styles.placeHoursText}
+              style={[styles.placeHoursText, { color: theme.muted }]}
               numberOfLines={1}
             >
               {line}
@@ -766,25 +774,25 @@ function PlacePreviewCard({ props }: { props: Props }) {
 
       <View style={styles.placePreviewActions}>
         <Pressable
-          style={styles.placeActionButtonSecondary}
+          style={[styles.placeActionButtonSecondary, { backgroundColor: theme.surfaceSoft, borderColor: theme.border }]}
           onPress={useAsOrigin}
         >
-          <Text style={styles.placeActionText}>{t.sheet.useAsFrom}</Text>
+          <Text style={[styles.placeActionText, { color: theme.text }]}>{t.sheet.useAsFrom}</Text>
         </Pressable>
         <Pressable
-          style={styles.placeActionButtonSecondary}
+          style={[styles.placeActionButtonSecondary, { backgroundColor: theme.surfaceSoft, borderColor: theme.border }]}
           onPress={useAsDestination}
         >
-          <Text style={styles.placeActionText}>{t.sheet.useAsTo}</Text>
+          <Text style={[styles.placeActionText, { color: theme.text }]}>{t.sheet.useAsTo}</Text>
         </Pressable>
       </View>
-      <Pressable style={styles.placeRouteButton} onPress={useAsDestination}>
+      <Pressable style={[styles.placeRouteButton, { backgroundColor: theme.accent }]} onPress={useAsDestination}>
         <MaterialCommunityIcons
           name="navigation-variant"
           size={16}
           color={COLORS.green}
         />
-        <Text style={styles.placeRouteButtonText}>{t.sheet.showRoute}</Text>
+        <Text style={[styles.placeRouteButtonText, { color: theme.accentText }]}>{t.sheet.showRoute}</Text>
       </Pressable>
     </View>
   );
@@ -798,11 +806,12 @@ function AppleMenuContent({
   onOpenFavoritePlaces: () => void;
 }) {
   const { t } = useLanguage();
+  const { theme } = useAppPreferences();
 
   return (
     <View style={styles.appleMenuRoot}>
-      <View style={styles.menuCard}>
-        <Text style={styles.menuSectionTitleInside}>{t.sheet.favourites}</Text>
+      <View style={[styles.menuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <Text style={[styles.menuSectionTitleInside, { color: theme.muted }]}>{t.sheet.favourites}</Text>
         <QuickMenuRow
           icon="heart"
           title={t.sheet.favouritePlaces}
@@ -819,14 +828,15 @@ function SearchHeader({ panHandlers }: { panHandlers?: unknown }) {
 }
 
 function SearchSkeletonRows() {
+  const { theme } = useAppPreferences();
   return (
     <View style={styles.searchSkeletonWrap}>
       {[0, 1, 2].map((item) => (
         <View key={item} style={styles.searchSkeletonRow}>
-          <View style={styles.searchSkeletonIcon} />
+          <View style={[styles.searchSkeletonIcon, { backgroundColor: theme.surfaceMuted }]} />
           <View style={{ flex: 1 }}>
-            <View style={styles.searchSkeletonLineWide} />
-            <View style={styles.searchSkeletonLineSmall} />
+            <View style={[styles.searchSkeletonLineWide, { backgroundColor: theme.surfaceMuted }]} />
+            <View style={[styles.searchSkeletonLineSmall, { backgroundColor: theme.surfaceSoft }]} />
           </View>
         </View>
       ))}
@@ -836,6 +846,7 @@ function SearchSkeletonRows() {
 
 function SearchState(props: Props & { panHandlers?: unknown }) {
   const { t } = useLanguage();
+  const { theme } = useAppPreferences();
   const [activeField, setActiveField] = React.useState<"from" | "to">("to");
   const [favoritePlacesVisible, setFavoritePlacesVisible] =
     React.useState(false);
@@ -864,9 +875,9 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
         {showSkeleton ? <SearchSkeletonRows /> : null}
 
         {props.error && hasQuery && !props.isSearching && !hasResults ? (
-          <View style={styles.emptyBlockCompact}>
-            <Text style={styles.emptyTitle}>{t.common.routeSearchFailed}</Text>
-            <Text style={styles.emptyText}>{props.error}</Text>
+          <View style={[styles.emptyBlockCompact, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>{t.common.routeSearchFailed}</Text>
+            <Text style={[styles.emptyText, { color: theme.muted }]}>{props.error}</Text>
           </View>
         ) : null}
 
@@ -874,7 +885,7 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
           ? props.searchResults.slice(0, 8).map((place, index) => (
               <Pressable
                 key={`search-result-${place.id || place.title || "place"}-${place.latitude || ""}-${place.longitude || ""}-${index}`}
-                style={styles.searchResultRow}
+                style={[styles.searchResultRow, { borderBottomColor: theme.border }]}
                 onPress={() => {
                   void Haptics.selectionAsync();
                   if (activeField === "from") {
@@ -895,7 +906,7 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
                   props.onSelectDestination(place);
                 }}
               >
-                <View style={styles.resultIcon}>
+                <View style={[styles.resultIcon, { backgroundColor: theme.accentSoft }]}>
                   <MaterialCommunityIcons
                     name={iconForPlaceType(place.type) as any}
                     size={14}
@@ -903,10 +914,10 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.resultTitle} numberOfLines={1}>
+                  <Text style={[styles.resultTitle, { color: theme.text }]} numberOfLines={1}>
                     {cleanStopName(place.title)}
                   </Text>
-                  <Text style={styles.resultSubtitle} numberOfLines={1}>
+                  <Text style={[styles.resultSubtitle, { color: theme.muted }]} numberOfLines={1}>
                     {placeSubtitle(place)}
                   </Text>
                 </View>
@@ -934,15 +945,15 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
                     color={COLORS.green}
                   />
                 </Pressable>
-                <Ionicons name="chevron-forward" size={14} color={COLORS.dim} />
+                <Ionicons name="chevron-forward" size={14} color={theme.dim} />
               </Pressable>
             ))
           : null}
 
         {showEmpty ? (
-          <View style={styles.emptyBlockCompact}>
-            <Text style={styles.emptyTitle}>{t.sheet.noResultsTitle}</Text>
-            <Text style={styles.emptyText}>
+          <View style={[styles.emptyBlockCompact, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>{t.sheet.noResultsTitle}</Text>
+            <Text style={[styles.emptyText, { color: theme.muted }]}>
               {activeField === "from"
                 ? (t.sheet as any).fromPlaceholder ||
                   (t.sheet as any).noResultsText
@@ -978,6 +989,7 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
 
 function LoadingState({ onReset }: Pick<Props, "onReset">) {
   const { t } = useLanguage();
+  const { theme } = useAppPreferences();
   return (
     <View style={styles.stateRoot}>
       <View style={styles.fixedHeader}>
@@ -988,12 +1000,12 @@ function LoadingState({ onReset }: Pick<Props, "onReset">) {
           onClose={onReset}
         />
       </View>
-      <View style={styles.loadingBox}>
+      <View style={[styles.loadingBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
         <ActivityIndicator color={COLORS.green} />
-        <Text style={styles.loadingText}>{t.common.loadingNearbyStops}</Text>
-        <Text style={styles.loadingSubtext}>{t.common.loadingSubtext}</Text>
-        <View style={styles.skeletonCard} />
-        <View style={[styles.skeletonCard, styles.skeletonCardShort]} />
+        <Text style={[styles.loadingText, { color: theme.text }]}>{t.common.loadingNearbyStops}</Text>
+        <Text style={[styles.loadingSubtext, { color: theme.muted }]}>{t.common.loadingSubtext}</Text>
+        <View style={[styles.skeletonCard, { backgroundColor: theme.surfaceMuted }]} />
+        <View style={[styles.skeletonCard, styles.skeletonCardShort, { backgroundColor: theme.surfaceSoft }]} />
       </View>
     </View>
   );
@@ -1001,31 +1013,32 @@ function LoadingState({ onReset }: Pick<Props, "onReset">) {
 
 function RoutePills({ route }: { route: TransitRouteOption }) {
   const { t } = useLanguage();
+  const { theme } = useAppPreferences();
   const labels = routeNumbersFromRoute(route).slice(0, 4);
   const s = routeSummary(route);
   return (
     <View style={styles.pillRow}>
       {labels.map((item, index) => (
-        <View key={`route-pill-${item}-${index}`} style={styles.busBadge}>
-          <Text style={styles.busBadgeText}>{item}</Text>
+        <View key={`route-pill-${item}-${index}`} style={[styles.busBadge, { backgroundColor: theme.accent }]}>
+          <Text style={[styles.busBadgeText, { color: theme.accentText }]}>{item}</Text>
         </View>
       ))}
-      <View style={styles.neutralBadge}>
-        <Text style={styles.neutralBadgeText}>
+      <View style={[styles.neutralBadge, { backgroundColor: theme.surfaceMuted, borderColor: theme.border }]}>
+        <Text style={[styles.neutralBadgeText, { color: theme.muted }]}>
           {s.stops
             ? `${s.stops} ${t.common.stopCountShort}`
             : t.common.stopLabelPlural}
         </Text>
       </View>
       {s.walk ? (
-        <View style={styles.neutralBadge}>
-          <Text style={styles.neutralBadgeText}>
+        <View style={[styles.neutralBadge, { backgroundColor: theme.surfaceMuted, borderColor: theme.border }]}>
+          <Text style={[styles.neutralBadgeText, { color: theme.muted }]}>
             {`${t.common.walk} ${s.walk} ${t.common.minutes}`}
           </Text>
         </View>
       ) : null}
-      <View style={styles.neutralBadge}>
-        <Text style={styles.neutralBadgeText}>
+      <View style={[styles.neutralBadge, { backgroundColor: theme.surfaceMuted, borderColor: theme.border }]}>
+        <Text style={[styles.neutralBadgeText, { color: theme.muted }]}>
           {s.transfers
             ? `${s.transfers} ${t.common.transferShort}`
             : t.common.direct}
@@ -1045,39 +1058,40 @@ function RouteCard({
   onPress: () => void;
 }) {
   const { t } = useLanguage();
+  const { theme } = useAppPreferences();
   const s = routeSummary(route);
   const steps = getSteps(route).slice(0, 4);
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.routeCard, selected && styles.routeCardSelected]}
+      style={[styles.routeCard, { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow }, selected && [styles.routeCardSelected, { borderColor: theme.accent, backgroundColor: theme.accentSoft }]]}
     >
       <View style={styles.routeCardTop}>
         <View style={styles.routeDurationBlock}>
-          <Text style={styles.routeDuration}>{s.duration || "–"} min</Text>
-          <Text style={styles.routeSubtitle} numberOfLines={1}>
+          <Text style={[styles.routeDuration, { color: theme.text }]}>{s.duration || "–"} min</Text>
+          <Text style={[styles.routeSubtitle, { color: theme.muted }]} numberOfLines={1}>
             {routeWindow(route)}
           </Text>
-          <Text style={styles.routeLiveText} numberOfLines={1}>
+          <Text style={[styles.routeLiveText, { color: theme.dim }]} numberOfLines={1}>
             {routeReliability(route)}
           </Text>
         </View>
-        <View style={styles.routeTimeBox}>
-          <Text style={styles.routeTimeText}>{s.label}</Text>
-          <Ionicons name="chevron-forward" size={14} color={COLORS.dim} />
+        <View style={[styles.routeTimeBox, { backgroundColor: theme.surfaceMuted }]}>
+          <Text style={[styles.routeTimeText, { color: theme.text }]}>{s.label}</Text>
+          <Ionicons name="chevron-forward" size={14} color={theme.dim} />
         </View>
       </View>
       <View style={styles.routeMiniTimeline}>
         {steps.map((step, index) => (
           <View key={`route-mini-step-${step.id || step.title || step.type || "step"}-${index}`} style={styles.routeMiniStep}>
-            <View style={styles.routeMiniIcon}>
+            <View style={[styles.routeMiniIcon, { backgroundColor: theme.accentSoft }]}>
               <MaterialCommunityIcons
                 name={stepIcon(step) as any}
                 size={11}
                 color={COLORS.green}
               />
             </View>
-            <Text style={styles.routeMiniText} numberOfLines={1}>
+            <Text style={[styles.routeMiniText, { color: theme.muted }]} numberOfLines={1}>
               {stepLabel(step) ||
                 cleanStopName(step.stopName || step.fromStopName || step.title)}
             </Text>
@@ -1086,11 +1100,11 @@ function RouteCard({
       </View>
       <RoutePills route={route} />
       <View style={styles.routeSelectRow}>
-        <Text style={styles.routeSelectHint}>
+        <Text style={[styles.routeSelectHint, { color: theme.muted }]}>
           {selected ? t.common.selectedRoute : t.common.viewDetails}
         </Text>
-        <View style={styles.routeGoPill}>
-          <Text style={styles.routeGoText}>GO</Text>
+        <View style={[styles.routeGoPill, { backgroundColor: theme.accent }]}>
+          <Text style={[styles.routeGoText, { color: theme.accentText }]}>GO</Text>
         </View>
       </View>
     </Pressable>
@@ -1099,6 +1113,7 @@ function RouteCard({
 
 function RoutesListState(props: Props) {
   const { t, language } = useLanguage();
+  const { theme } = useAppPreferences();
   const destination =
     props.routeOptions[0]?.destinationStop?.name ||
     props.routeOptions[0]?.alightStopName ||
@@ -1115,8 +1130,8 @@ function RoutesListState(props: Props) {
         />
         <ModeSelector />
         <View style={styles.toolbarRow}>
-          <Pressable style={styles.blueChip}>
-            <Text style={styles.blueChipText}>
+          <Pressable style={[styles.blueChip, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+            <Text style={[styles.blueChipText, { color: theme.accentText }]}>
               {travelTimeLabel(
                 props.travelTimeMode,
                 props.travelTimeDate,
@@ -1125,8 +1140,8 @@ function RoutesListState(props: Props) {
               )}
             </Text>
           </Pressable>
-          <Pressable style={styles.grayChip}>
-            <Text style={styles.grayChipText}>{t.common.lessWalking}</Text>
+          <Pressable style={[styles.grayChip, { backgroundColor: theme.surfaceMuted, borderColor: theme.border }]}>
+            <Text style={[styles.grayChipText, { color: theme.muted }]}>{t.common.lessWalking}</Text>
           </Pressable>
         </View>
       </View>
@@ -1136,7 +1151,7 @@ function RoutesListState(props: Props) {
         showsVerticalScrollIndicator={false}
       >
         {props.error ? (
-          <Text style={styles.inlineError}>{props.error}</Text>
+          <Text style={[styles.inlineError, { color: theme.danger }]}>{props.error}</Text>
         ) : null}
         {props.routeOptions.map((route, index) => (
           <RouteCard
@@ -1153,6 +1168,7 @@ function RoutesListState(props: Props) {
 
 function StopTimeline({ step }: { step: TransitStep }) {
   const { t } = useLanguage();
+  const { theme } = useAppPreferences();
   const stops = Array.isArray(
     step.stops?.length ? step.stops : step.rideStops || step.routeStops,
   )
@@ -1168,7 +1184,7 @@ function StopTimeline({ step }: { step: TransitStep }) {
   const hidden = Math.max(0, stops.length - compactStops.length);
 
   return (
-    <View style={styles.stopTimelineBox}>
+    <View style={[styles.stopTimelineBox, { backgroundColor: theme.surfaceSoft, borderColor: theme.border }]}>
       {compactStops.map((stop: any, index: number) => {
         const name = cleanStopName(
           stop.stopName || stop.name || stop.title || t.common.stopLabel,
@@ -1179,16 +1195,16 @@ function StopTimeline({ step }: { step: TransitStep }) {
             key={`${stop.id || name}-${index}`}
             style={styles.stopTimelineRow}
           >
-            <Text style={styles.stopTimelineTime}>{tText || "—"}</Text>
-            <View style={styles.stopTimelineDot} />
-            <Text style={styles.stopTimelineName} numberOfLines={1}>
+            <Text style={[styles.stopTimelineTime, { color: theme.dim }]}>{tText || "—"}</Text>
+            <View style={[styles.stopTimelineDot, { backgroundColor: theme.accent }]} />
+            <Text style={[styles.stopTimelineName, { color: theme.text }]} numberOfLines={1}>
               {name}
             </Text>
           </View>
         );
       })}
       {hidden ? (
-        <Text style={styles.stopTimelineMore}>
+        <Text style={[styles.stopTimelineMore, { color: theme.muted }]}>
           {t.common.moreStops.replace("{count}", String(hidden))}
         </Text>
       ) : null}
@@ -1198,6 +1214,7 @@ function StopTimeline({ step }: { step: TransitStep }) {
 
 function StepRow({ step, active }: { step: TransitStep; active?: boolean }) {
   const { t } = useLanguage();
+  const { theme } = useAppPreferences();
   const meta = stepMetaLine(step, t);
   const subtitle =
     step.subtitle ||
@@ -1209,14 +1226,14 @@ function StepRow({ step, active }: { step: TransitStep; active?: boolean }) {
       .join(" ");
 
   return (
-    <View style={[styles.stepRowBlock, active && styles.stepRowBlockActive]}>
+    <View style={[styles.stepRowBlock, { backgroundColor: theme.surface, borderColor: theme.border }, active && [styles.stepRowBlockActive, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]]}>
       <View style={styles.stepRowTop}>
         <View style={styles.stepRail}>
           <View
-            style={[styles.stepLineDot, active && styles.stepLineDotActive]}
+            style={[styles.stepLineDot, { backgroundColor: theme.dim }, active && [styles.stepLineDotActive, { backgroundColor: theme.accent }]]}
           />
         </View>
-        <View style={styles.stepIconMini}>
+        <View style={[styles.stepIconMini, { backgroundColor: theme.accentSoft }]}>
           <MaterialCommunityIcons
             name={stepIcon(step) as any}
             size={12}
@@ -1224,21 +1241,21 @@ function StepRow({ step, active }: { step: TransitStep; active?: boolean }) {
           />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.stepTitle} numberOfLines={2}>
+          <Text style={[styles.stepTitle, { color: theme.text }]} numberOfLines={2}>
             {step.title}
           </Text>
           {subtitle ? (
-            <Text style={styles.stepSubtitle} numberOfLines={2}>
+            <Text style={[styles.stepSubtitle, { color: theme.muted }]} numberOfLines={2}>
               {subtitle}
             </Text>
           ) : null}
           {meta ? (
-            <Text style={styles.stepMetaText} numberOfLines={1}>
+            <Text style={[styles.stepMetaText, { color: theme.dim }]} numberOfLines={1}>
               {meta}
             </Text>
           ) : null}
         </View>
-        <Text style={styles.stepBadge}>{stepLabel(step)}</Text>
+        <Text style={[styles.stepBadge, { color: theme.accentText, backgroundColor: theme.accent }]}>{stepLabel(step)}</Text>
       </View>
       <StopTimeline step={step} />
     </View>
@@ -1246,6 +1263,7 @@ function StepRow({ step, active }: { step: TransitStep; active?: boolean }) {
 }
 
 function RouteDetailsState(props: Props) {
+  const { theme } = useAppPreferences();
   const route = props.selectedRoute || props.routeOptions[0] || null;
   if (!route) return <SearchState {...props} />;
   const s = routeSummary(route);
@@ -1260,29 +1278,29 @@ function RouteDetailsState(props: Props) {
           onClose={props.onReset}
           onBack={props.onBackToRoutes}
         />
-        <View style={styles.detailSummaryCard}>
+        <View style={[styles.detailSummaryCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.detailDuration}>{s.duration || "–"} min</Text>
-            <Text style={styles.detailSubtitle} numberOfLines={1}>
+            <Text style={[styles.detailDuration, { color: theme.text }]}>{s.duration || "–"} min</Text>
+            <Text style={[styles.detailSubtitle, { color: theme.muted }]} numberOfLines={1}>
               {routeWindow(route)}
             </Text>
-            <Text style={styles.detailLiveText} numberOfLines={1}>
+            <Text style={[styles.detailLiveText, { color: theme.dim }]} numberOfLines={1}>
               {routeReliability(route)}
             </Text>
           </View>
           <RoutePills route={route} />
           <View style={styles.routeStatsGrid}>
-            <View style={styles.routeStatPill}>
-              <Text style={styles.routeStatValue}>{s.stops}</Text>
-              <Text style={styles.routeStatLabel}>stotelės</Text>
+            <View style={[styles.routeStatPill, { backgroundColor: theme.surfaceSoft, borderColor: theme.border }]}>
+              <Text style={[styles.routeStatValue, { color: theme.text }]}>{s.stops}</Text>
+              <Text style={[styles.routeStatLabel, { color: theme.muted }]}>stotelės</Text>
             </View>
-            <View style={styles.routeStatPill}>
-              <Text style={styles.routeStatValue}>{s.transfers}</Text>
-              <Text style={styles.routeStatLabel}>persėdimai</Text>
+            <View style={[styles.routeStatPill, { backgroundColor: theme.surfaceSoft, borderColor: theme.border }]}>
+              <Text style={[styles.routeStatValue, { color: theme.text }]}>{s.transfers}</Text>
+              <Text style={[styles.routeStatLabel, { color: theme.muted }]}>persėdimai</Text>
             </View>
-            <View style={styles.routeStatPill}>
-              <Text style={styles.routeStatValue}>{s.walk}</Text>
-              <Text style={styles.routeStatLabel}>min eiti</Text>
+            <View style={[styles.routeStatPill, { backgroundColor: theme.surfaceSoft, borderColor: theme.border }]}>
+              <Text style={[styles.routeStatValue, { color: theme.text }]}>{s.walk}</Text>
+              <Text style={[styles.routeStatLabel, { color: theme.muted }]}>min eiti</Text>
             </View>
           </View>
         </View>
@@ -1300,10 +1318,10 @@ function RouteDetailsState(props: Props) {
           />
         ))}
       </ScrollView>
-      <View style={styles.stickyCtaWrap}>
-        <Pressable style={styles.primaryButton} onPress={props.onStartJourney}>
+      <View style={[styles.stickyCtaWrap, { backgroundColor: theme.backgroundElevated, borderTopColor: theme.border }]}>
+        <Pressable style={[styles.primaryButton, { backgroundColor: theme.accent }]} onPress={props.onStartJourney}>
           <Ionicons name="navigate" size={14} color={COLORS.green} />
-          <Text style={styles.primaryButtonText}>GO — pradėti kelionę</Text>
+          <Text style={[styles.primaryButtonText, { color: theme.accentText }]}>GO — pradėti kelionę</Text>
         </Pressable>
       </View>
     </View>
@@ -1311,6 +1329,7 @@ function RouteDetailsState(props: Props) {
 }
 
 function NavigationState(props: Props) {
+  const { theme } = useAppPreferences();
   const route = props.selectedRoute;
   if (!route) return <SearchState {...props} />;
   const vm = buildJourneyViewModel(
@@ -1331,10 +1350,11 @@ function NavigationState(props: Props) {
           onClose={props.onReset}
           onBack={props.onBackToRoutes}
         />
-        <View style={styles.progressTrack}>
+        <View style={[styles.progressTrack, { backgroundColor: theme.surfaceMuted }]}>
           <View
             style={[
               styles.progressFill,
+              { backgroundColor: theme.accent },
               { width: `${Math.round(vm.progressPercent * 100)}%` },
             ]}
           />
@@ -1358,14 +1378,14 @@ function NavigationState(props: Props) {
             );
           })}
       </ScrollView>
-      <View style={styles.stickyCtaWrap}>
+      <View style={[styles.stickyCtaWrap, { backgroundColor: theme.backgroundElevated, borderTopColor: theme.border }]}>
         <Pressable
-          style={styles.primaryButton}
+          style={[styles.primaryButton, { backgroundColor: theme.accent }]}
           onPress={
             props.flowState === "completed" ? props.onReset : props.onNextStep
           }
         >
-          <Text style={styles.primaryButtonText}>{vm.primaryCta}</Text>
+          <Text style={[styles.primaryButtonText, { color: theme.accentText }]}>{vm.primaryCta}</Text>
           <Ionicons name="arrow-forward" size={15} color={COLORS.green} />
         </Pressable>
       </View>
@@ -1482,10 +1502,10 @@ export default function JourneySheet(props: Props) {
       <BlurView
         intensity={theme.isLight ? 58 : 92}
         tint={theme.isLight ? "light" : "dark"}
-        style={[styles.blurSurface, theme.isLight && styles.blurSurfaceLight]}
+        style={[styles.blurSurface, { backgroundColor: theme.surfaceStrong, borderColor: theme.border }]}
       >
         <View {...panResponder.panHandlers} style={styles.dragArea}>
-          <View style={styles.grabber} />
+          <View style={[styles.grabber, { backgroundColor: theme.grabber }]} />
         </View>
         {stage === "search" ? (
           <SearchState {...props} panHandlers={panResponder.panHandlers} />

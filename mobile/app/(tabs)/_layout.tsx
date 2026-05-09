@@ -1,17 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 
+import { useAppPreferences } from "@/core/features/account/context/AppPreferencesContext";
 import { useLanguage } from "@/core/i18n/LanguageContext";
-
-const ARB = {
-  bg: "rgba(5,10,18,0.96)",
-  border: "rgba(55,245,174,0.18)",
-  accent: "#37F5AE",
-  inactive: "rgba(248,251,255,0.48)",
-};
 
 export default function TabsLayout() {
   const { t } = useLanguage();
+  const { theme } = useAppPreferences();
 
   return (
     <Tabs
@@ -22,12 +17,12 @@ export default function TabsLayout() {
           height: 82,
           paddingTop: 8,
           paddingBottom: 20,
-          backgroundColor: ARB.bg,
+          backgroundColor: theme.tabBarBackground,
           borderTopWidth: 1,
-          borderTopColor: ARB.border,
-          shadowColor: "#37F5AE",
-          shadowOpacity: 0.12,
-          shadowRadius: 18,
+          borderTopColor: theme.tabBarBorder,
+          shadowColor: theme.shadow,
+          shadowOpacity: theme.isLight ? 0.11 : 0.12,
+          shadowRadius: theme.isLight ? 16 : 18,
           shadowOffset: { width: 0, height: -8 },
           elevation: 22,
         },
@@ -36,8 +31,8 @@ export default function TabsLayout() {
           fontWeight: "900",
           letterSpacing: -0.1,
         },
-        tabBarActiveTintColor: ARB.accent,
-        tabBarInactiveTintColor: ARB.inactive,
+        tabBarActiveTintColor: theme.accent,
+        tabBarInactiveTintColor: theme.tabBarInactive,
       }}
     >
       <Tabs.Screen

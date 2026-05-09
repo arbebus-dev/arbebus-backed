@@ -14,6 +14,7 @@ import {
   getFavoritePlaces,
   removeFavoritePlace,
 } from "@/core/services/favorites/favoritePlacesService";
+import { useAppPreferences } from "@/core/features/account/context/AppPreferencesContext";
 
 export default function FavoritePlacesSheet({
   visible,
@@ -24,6 +25,7 @@ export default function FavoritePlacesSheet({
   onClose: () => void;
   onSelectPlace: (place: FavoritePlace) => void;
 }) {
+  const { theme } = useAppPreferences();
   const [places, setPlaces] = useState<FavoritePlace[]>([]);
 
   useEffect(() => {
@@ -39,21 +41,21 @@ export default function FavoritePlacesSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide">
-      <View style={styles.backdrop}>
-        <View style={styles.sheet}>
-          <View style={styles.handle} />
+      <View style={[styles.backdrop, { backgroundColor: theme.overlay }]}>
+        <View style={[styles.sheet, { backgroundColor: theme.backgroundElevated, borderColor: theme.borderStrong }]}>
+          <View style={[styles.handle, { backgroundColor: theme.grabber }]} />
 
           <View style={styles.header}>
-            <Pressable onPress={onClose} style={styles.roundButton} hitSlop={12}>
-              <Ionicons name="close" size={28} color="#FFFFFF" />
+            <Pressable onPress={onClose} style={[styles.roundButton, { backgroundColor: theme.surfaceSoft }]} hitSlop={12}>
+              <Ionicons name="close" size={28} color={theme.text} />
             </Pressable>
-            <Text style={styles.title}>Mėgstamos vietos</Text>
+            <Text style={[styles.title, { color: theme.text }]}>Mėgstamos vietos</Text>
             <View style={styles.roundButtonGhost} />
           </View>
 
-          <View style={styles.infoCard}>
-            <MaterialCommunityIcons name="heart-plus" size={22} color="#34F5A2" />
-            <Text style={styles.infoText}>
+          <View style={[styles.infoCard, { backgroundColor: theme.accentSoft, borderColor: theme.border }]}>
+            <MaterialCommunityIcons name="heart-plus" size={22} color={theme.accent} />
+            <Text style={[styles.infoText, { color: theme.muted }]}>
               Vietas išsaugok paieškoje paspaudęs širdelę prie pasirinktos vietos.
             </Text>
           </View>
@@ -61,9 +63,9 @@ export default function FavoritePlacesSheet({
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
             {places.length === 0 ? (
               <View style={styles.emptyState}>
-                <MaterialCommunityIcons name="heart-outline" size={48} color="rgba(255,255,255,0.34)" />
-                <Text style={styles.emptyTitle}>Dar nėra išsaugotų vietų</Text>
-                <Text style={styles.emptyText}>
+                <MaterialCommunityIcons name="heart-outline" size={48} color={theme.dim} />
+                <Text style={[styles.emptyTitle, { color: theme.text }]}>Dar nėra išsaugotų vietų</Text>
+                <Text style={[styles.emptyText, { color: theme.muted }]}>
                   Ieškok vietos, paspausk širdelę ir ji atsiras čia.
                 </Text>
               </View>
@@ -71,21 +73,21 @@ export default function FavoritePlacesSheet({
               places.map((place) => (
                 <Pressable
                   key={place.id}
-                  style={styles.placeRow}
+                  style={[styles.placeRow, { backgroundColor: theme.surfaceSoft, borderColor: theme.border }]}
                   onPress={() => {
                     void Haptics.selectionAsync();
                     onSelectPlace(place);
                   }}
                 >
-                  <View style={styles.placeIcon}>
-                    <Ionicons name="location" size={20} color="#34F5A2" />
+                  <View style={[styles.placeIcon, { backgroundColor: theme.accentSoft }]}> 
+                    <Ionicons name="location" size={20} color={theme.accent} />
                   </View>
                   <View style={styles.placeTextBlock}>
-                    <Text style={styles.placeTitle} numberOfLines={1}>{place.title}</Text>
-                    <Text style={styles.placeSubtitle} numberOfLines={1}>{place.subtitle || "Klaipėda"}</Text>
+                    <Text style={[styles.placeTitle, { color: theme.text }]} numberOfLines={1}>{place.title}</Text>
+                    <Text style={[styles.placeSubtitle, { color: theme.muted }]} numberOfLines={1}>{place.subtitle || "Klaipėda"}</Text>
                   </View>
                   <Pressable onPress={() => deletePlace(place.id)} style={styles.deleteButton} hitSlop={10}>
-                    <Ionicons name="trash-outline" size={21} color="rgba(255,255,255,0.52)" />
+                    <Ionicons name="trash-outline" size={21} color={theme.dim} />
                   </Pressable>
                 </Pressable>
               ))

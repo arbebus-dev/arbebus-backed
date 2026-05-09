@@ -1,3 +1,4 @@
+import { useAppPreferences } from "@/core/features/account/context/AppPreferencesContext";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
@@ -148,6 +149,7 @@ function stopsFromRoute(route: TransitRouteOption): StopPoint[] {
 }
 
 export default function StopsLayer({ route, flowState }: Props) {
+  const { theme } = useAppPreferences();
   const stops = useMemo(() => {
     if (!route || route.mode === "walk_only" || route.mode === "walk") return [];
     return stopsFromRoute(route);
@@ -180,32 +182,33 @@ export default function StopsLayer({ route, flowState }: Props) {
             zIndex={isActive ? 390 : isBoard || isAlight ? 370 : 260}
           >
             <View style={styles.pinWrap}>
-              {isActive ? <View style={styles.activeGlow} /> : null}
+              {isActive ? <View style={[styles.activeGlow, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]} /> : null}
 
               <View
                 style={[
                   styles.pin,
-                  isBoard && styles.stopIn,
-                  isAlight && styles.stopOut,
+                  { backgroundColor: theme.surface, borderColor: theme.accent, shadowColor: theme.shadow },
+                  isBoard && [styles.stopIn, { backgroundColor: theme.accent, borderColor: theme.backgroundElevated }],
+                  isAlight && [styles.stopOut, { borderColor: theme.backgroundElevated }],
                   isActive && styles.activePin,
                 ]}
               >
-                {isBoard ? <Ionicons name="bus" size={14} color="#06111F" /> : null}
-                {isAlight ? <Ionicons name="flag" size={13} color="#06111F" /> : null}
+                {isBoard ? <Ionicons name="bus" size={14} color={theme.accentText} /> : null}
+                {isAlight ? <Ionicons name="flag" size={13} color={theme.accentText} /> : null}
 
                 {!isBoard && !isAlight ? (
-                  <Text style={styles.number}>{index + 1}</Text>
+                  <Text style={[styles.number, { color: theme.accent }]}>{index + 1}</Text>
                 ) : null}
 
                 {isBoard || isAlight ? (
-                  <Text style={styles.text}>{isBoard ? "Įlipk" : "Išlipk"}</Text>
+                  <Text style={[styles.text, { color: isBoard ? theme.accentText : "#06111F" }]}>{isBoard ? "Įlipk" : "Išlipk"}</Text>
                 ) : null}
               </View>
 
               <View
                 style={[
                   styles.pinDot,
-                  isBoard && { backgroundColor: "#35F2B4" },
+                  isBoard && { backgroundColor: theme.accent },
                   isAlight && { backgroundColor: "#FFB84D" },
                 ]}
               />

@@ -52,7 +52,7 @@ function ChoiceRow<T extends string>({
           return (
             <Pressable
               key={option.value}
-              style={[styles.segmentItem, active && styles.segmentItemActive]}
+              style={[styles.segmentItem, active && { backgroundColor: theme.accent }]}
               onPress={() => {
                 void Haptics.selectionAsync();
                 onChange(option.value);
@@ -61,7 +61,7 @@ function ChoiceRow<T extends string>({
               <Text
                 style={[
                   styles.segmentText,
-                  { color: active ? colors.textInverse : theme.text },
+                  { color: active ? theme.accentText : theme.text },
                 ]}
               >
                 {option.label}
@@ -316,9 +316,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
 
-  segmentItemActive: {
-    backgroundColor: colors.accent,
-  },
 
   segmentText: {
     fontSize: typography.size.caption,

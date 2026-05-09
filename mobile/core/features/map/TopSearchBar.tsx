@@ -1,13 +1,8 @@
+import { useAppPreferences } from "@/core/features/account/context/AppPreferencesContext";
 import { useLanguage } from "@/core/i18n/LanguageContext";
-import { COLORS, LINE_HEIGHT, T } from "@/core/theme/typography";
+import { LINE_HEIGHT, T } from "@/core/theme/typography";
 import { Ionicons } from "@expo/vector-icons";
-import {
-    ActivityIndicator,
-    Pressable,
-    StyleSheet,
-    TextInput,
-    View,
-} from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from "react-native";
 
 type Props = {
   value: string;
@@ -17,36 +12,40 @@ type Props = {
   onClear: () => void;
 };
 
-export default function TopSearchBar({
-  value,
-  isSearching,
-  onChangeText,
-  onSubmit,
-  onClear,
-}: Props) {
+export default function TopSearchBar({ value, isSearching, onChangeText, onSubmit, onClear }: Props) {
   const { t } = useLanguage();
+  const { theme } = useAppPreferences();
+
   return (
     <View style={styles.wrapper} pointerEvents="box-none">
-      <View style={styles.searchBox}>
-        <Ionicons name="search" size={18} color="#AEB7D8" />
+      <View
+        style={[
+          styles.searchBox,
+          {
+            backgroundColor: theme.surface,
+            borderColor: theme.border,
+            shadowColor: theme.shadow,
+            shadowOpacity: theme.isLight ? 0.12 : 0.24,
+          },
+        ]}
+      >
+        <Ionicons name="search" size={18} color={theme.dim} />
         <TextInput
           value={value}
           onChangeText={onChangeText}
           onSubmitEditing={onSubmit}
           placeholder={t.common.searchPlaceholder}
-          placeholderTextColor="#7F8AB0"
+          placeholderTextColor={theme.dim}
           returnKeyType="search"
           autoCorrect={false}
           autoCapitalize="none"
           clearButtonMode="never"
-          style={styles.input}
+          style={[styles.input, { color: theme.text }]}
         />
-        {isSearching ? (
-          <ActivityIndicator size="small" color={COLORS.green} />
-        ) : null}
+        {isSearching ? <ActivityIndicator size="small" color={theme.accent} /> : null}
         {value.trim().length > 0 ? (
           <Pressable onPress={onClear} hitSlop={12} style={styles.clearButton}>
-            <Ionicons name="close-circle" size={19} color="#AEB7D8" />
+            <Ionicons name="close-circle" size={19} color={theme.dim} />
           </Pressable>
         ) : null}
       </View>
@@ -55,14 +54,7 @@ export default function TopSearchBar({
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    position: "absolute",
-    top: 58,
-    left: 16,
-    right: 16,
-    zIndex: 45,
-    elevation: 45,
-  },
+  wrapper: { position: "absolute", top: 58, left: 16, right: 16, zIndex: 45, elevation: 45 },
   searchBox: {
     minHeight: 52,
     borderRadius: 22,
@@ -70,27 +62,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 9,
-    backgroundColor: "rgba(8, 13, 27, 0.94)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.13)",
-    shadowColor: "#000",
-    shadowOpacity: 0.24,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
   },
   input: {
     flex: 1,
-    color: "white",
     fontSize: T.body,
     lineHeight: LINE_HEIGHT.body,
     fontWeight: "700",
     paddingVertical: 11,
   },
-  clearButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  clearButton: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
 });

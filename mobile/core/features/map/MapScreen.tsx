@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useAppPreferences } from "@/core/features/account/context/AppPreferencesContext";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, Pressable, StyleSheet, View } from "react-native";
 import MapView, { Marker, type Region } from "react-native-maps";
@@ -129,6 +130,7 @@ function placeFromMapData(input: AnyRecord | null | undefined) {
 }
 
 export default function MapScreen() {
+  const { theme } = useAppPreferences();
   const mapRef = useRef<MapView | null>(null);
   const lastPoiClickAt = useRef(0);
 
@@ -514,7 +516,7 @@ export default function MapScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <MapCanvas
         ref={mapRef}
         onPress={handleMapPress}
@@ -554,8 +556,8 @@ export default function MapScreen() {
             anchor={{ x: 0.5, y: 1 }}
             tracksViewChanges={false}
           >
-            <View style={styles.mapTapMarker}>
-              <View style={styles.mapTapMarkerInner} />
+            <View style={[styles.mapTapMarker, { backgroundColor: theme.accentSoft, borderColor: theme.backgroundElevated, shadowColor: theme.accent }]}>
+              <View style={[styles.mapTapMarkerInner, { backgroundColor: theme.accent }]} />
             </View>
           </Marker>
         ) : null}
@@ -564,14 +566,14 @@ export default function MapScreen() {
       </MapCanvas>
 
       <Pressable
-        style={styles.recenterButton}
+        style={[styles.recenterButton, { backgroundColor: theme.isLight ? "rgba(255,255,255,0.94)" : theme.surfaceStrong, borderColor: theme.borderStrong }]}
         onPress={recenterToUser}
         hitSlop={12}
       >
         <Ionicons
           name={isLocating ? "sync" : "locate"}
           size={22}
-          color="#147CFF"
+          color={theme.isLight ? "#147CFF" : theme.accent}
         />
       </Pressable>
 

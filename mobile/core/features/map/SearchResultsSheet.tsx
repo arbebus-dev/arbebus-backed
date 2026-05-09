@@ -1,3 +1,4 @@
+import { useAppPreferences } from "@/core/features/account/context/AppPreferencesContext";
 import { useLanguage } from "@/core/i18n/LanguageContext";
 import { COLORS, LINE_HEIGHT, T, UI } from "@/core/theme/typography";
 import { Ionicons } from "@expo/vector-icons";
@@ -54,31 +55,32 @@ export default function SearchResultsSheet({
   onSelect,
 }: Props) {
   const { t } = useLanguage();
+  const { theme } = useAppPreferences();
   if (!visible) return null;
   const visibleResults = results.slice(0, 8);
   const showSkeleton = Boolean(isLoading && !visibleResults.length);
   return (
-    <View style={styles.sheet}>
-      <View style={styles.handle} />
+    <View style={[styles.sheet, { backgroundColor: theme.backgroundElevated, borderColor: theme.border }]}>
+      <View style={[styles.handle, { backgroundColor: theme.grabber }]} />
       <View style={styles.headerRow}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.title}>{t.common.searchHeaderTitle}</Text>
-          <Text style={styles.subtitle}>{t.common.searchHeaderSubtitle}</Text>
+          <Text style={[styles.title, { color: theme.text }]}>{t.common.searchHeaderTitle}</Text>
+          <Text style={[styles.subtitle, { color: theme.muted }]}>{t.common.searchHeaderSubtitle}</Text>
         </View>
         {isLoading ? <ActivityIndicator color={COLORS.green} /> : null}
       </View>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: theme.danger }]}>{error}</Text> : null}
       {!isLoading && !visibleResults.length ? (
-        <Text style={styles.empty}>{t.common.searchEmptyExample}</Text>
+        <Text style={[styles.empty, { color: theme.muted }]}>{t.common.searchEmptyExample}</Text>
       ) : null}
       {showSkeleton ? (
         <View style={styles.skeletonBox}>
           {[0, 1, 2].map((item) => (
             <View key={item} style={styles.skeletonRow}>
-              <View style={styles.skeletonIcon} />
+              <View style={[styles.skeletonIcon, { backgroundColor: theme.surfaceMuted }]} />
               <View style={styles.skeletonTextBox}>
-                <View style={styles.skeletonLineWide} />
-                <View style={styles.skeletonLineSmall} />
+                <View style={[styles.skeletonLineWide, { backgroundColor: theme.surfaceMuted }]} />
+                <View style={[styles.skeletonLineSmall, { backgroundColor: theme.surfaceSoft }]} />
               </View>
             </View>
           ))}
@@ -99,27 +101,28 @@ export default function SearchResultsSheet({
               key={item.id}
               style={({ pressed }) => [
                 styles.row,
+                { borderBottomColor: theme.border },
                 pressed && styles.rowPressed,
               ]}
               onPress={() => onSelect(item)}
             >
-              <View style={styles.iconCircle}>
+              <View style={[styles.iconCircle, { backgroundColor: theme.accentSoft }]}>
                 <Ionicons
                   name={iconForType(item.type) as any}
                   size={16}
-                  color="#CFFFEA"
+                  color={theme.accent}
                 />
               </View>
               <View style={styles.textBox}>
-                <Text style={styles.resultTitle} numberOfLines={1}>
+                <Text style={[styles.resultTitle, { color: theme.text }]} numberOfLines={1}>
                   {item.title}
                 </Text>
-                <Text style={styles.resultSubtitle} numberOfLines={1}>
+                <Text style={[styles.resultSubtitle, { color: theme.muted }]} numberOfLines={1}>
                   {meta}
                 </Text>
               </View>
-              <View style={styles.goCircle}>
-                <Ionicons name="navigate" size={15} color={COLORS.greenDark} />
+              <View style={[styles.goCircle, { backgroundColor: theme.accent }]}>
+                <Ionicons name="navigate" size={15} color={theme.accentText} />
               </View>
             </Pressable>
           );

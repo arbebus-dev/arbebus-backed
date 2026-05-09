@@ -8,21 +8,31 @@ import type { AppLanguage } from "@/core/i18n/translations";
 import type { AppPreferences, ThemeMode } from "../accountTypes";
 import { DEFAULT_PREFERENCES, loadAppPreferences, saveAppPreferences } from "../services/accountStorage";
 
-type ThemePalette = {
+export type ThemePalette = {
   mode: ThemeMode;
   background: string;
   backgroundElevated: string;
   surface: string;
   surfaceStrong: string;
   surfaceSoft: string;
+  surfaceMuted: string;
   border: string;
+  borderStrong: string;
   text: string;
   textInverse: string;
   muted: string;
   dim: string;
   accent: string;
+  accentSoft: string;
+  accentText: string;
   danger: string;
   overlay: string;
+  tabBarBackground: string;
+  tabBarBorder: string;
+  tabBarInactive: string;
+  inputBackground: string;
+  grabber: string;
+  shadow: string;
   isLight: boolean;
 };
 
@@ -43,14 +53,24 @@ const lightPalette: ThemePalette = {
   surface: "rgba(255,255,255,0.96)",
   surfaceStrong: "#FFFFFF",
   surfaceSoft: "rgba(7,17,31,0.055)",
-  border: "rgba(7,17,31,0.12)",
+  surfaceMuted: "rgba(7,17,31,0.075)",
+  border: "rgba(7,17,31,0.10)",
+  borderStrong: "rgba(7,17,31,0.16)",
   text: "#07111F",
   textInverse: "#FFFFFF",
-  muted: "#667085",
-  dim: "#98A2B3",
-  accent: colors.accent,
+  muted: "#59657A",
+  dim: "#8A95A8",
+  accent: "#12B981",
+  accentSoft: "rgba(18,185,129,0.14)",
+  accentText: "#063D2D",
   danger: colors.danger,
-  overlay: "rgba(7,17,31,0.30)",
+  overlay: "rgba(7,17,31,0.26)",
+  tabBarBackground: "rgba(255,255,255,0.94)",
+  tabBarBorder: "rgba(7,17,31,0.10)",
+  tabBarInactive: "rgba(7,17,31,0.46)",
+  inputBackground: "rgba(7,17,31,0.060)",
+  grabber: "rgba(7,17,31,0.22)",
+  shadow: "#0B1220",
   isLight: true,
 };
 
@@ -61,14 +81,24 @@ const darkPalette: ThemePalette = {
   surface: colors.surface,
   surfaceStrong: colors.surfaceStrong,
   surfaceSoft: colors.surfaceSoft,
+  surfaceMuted: colors.surfaceMuted,
   border: colors.border,
+  borderStrong: colors.borderAccent,
   text: colors.text,
   textInverse: colors.textInverse,
   muted: colors.muted,
   dim: colors.dim,
   accent: colors.accent,
+  accentSoft: "rgba(55,245,174,0.15)",
+  accentText: colors.accentDark,
   danger: colors.danger,
   overlay: colors.overlay,
+  tabBarBackground: "rgba(5,10,18,0.96)",
+  tabBarBorder: "rgba(55,245,174,0.18)",
+  tabBarInactive: "rgba(248,251,255,0.48)",
+  inputBackground: "rgba(255,255,255,0.08)",
+  grabber: "rgba(255,255,255,0.30)",
+  shadow: "#000000",
   isLight: false,
 };
 

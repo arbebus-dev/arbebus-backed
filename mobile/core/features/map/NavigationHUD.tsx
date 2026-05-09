@@ -1,3 +1,4 @@
+import { useAppPreferences } from "@/core/features/account/context/AppPreferencesContext";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -97,6 +98,7 @@ function actionText(flowState: TransitFlowState) {
 }
 
 export default function NavigationHUD({ flowState, route, activeStep, currentStepIndex, userLocation, onNextStep, onReset }: Props) {
+  const { theme } = useAppPreferences();
   const target = useMemo(() => stepTarget(route, activeStep), [route, activeStep]);
   const distance = useMemo(() => (userLocation && target ? distanceMeters(userLocation, target) : null), [target, userLocation]);
   if (!route || !isNavigationActive(flowState)) return null;
@@ -109,21 +111,21 @@ export default function NavigationHUD({ flowState, route, activeStep, currentSte
 
   return (
     <View pointerEvents="box-none" style={styles.wrapper}>
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow, shadowOpacity: theme.isLight ? 0.14 : 0.35 }]}>
         <View style={styles.topRow}>
-          <View style={styles.iconCircle}><MaterialCommunityIcons name={icon as any} size={18} color={COLORS.greenDark} /></View>
+          <View style={[styles.iconCircle, { backgroundColor: theme.accent }]}><MaterialCommunityIcons name={icon as any} size={18} color={theme.accentText} /></View>
           <View style={styles.mainText}>
-            <Text style={styles.kicker}>ARBE NAVIGATION</Text>
-            <Text style={styles.title} numberOfLines={1}>{title}</Text>
-            <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
+            <Text style={[styles.kicker, { color: theme.accent }]}>ARBE NAVIGATION</Text>
+            <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>{title}</Text>
+            <Text style={[styles.subtitle, { color: theme.muted }]} numberOfLines={1}>{subtitle}</Text>
           </View>
-          <Pressable onPress={onReset} style={styles.closeButton}><Ionicons name="close" size={16} color="#D8FBEF" /></Pressable>
+          <Pressable onPress={onReset} style={[styles.closeButton, { backgroundColor: theme.surfaceMuted }]}><Ionicons name="close" size={16} color={theme.text} /></Pressable>
         </View>
         <View style={styles.bottomRow}>
-          <View style={styles.progressPill}><Text style={styles.progressText}>{stepsCount ? `${Math.min(currentStepIndex + 1, stepsCount)}/${stepsCount}` : "GO"}</Text></View>
-          <View style={styles.routePill}><Text style={styles.routePillText}>{routeLabel(route)}</Text></View>
-          <Pressable onPress={isCompleted ? onReset : onNextStep} style={[styles.action, isCompleted && styles.actionDone]}>
-            <Text style={styles.actionText}>{actionText(flowState)}</Text>
+          <View style={[styles.progressPill, { backgroundColor: theme.surfaceMuted }]}><Text style={[styles.progressText, { color: theme.text }]}>{stepsCount ? `${Math.min(currentStepIndex + 1, stepsCount)}/${stepsCount}` : "GO"}</Text></View>
+          <View style={[styles.routePill, { borderColor: theme.accent, backgroundColor: theme.accentSoft }]}><Text style={[styles.routePillText, { color: theme.accent }]}>{routeLabel(route)}</Text></View>
+          <Pressable onPress={isCompleted ? onReset : onNextStep} style={[styles.action, { backgroundColor: theme.accent }, isCompleted && styles.actionDone]}>
+            <Text style={[styles.actionText, { color: theme.accentText }]}>{actionText(flowState)}</Text>
           </Pressable>
         </View>
       </View>

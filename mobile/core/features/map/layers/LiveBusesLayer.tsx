@@ -1,3 +1,4 @@
+import { useAppPreferences } from "@/core/features/account/context/AppPreferencesContext";
 import { COLORS, T } from "@/core/theme/typography";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
@@ -126,13 +127,15 @@ function BusGlyph({
   label: string;
   stale: boolean;
 }) {
+  const { theme } = useAppPreferences();
   const opacity = stale ? 0.42 : 1;
 
   return (
     <Animated.View
       style={[
         styles.glyph,
-        active && styles.glyphActive,
+        { backgroundColor: theme.surface, borderColor: theme.accent },
+        active && [styles.glyphActive, { backgroundColor: theme.accent, borderColor: theme.backgroundElevated }],
         vehicle && styles.glyphVehicle,
         { opacity },
       ]}
@@ -143,18 +146,18 @@ function BusGlyph({
         <MaterialCommunityIcons
           name="navigation-variant"
           size={8}
-          color={active ? COLORS.greenDark : COLORS.green}
+          color={active ? theme.accentText : theme.accent}
         />
       </View>
 
       <MaterialCommunityIcons
         name="bus"
         size={active ? 12 : 11}
-        color={active ? COLORS.greenDark : "#FFFFFF"}
+        color={active ? theme.accentText : theme.text}
       />
 
       <Text
-        style={[styles.label, active && styles.labelActive]}
+        style={[styles.label, { color: theme.text }, active && [styles.labelActive, { color: theme.accentText }]]}
         numberOfLines={1}
       >
         {label}
@@ -174,6 +177,7 @@ const BusMarker = memo(
     zIndex,
     stale,
   }: BusMarkerProps) {
+    const { theme } = useAppPreferences();
     const animatedCoordinate = useRef(
       new AnimatedRegion({
         latitude: coordinate.latitude,

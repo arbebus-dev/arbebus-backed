@@ -1,3 +1,4 @@
+import { useAppPreferences } from "@/core/features/account/context/AppPreferencesContext";
 import React from "react";
 import { Polyline } from "react-native-maps";
 import type {
@@ -45,6 +46,8 @@ function connectorLine(from?: Coordinate | null, to?: Coordinate | null): Coordi
 }
 
 export default function WalkingPolylineLayer({ route, userLocation }: Props) {
+  const { theme } = useAppPreferences();
+  const walkColor = theme.isLight ? "rgba(8,17,31,0.58)" : "rgba(255,255,255,0.78)";
   if (!route || !userLocation || hasWalkStepGeometry(route)) return null;
 
   const boardStop = pointFromStop(route.originStop);
@@ -63,7 +66,7 @@ export default function WalkingPolylineLayer({ route, userLocation }: Props) {
         <Polyline
           coordinates={accessWalk}
           strokeWidth={3}
-          strokeColor="rgba(255,255,255,0.78)"
+          strokeColor={walkColor}
           lineDashPattern={[5, 8]}
           lineCap="round"
           lineJoin="round"
@@ -75,7 +78,7 @@ export default function WalkingPolylineLayer({ route, userLocation }: Props) {
         <Polyline
           coordinates={egressWalk}
           strokeWidth={3}
-          strokeColor="rgba(255,255,255,0.70)"
+          strokeColor={walkColor}
           lineDashPattern={[5, 8]}
           lineCap="round"
           lineJoin="round"

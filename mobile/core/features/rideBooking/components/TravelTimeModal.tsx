@@ -1,4 +1,5 @@
 import { colors, radius, shadows, spacing, typography } from "@/core/design";
+import { useAppPreferences } from "@/core/features/account/context/AppPreferencesContext";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
@@ -126,6 +127,7 @@ function WheelColumn<T extends string | number>({
   onSelect: (value: T) => void;
   width?: DimensionValue;
 }) {
+  const { theme } = useAppPreferences();
   const scrollRef = useRef<ScrollView | null>(null);
 
   const selectedIndex = Math.max(
@@ -186,8 +188,9 @@ function WheelColumn<T extends string | number>({
                 numberOfLines={1}
                 style={[
                   styles.wheelText,
-                  distance === 1 && styles.wheelTextNear,
-                  isActive && styles.wheelTextActive,
+                  { color: theme.dim },
+                  distance === 1 && [styles.wheelTextNear, { color: theme.muted }],
+                  isActive && [styles.wheelTextActive, { color: theme.text }],
                 ]}
               >
                 {renderLabel(value)}
@@ -207,6 +210,7 @@ export default function TravelTimeModal({
   onClose,
   onConfirm,
 }: Props) {
+  const { theme } = useAppPreferences();
   const now = new Date();
   const startDate = initialDate || now;
 
@@ -263,22 +267,22 @@ export default function TravelTimeModal({
 
   return (
     <Modal visible={visible} transparent animationType="slide" statusBarTranslucent>
-      <View style={styles.overlay}>
+      <View style={[styles.overlay, { backgroundColor: theme.overlay }]}> 
         <SafeAreaView style={styles.safeArea}>
-          <BlurView intensity={82} tint="dark" style={styles.card}>
-            <View style={styles.handle} />
+          <BlurView intensity={theme.isLight ? 55 : 82} tint={theme.isLight ? "light" : "dark"} style={[styles.card, { backgroundColor: theme.backgroundElevated, borderColor: theme.border }]}> 
+            <View style={[styles.handle, { backgroundColor: theme.grabber }]} />
 
             <View style={styles.header}>
-              <Pressable onPress={onClose} style={styles.circleButton} hitSlop={10}>
-                <Ionicons name="close" size={23} color={colors.text} />
+              <Pressable onPress={onClose} style={[styles.circleButton, { backgroundColor: theme.surfaceSoft }]} hitSlop={10}>
+                <Ionicons name="close" size={23} color={theme.text} />
               </Pressable>
 
               <View style={styles.headerTitleWrap}>
-                <Text style={styles.title}>Kelionės laikas</Text>
-                <Text style={styles.subtitle}>{modeSummaryLabel(mode)}</Text>
+                <Text style={[styles.title, { color: theme.text }]}>Kelionės laikas</Text>
+                <Text style={[styles.subtitle, { color: theme.muted }]}>{modeSummaryLabel(mode)}</Text>
               </View>
 
-              <Pressable onPress={confirm} style={styles.okButton} hitSlop={10}>
+              <Pressable onPress={confirm} style={[styles.okButton, { backgroundColor: theme.accent }]} hitSlop={10}>
                 <Text style={styles.okButtonText}>OK</Text>
               </Pressable>
             </View>
@@ -291,13 +295,15 @@ export default function TravelTimeModal({
                     onPress={() => setNextMode(nextMode)}
                     style={[
                       styles.segment,
-                      mode === nextMode && styles.segmentActive,
+                      { backgroundColor: theme.surfaceSoft, borderColor: theme.border },
+                      mode === nextMode && { backgroundColor: theme.accentSoft, borderColor: theme.accent },
                     ]}
                   >
                     <Text
                       style={[
                         styles.segmentText,
-                        mode === nextMode && styles.segmentTextActive,
+                        { color: theme.muted },
+                        mode === nextMode && { color: theme.accentText },
                       ]}
                     >
                       {modeLabel(nextMode)}
@@ -307,27 +313,27 @@ export default function TravelTimeModal({
               )}
             </View>
 
-            <View style={styles.summaryCard}>
-              <Ionicons name="time-outline" size={18} color="#34F5B3" />
-              <Text style={styles.summaryText} numberOfLines={2}>
+            <View style={[styles.summaryCard, { backgroundColor: theme.accentSoft, borderColor: theme.border }]}> 
+              <Ionicons name="time-outline" size={18} color={theme.accent} />
+              <Text style={[styles.summaryText, { color: theme.text }]} numberOfLines={2}>
                 {selectedSummary}
               </Text>
             </View>
 
             {mode === "now" ? (
-              <View style={styles.nowPanel}>
-                <View style={styles.nowIcon}>
-                  <Ionicons name="flash" size={26} color="#07120D" />
+              <View style={[styles.nowPanel, { backgroundColor: theme.surfaceSoft, borderColor: theme.border }]}>
+                <View style={[styles.nowIcon, { backgroundColor: theme.accent }]}>
+                  <Ionicons name="flash" size={26} color={theme.accentText} />
                 </View>
-                <Text style={styles.nowTitle}>Išvykti dabar</Text>
-                <Text style={styles.nowText}>
+                <Text style={[styles.nowTitle, { color: theme.text }]}>Išvykti dabar</Text>
+                <Text style={[styles.nowText, { color: theme.muted }]}>
                   Paspaudus OK, maršrutas bus rodomas pagal dabartinį laiką.
                 </Text>
               </View>
             ) : (
               <View style={styles.pickerWrap}>
-                <View style={styles.wheelFrame}>
-                  <View style={styles.selectionBand} />
+                <View style={[styles.wheelFrame, { backgroundColor: theme.surfaceSoft, borderColor: theme.border }]}>
+                  <View style={[styles.selectionBand, { backgroundColor: theme.accentSoft, borderColor: theme.border }]} />
                   <View pointerEvents="none" style={styles.topFade} />
                   <View pointerEvents="none" style={styles.bottomFade} />
 
