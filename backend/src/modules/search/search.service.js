@@ -134,7 +134,6 @@ function filterUnsafeSearchResults(items, query) {
   });
 }
 
-
 function forceExactAddressPriority(items, query) {
   const qHasNumber = hasHouseNumberQuery(query);
   if (!qHasNumber) return items;
@@ -152,7 +151,8 @@ function forceExactAddressPriority(items, query) {
       if (source === "nominatim") value += 900;
       if (type === "street") value -= 1500;
       if (type === "stop") value -= 2500;
-      if (item.selectable === false || item.requiresHouseNumber === true) value -= 3000;
+      if (item.selectable === false || item.requiresHouseNumber === true)
+        value -= 3000;
       return value;
     };
 
@@ -215,7 +215,7 @@ async function index(query = {}) {
     runProvider(
       "local_address",
       () => searchLocalAddresses(q, { limit: Math.max(8, limit) }),
-      80,
+      5000,
     ),
     runProvider(
       "meilisearch",
@@ -224,7 +224,11 @@ async function index(query = {}) {
     ),
   ]);
 
-  let combined = [...meili.results, ...localAddress.results, ...fastIndex.results];
+  let combined = [
+    ...meili.results,
+    ...localAddress.results,
+    ...fastIndex.results,
+  ];
   const providers = [meili, localAddress, fastIndex];
 
   const rankedFast = rankResults(dedupeResults(combined), q);
@@ -343,7 +347,9 @@ function healthMeta() {
     ...localPoiHealth(),
     ...gtfsHealth(),
     ...searchIndexHealth(),
-    meiliConfigured: Boolean(process.env.MEILI_HOST || process.env.SEARCH_ENGINE),
+    meiliConfigured: Boolean(
+      process.env.MEILI_HOST || process.env.SEARCH_ENGINE,
+    ),
     cache: cacheStats(),
   };
 }
