@@ -1,4 +1,4 @@
-import { API_BASE, API_ENDPOINTS, apiUrl } from "@/constants/api";
+import { API_BASE, API_ENDPOINTS } from "@/constants/api";
 import type {
     Coordinate,
     LiveBus,
@@ -35,15 +35,14 @@ export type WalkingRouteResult = {
 };
 
 function apiBase() {
-  return String(API_BASE || "")
-    .trim()
-    .replace(/^['\"]|['\"]$/g, "")
-    .replace(/\/+$/g, "");
+  return API_BASE.replace(/\/$/, "");
 }
 
-const API_TIMEOUT_MS = 12000;
+const API_TIMEOUT_MS = 8000;
+const SEARCH_TIMEOUT_MS = 12000;
 const SEARCH_MEMORY_TTL_MS = 5 * 60 * 1000;
-const API_RETRY_COUNT = 0;
+const API_RETRY_COUNT = 1;
+const SEARCH_RETRY_DELAYS_MS = [650, 1800, 3600];
 
 type SearchCacheEntry = { createdAt: number; results: PlaceResult[] };
 const searchMemoryCache = new Map<string, SearchCacheEntry>();
@@ -81,11 +80,6 @@ async function fetchWithTimeout(
   try {
     return await fetch(input, {
       ...(init || {}),
-      headers: {
-        Accept: "application/json",
-        ...((init?.headers as Record<string, string>) || {}),
-      },
-      cache: "no-store" as RequestCache,
       signal: controller.signal,
     });
   } finally {
@@ -127,6 +121,100 @@ async function safeJson<T>(response: Response): Promise<T> {
   } catch {
     throw new Error(`Bad JSON response: ${text.slice(0, 250)}`);
   }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function looksLikeHtml(text: string) {
+  const value = text.trim().toLowerCase();
+  return (
+    value.startsWith("<!doctype html") ||
+    value.startsWith("<html") ||
+    value.includes("<body") ||
+    value.includes("window.location.replace") ||
+    value.includes("loading...")
+  );
+}
+
+function isColdStartResponse(response: Response, text: string) {
+  const contentType = response.headers.get("content-type") || "";
+  return contentType.includes("text/html") || looksLikeHtml(text);
+}
+
+function shouldRetrySearchStatus(status: number) {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+async function wakeBackend(baseUrl: string) {
+  try {
+    await fetchWithTimeout(`${baseUrl}/api/health`, undefined, 4500);
+  } catch {
+    // Best-effort Render wake-up only. Search retry below is the real protection.
+  }
+}
+
+async function fetchSearchJson(url: string): Promise<any | null> {
+  const base = apiBase();
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= SEARCH_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      const response = await fetchWithTimeout(url, undefined, SEARCH_TIMEOUT_MS);
+      const text = await response.text();
+
+      if (response.status === 429) {
+        if (attempt < SEARCH_RETRY_DELAYS_MS.length) {
+          await sleep(SEARCH_RETRY_DELAYS_MS[attempt]);
+          continue;
+        }
+        console.warn("[Arbebus search] backend rate limited; skipping this keystroke");
+        return null;
+      }
+
+      if (!response.ok) {
+        if (shouldRetrySearchStatus(response.status) && attempt < SEARCH_RETRY_DELAYS_MS.length) {
+          await sleep(SEARCH_RETRY_DELAYS_MS[attempt]);
+          continue;
+        }
+        console.warn(`[Arbebus search] HTTP ${response.status}`);
+        return null;
+      }
+
+      if (isColdStartResponse(response, text)) {
+        if (attempt < SEARCH_RETRY_DELAYS_MS.length) {
+          await wakeBackend(base);
+          await sleep(SEARCH_RETRY_DELAYS_MS[attempt]);
+          continue;
+        }
+        console.warn(`[Arbebus search] backend returned HTML instead of JSON: ${text.slice(0, 120)}`);
+        return null;
+      }
+
+      try {
+        return JSON.parse(text);
+      } catch (error) {
+        lastError = error;
+        if (attempt < SEARCH_RETRY_DELAYS_MS.length) {
+          await sleep(SEARCH_RETRY_DELAYS_MS[attempt]);
+          continue;
+        }
+        console.warn(`[Arbebus search] Bad JSON response: ${text.slice(0, 180)}`);
+        return null;
+      }
+    } catch (error) {
+      lastError = error;
+      if (attempt < SEARCH_RETRY_DELAYS_MS.length) {
+        await wakeBackend(base);
+        await sleep(SEARCH_RETRY_DELAYS_MS[attempt]);
+        continue;
+      }
+    }
+  }
+
+  console.warn("[Arbebus search] failed after retry", lastError);
+  return null;
 }
 
 function toCoordinate(input: any): Coordinate | null {
@@ -700,15 +788,10 @@ function normalizeBackendPlan(
 }
 
 export async function getLiveBuses(): Promise<LiveBus[]> {
-  const endpoints = Array.from(
-    new Set([
-      API_ENDPOINTS.liveBuses,
-      apiUrl("/api/transit/live-buses"),
-      apiUrl("/transit/live-buses"),
-      apiUrl("/api/live-buses"),
-      apiUrl("/live-buses"),
-    ]),
-  );
+  const endpoints = [
+    API_ENDPOINTS.liveBuses,
+    `${API_BASE}/live-buses`,
+  ];
 
   let lastError: unknown = null;
 
@@ -724,13 +807,11 @@ export async function getLiveBuses(): Promise<LiveBus[]> {
       const data = await safeJson<any>(response);
       const rawBuses = Array.isArray(data)
         ? data
-        : Array.isArray(data?.buses)
+        : Array.isArray(data.buses)
           ? data.buses
-          : Array.isArray(data?.vehicles)
+          : Array.isArray(data.vehicles)
             ? data.vehicles
-            : Array.isArray(data?.data)
-              ? data.data
-              : [];
+            : [];
 
       return rawBuses
         .map((bus: any, index: number) => normalizeLiveBus(bus, index))
@@ -762,12 +843,8 @@ function normalizePlaceType(item: any): PlaceResult["type"] {
     return "stop" as PlaceResult["type"];
   }
 
-  if (rawType === "address" || rawType === "house") {
+  if (rawType === "address" || rawType === "street" || rawType === "house") {
     return "address" as PlaceResult["type"];
-  }
-
-  if (rawType === "street" || rawType === "road") {
-    return "street" as PlaceResult["type"];
   }
 
   if (
@@ -813,25 +890,12 @@ function rankPlaceResult(
 
   let score = Number((item as any).score ?? (item as any).priority ?? 0);
 
-  const hasHouseNumber = hasHouseNumberSearchQuery(query);
-  const isAddressLike = isAddressLikeSearchQuery(query);
-
   // Mobile-side safety ranking. Backend already ranks, but this protects old builds
   // and aliases that still route through /places/search.
-  if (hasHouseNumber) {
-    if (item.type === "address") score += 1500;
-    if (source.includes("google_geocoding")) score += 900;
-    if (source.includes("nominatim")) score += 320;
-    if (item.type === "street") score -= 650;
-    if (item.type === "stop") score -= 900;
-    if (item.type === "poi") score += title === q || title.includes(q) ? 80 : -240;
-    if ((item as any).selectable === false || (item as any).requiresHouseNumber === true) score -= 1200;
-  } else {
-    if (item.type === "poi") score += 500;
-    if (item.type === "address") score += 420;
-    if (item.type === "city" || item.type === "region") score += 260;
-    if (item.type === "stop") score += isAddressLike ? -220 : 80;
-  }
+  if (item.type === "poi") score += 500;
+  if (item.type === "address") score += 420;
+  if (item.type === "city" || item.type === "region") score += 260;
+  if (item.type === "stop") score += 80;
 
   if (source.includes("local_poi")) score += 300;
   if (source.includes("nominatim")) score += 180;
@@ -881,10 +945,6 @@ function normalizePhotos(raw: any): any[] {
       };
     })
     .filter((photo: any) => photo?.url || photo?.name);
-}
-
-function hasHouseNumberSearchQuery(query: string) {
-  return /\b\d+[a-z]?\b/i.test(String(query || ""));
 }
 
 function isAddressLikeSearchQuery(query: string) {
@@ -963,87 +1023,56 @@ function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
     phone: item.phone,
     website: item.website,
     googleMapsUri: item.googleMapsUri,
-    selectable: item.selectable,
-    requiresHouseNumber: item.requiresHouseNumber,
     ...(item.score != null ? { score: Number(item.score) } : {}),
     ...(item.priority != null ? { priority: Number(item.priority) } : {}),
   } as PlaceResult;
 }
 
 function searchUrls(params: string) {
+  // Production search must call ONE canonical endpoint only.
+  // The old multi-alias fallback called /api/search, /search, /api/places/search,
+  // and /places/search for every keystroke. That overloaded Render/backend and caused HTTP 429.
   const base = apiBase();
-  const primary = String(API_ENDPOINTS.placesSearch || "")
-    .trim()
-    .replace(/\/+$/g, "");
-
-  return Array.from(
-    new Set(
-      [
-        primary ? `${primary}?${params}` : "",
-        apiUrl(`/api/search?${params}`),
-        apiUrl(`/search?${params}`),
-        apiUrl(`/api/places/search?${params}`),
-        apiUrl(`/places/search?${params}`),
-        `${base}/api/search?${params}`,
-        `${base}/search?${params}`,
-      ].filter(Boolean),
-    ),
-  );
+  return [`${base}/api/search?${params}`];
 }
 
-async function runSearchRequest(
-  q: string,
-  external: boolean,
-): Promise<PlaceResult[]> {
-  const params = `q=${encodeURIComponent(q)}&limit=8&external=${external ? "true" : "false"}&includeExternal=${external ? "true" : "false"}`;
+async function runSearchRequest(q: string): Promise<PlaceResult[]> {
+  // Use internal/local providers first. External providers are expensive and can trigger rate limits.
+  const params = `q=${encodeURIComponent(q)}&limit=8&external=false&includeExternal=false`;
+  const url = searchUrls(params)[0];
 
-  for (const url of searchUrls(params)) {
-    try {
-      const response = await fetchWithTimeout(
-        url,
-        {
-          headers: {
-            Accept: "application/json",
-          },
-        },
-        external ? 12000 : 6000,
-      );
-      if (!response.ok) continue;
+  try {
+    const data = await fetchSearchJson(url);
+    if (!data) return [];
 
-      const data = await safeJson<any>(response);
-      const rawResults = normalizeSearchPayload(data);
-      if (!rawResults.length) continue;
+    const rawResults = normalizeSearchPayload(data);
+    if (!rawResults.length) return [];
 
-      const normalized = rawResults
-        .map((item: any, index: number): PlaceResult | null =>
-          normalizePlaceResult(item, index),
-        )
-        .filter(Boolean) as PlaceResult[];
+    const normalized = rawResults
+      .map((item: any, index: number): PlaceResult | null =>
+        normalizePlaceResult(item, index),
+      )
+      .filter(Boolean) as PlaceResult[];
 
-      return dedupePlaceResults(normalized)
-        .sort(
-          (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
-        )
-        .slice(0, 8);
-    } catch (error) {
-      if (__DEV__) {
-        console.warn("[Arbebus search] endpoint failed", url, error);
-      }
-      // Try next compatible endpoint. Search must never freeze the UI.
-    }
+    return dedupePlaceResults(normalized)
+      .sort(
+        (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
+      )
+      .slice(0, 8);
+  } catch (error) {
+    console.warn("[Arbebus search] failed", error);
+    return [];
   }
-
-  return [];
 }
 
 export async function searchPlaces(query: string): Promise<PlaceResult[]> {
-  const q = String(query || "").replace(/\s{2,}/g, " ").trim();
+  const q = query.replace(/\s{2,}/g, " ").trim();
   if (q.length < 2) return [];
 
   const cached = getSearchMemoryCache(q);
   if (cached && cached.length) return cached.slice(0, 8);
 
-  const results = await runSearchRequest(q, true);
+  const results = await runSearchRequest(q);
 
   const ranked = dedupePlaceResults(results)
     .sort((a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q))
@@ -1143,96 +1172,38 @@ export async function planTransitRoute(params: {
     coordinate: params.to,
   };
 
-  const travelAt =
-    params.travelAt instanceof Date
-      ? params.travelAt.toISOString()
-      : params.travelAt || null;
-
-  const requestBody = {
-    origin: {
-      latitude: params.from.latitude,
-      longitude: params.from.longitude,
+  const response = await fetchWithTimeout(
+    API_ENDPOINTS.transitPlan,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        origin: {
+          latitude: params.from.latitude,
+          longitude: params.from.longitude,
+        },
+        destination: {
+          latitude: params.to.latitude,
+          longitude: params.to.longitude,
+        },
+        from: params.from,
+        to: params.to,
+        selectedDestination: destination,
+        timeMode: params.timeMode || "now",
+        travelAt:
+          params.travelAt instanceof Date
+            ? params.travelAt.toISOString()
+            : params.travelAt || null,
+        includeWalkingGeometry: true,
+      }),
     },
-    destination: {
-      latitude: params.to.latitude,
-      longitude: params.to.longitude,
-      title: destination.title,
-      name: destination.name || destination.title,
-    },
-    from: params.from,
-    to: params.to,
-    fromLat: params.from.latitude,
-    fromLng: params.from.longitude,
-    toLat: params.to.latitude,
-    toLng: params.to.longitude,
-    destinationTitle: destination.title,
-    selectedDestination: {
-      ...destination,
-      latitude: params.to.latitude,
-      longitude: params.to.longitude,
-      coordinate: params.to,
-    },
-    timeMode: params.timeMode || "now",
-    travelAt,
-    includeWalkingGeometry: true,
-  };
+    8000,
+  );
 
-  let data: any = null;
-  let responseStatus = 0;
-  let lastError: unknown = null;
+  const data = await safeJson<any>(response);
 
-  try {
-    const response = await fetchWithTimeout(
-      API_ENDPOINTS.transitPlan,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      },
-      15000,
-    );
-
-    responseStatus = response.status;
-    data = await safeJson<any>(response);
-
-    if (!response.ok || data?.ok === false) {
-      throw new Error(data?.error || `Transit plan failed: ${response.status}`);
-    }
-  } catch (error) {
-    lastError = error;
-
-    // Compatibility fallback for Render/browser debugging and older backend builds.
-    // Backend now supports these query params; keeping this fallback makes the app
-    // resistant to POST/body parsing issues.
-    const query = new URLSearchParams({
-      fromLat: String(params.from.latitude),
-      fromLng: String(params.from.longitude),
-      toLat: String(params.to.latitude),
-      toLng: String(params.to.longitude),
-      destinationTitle: destination.title || "Tikslas",
-      timeMode: params.timeMode || "now",
-      includeWalkingGeometry: "true",
-    });
-
-    if (travelAt) query.set("travelAt", String(travelAt));
-
-    const fallbackResponse = await fetchWithTimeout(
-      `${API_ENDPOINTS.transitPlan}?${query.toString()}`,
-      undefined,
-      15000,
-    );
-
-    responseStatus = fallbackResponse.status;
-    data = await safeJson<any>(fallbackResponse);
-
-    if (!fallbackResponse.ok || data?.ok === false) {
-      throw new Error(
-        data?.error ||
-          (lastError instanceof Error
-            ? lastError.message
-            : `Transit plan failed: ${responseStatus}`),
-      );
-    }
+  if (!response.ok || data?.ok === false) {
+    throw new Error(data?.error || `Transit plan failed: ${response.status}`);
   }
 
   const rawRoutes = [

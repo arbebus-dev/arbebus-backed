@@ -1,5 +1,6 @@
 const { normalizeText } = require("../utils/normalizeText");
 const { toResult } = require("../utils/mapSearchResult");
+const { getPool } = require("../../../db/pool");
 
 const STREETS = [
   { names: ["taikos pr", "taikos prospektas", "taikos"], title: "Taikos pr.", lat: 55.6909, lon: 21.1567 },
@@ -24,35 +25,30 @@ const STREETS = [
   { names: ["savanoriu pr", "savanorių pr", "savanoriu", "savanorių"], title: "Savanorių pr.", lat: 55.7299, lon: 21.1285 },
 ];
 
+let lastDbError = null;
+let lastDbCount = null;
+let lastDbHealthCheck = 0;
+
 function extractHouseNumber(query) {
   const match = String(query || "").match(/\b(\d+[a-zA-Z]?)\b/);
   return match ? match[1].toUpperCase() : null;
 }
 
-function offsetCoordinate(street, houseNumber) {
-  const number = Number(String(houseNumber || "").replace(/[^0-9]/g, ""));
-  if (!Number.isFinite(number) || number <= 0) {
-    return { latitude: street.lat, longitude: street.lon };
-  }
-
-  const offset = Math.min(Math.max(number, 1), 220) * 0.000018;
-  return {
-    latitude: street.lat + offset * 0.35,
-    longitude: street.lon + offset,
-  };
+function compactQuery(value) {
+  return normalizeText(value).replace(/\./g, " ").replace(/\s+/g, " ").trim();
 }
 
 function matchesStreet(query, street) {
-  const q = normalizeText(query).replace(/\./g, " ").replace(/\s+/g, " ").trim();
+  const q = compactQuery(query);
   return street.names.some((name) => {
-    const n = normalizeText(name).replace(/\./g, " ").replace(/\s+/g, " ").trim();
+    const n = compactQuery(name);
     return q.includes(n) || n.includes(q);
   });
 }
 
-function searchLocalAddresses(query, options = {}) {
+function localStreetFallback(query, options = {}) {
   const q = String(query || "").trim();
-  const nq = normalizeText(q).replace(/\./g, " ").replace(/\s+/g, " ").trim();
+  const nq = compactQuery(q);
   if (nq.length < 3) return [];
 
   const house = extractHouseNumber(q);
@@ -62,23 +58,18 @@ function searchLocalAddresses(query, options = {}) {
   for (const street of STREETS) {
     if (!matchesStreet(q, street)) continue;
 
-    // Local streets are only suggestions. They are not precise house-number
-    // coordinates. Exact addresses must come from Google/Nominatim, otherwise
-    // the map can jump to the wrong point on the street.
-    const coordinate = { latitude: street.lat, longitude: street.lon };
     const exactTitle = house ? `${street.title} ${house}` : street.title;
-
     results.push(
       toResult({
-        id: `local-street-${normalizeText(exactTitle).replace(/\s+/g, "-")}`,
+        id: `local-street-${compactQuery(exactTitle).replace(/\s+/g, "-")}`,
         type: "street",
         title: exactTitle,
         subtitle: house
-          ? "Gatvė rasta – tikslų namo adresą tikrina Google/OSM"
+          ? "Gatvė rasta – tikslus namo adresas tikrinamas duomenų bazėje"
           : "Įvesk namo numerį, pvz. Taikos pr. 8",
-        latitude: coordinate.latitude,
-        longitude: coordinate.longitude,
-        source: "local_address",
+        latitude: street.lat,
+        longitude: street.lon,
+        source: "local_address_fallback",
         category: "Gatvė",
         priority: house ? 35 : 90,
         score: house ? 120 : 240,
@@ -92,8 +83,116 @@ function searchLocalAddresses(query, options = {}) {
   return results.slice(0, limit);
 }
 
+function rowToAddressResult(row, query) {
+  const title = row.full_address || [row.street, row.house_number].filter(Boolean).join(" ");
+  const subtitle = [row.settlement, row.municipality].filter(Boolean).join(", ");
+  const exactHouse = extractHouseNumber(query);
+
+  return toResult({
+    id: `address-${row.id}`,
+    type: "address",
+    title,
+    name: title,
+    subtitle,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    source: "postgres_address",
+    category: "Adresas",
+    priority: exactHouse ? 260 : 180,
+    score: Number(row.rank_score || 0),
+    selectable: true,
+    requiresHouseNumber: false,
+    keywords: [
+      row.full_address,
+      row.street,
+      row.house_number,
+      row.settlement,
+      row.municipality,
+    ].filter(Boolean),
+  });
+}
+
+async function searchPostgresAddresses(query, options = {}) {
+  const q = String(query || "").trim();
+  const nq = compactQuery(q);
+  if (nq.length < 2) return [];
+
+  const limit = Math.min(Math.max(Number(options.limit || 8), 1), 20);
+  const house = extractHouseNumber(q);
+  const pool = getPool();
+  const streetPart = nq.replace(/\b\d+[a-z]?\b/gi, "").trim();
+
+  // Works with the existing public.addresses schema. It does not require a custom
+  // SQL function; it uses search_text when available and falls back to text ILIKE.
+  const sql = `
+    SELECT
+      id,
+      municipality,
+      eldership,
+      settlement,
+      street,
+      house_number,
+      building_suffix,
+      postal_code,
+      full_address,
+      latitude,
+      longitude,
+      (
+        CASE WHEN COALESCE(search_text, '') ILIKE '%' || $1 || '%' THEN 6500 ELSE 0 END +
+        CASE WHEN COALESCE(full_address, '') ILIKE '%' || $4 || '%' THEN 4200 ELSE 0 END +
+        CASE WHEN COALESCE(street, '') ILIKE '%' || $2 || '%' THEN 1800 ELSE 0 END +
+        CASE WHEN $3::text IS NOT NULL AND UPPER(COALESCE(house_number, '')) = UPPER($3::text) THEN 3200 ELSE 0 END +
+        GREATEST(0, 800 - LEAST(800, length(COALESCE(full_address, ''))))
+      ) AS rank_score
+    FROM public.addresses
+    WHERE
+      COALESCE(search_text, '') ILIKE '%' || $1 || '%'
+      OR COALESCE(full_address, '') ILIKE '%' || $4 || '%'
+      OR COALESCE(street, '') ILIKE '%' || $2 || '%'
+    ORDER BY rank_score DESC, full_address ASC
+    LIMIT $5
+  `;
+
+  const result = await pool.query(sql, [nq, streetPart || nq, house, q, limit]);
+  return result.rows.map((row) => rowToAddressResult(row, q)).filter(Boolean);
+}
+
+async function searchLocalAddresses(query, options = {}) {
+  const fallback = localStreetFallback(query, options);
+
+  try {
+    const dbResults = await searchPostgresAddresses(query, options);
+    lastDbError = null;
+    return dbResults.length ? dbResults : fallback;
+  } catch (error) {
+    lastDbError = error?.message || String(error);
+    return fallback;
+  }
+}
+
+async function refreshDbCount() {
+  if (Date.now() - lastDbHealthCheck < 30000) return lastDbCount;
+  lastDbHealthCheck = Date.now();
+
+  try {
+    const result = await getPool().query("SELECT COUNT(*)::int AS count FROM public.addresses");
+    lastDbCount = Number(result.rows?.[0]?.count || 0);
+    lastDbError = null;
+  } catch (error) {
+    lastDbError = error?.message || String(error);
+  }
+
+  return lastDbCount;
+}
+
 function localAddressHealth() {
-  return { localAddressItems: STREETS.length };
+  refreshDbCount().catch(() => undefined);
+  return {
+    localAddressItems: STREETS.length,
+    postgresAddressProvider: true,
+    postgresAddressCount: lastDbCount,
+    postgresAddressError: lastDbError,
+  };
 }
 
 module.exports = { searchLocalAddresses, localAddressHealth };

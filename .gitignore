@@ -19,3 +19,4 @@ infrastructure/meili/meilisearch.exe
 infrastructure/otp/graph/*.pbf
 infrastructure/meili/
 infrastructure/otp/backend/data/import/
+/backend/data/import/
