@@ -30,6 +30,9 @@ const { searchMeili, meiliHealth } = require("./providers/meili.provider");
 
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 30;
+const FAST_INDEX_TIMEOUT_MS = 120;
+const LOCAL_ADDRESS_TIMEOUT_MS = 15000;
+const MEILI_TIMEOUT_MS = 1200;
 
 function limitValue(value) {
   return Math.min(Math.max(Number(value || DEFAULT_LIMIT), 1), MAX_LIMIT);
@@ -42,16 +45,18 @@ function envBool(name, fallback = false) {
 }
 
 async function runProvider(name, fn, timeoutMs = 1600) {
+  let timer = null;
+
   try {
-    let timer = null;
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(
         () => reject(new Error(`provider timeout ${timeoutMs}ms`)),
         timeoutMs,
       );
     });
+
     const results = await Promise.race([Promise.resolve().then(fn), timeout]);
-    if (timer) clearTimeout(timer);
+
     return {
       name,
       ok: true,
@@ -65,11 +70,13 @@ async function runProvider(name, fn, timeoutMs = 1600) {
       results: [],
       error: error?.message || String(error),
     };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
 function searchCacheKey(q, type, limit) {
-  return `v5:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(limit || DEFAULT_LIMIT)}`;
+  return `v6:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(limit || DEFAULT_LIMIT)}`;
 }
 
 function isAddressLikeQuery(value = "") {
@@ -85,6 +92,7 @@ function shouldUseExternalSearch(query = {}) {
   const explicit = String(
     query.external ?? query.includeExternal ?? "",
   ).toLowerCase();
+
   if (explicit === "false" || explicit === "0") return false;
   if (explicit === "true" || explicit === "1") return true;
 
@@ -92,8 +100,6 @@ function shouldUseExternalSearch(query = {}) {
     query.q || query.query || query.text || query.search || "",
   ).trim();
 
-  // Address search must not depend on stops/POI cache. Without this fallback,
-  // queries like "Taikos 32" or "Laivų g." return only GTFS stops.
   if (q.length >= 3 && isAddressLikeQuery(q)) return true;
 
   return envBool("SEARCH_EXTERNAL_ENABLED", false);
@@ -116,19 +122,22 @@ function filterUnsafeSearchResults(items, query) {
   return items.filter((item) => {
     const type = String(item.type || "").toLowerCase();
 
-    // For address-like search, random stops/cities/villages must not outrank
-    // real street/address suggestions. This prevents "Taikos pr 8" -> Radailiai.
     if (["city", "region", "village"].includes(type)) return false;
+
     if (
       type === "stop" &&
       !/\b(st|stotele|stotis|bus|autobus)\b/i.test(String(query))
-    )
+    ) {
       return false;
+    }
 
-    if (streetOnly)
+    if (streetOnly) {
       return ["street", "address", "poi", "station", "ferry"].includes(type);
-    if (addressWithNumber)
+    }
+
+    if (addressWithNumber) {
       return ["address", "street", "poi", "station", "ferry"].includes(type);
+    }
 
     return true;
   });
@@ -146,13 +155,17 @@ function forceExactAddressPriority(items, query) {
 
     const power = (item, type, source) => {
       let value = Number(item.score || 0);
-      if (type === "address") value += 5000;
+
+      if (type === "address") value += 7000;
+      if (source === "postgres_address") value += 6000;
       if (source === "google_geocoding") value += 2500;
       if (source === "nominatim") value += 900;
       if (type === "street") value -= 1500;
       if (type === "stop") value -= 2500;
-      if (item.selectable === false || item.requiresHouseNumber === true)
+      if (item.selectable === false || item.requiresHouseNumber === true) {
         value -= 3000;
+      }
+
       return value;
     };
 
@@ -171,9 +184,11 @@ function compactProviderMeta(providers) {
 
 async function index(query = {}) {
   const startedAt = Date.now();
+
   const q = String(
     query.q || query.query || query.text || query.search || "",
   ).trim();
+
   const type = String(query.type || "all").toLowerCase();
   const limit = limitValue(query.limit);
   const nq = normalizeText(q);
@@ -193,6 +208,7 @@ async function index(query = {}) {
 
   const cacheKey = searchCacheKey(q, type, limit);
   const cached = await getCache(cacheKey);
+
   if (cached) {
     return {
       ...cached,
@@ -204,23 +220,21 @@ async function index(query = {}) {
     };
   }
 
-  // Apple Maps style: first answer from in-memory/local sources.
-  // Local address fallback is mandatory, because Google/OSM can return 0 or be rate-limited.
   const [fastIndex, localAddress, meili] = await Promise.all([
     runProvider(
       "fast_local_index",
       () => searchFastIndex(q, { limit: Math.max(18, limit) }),
-      120,
+      FAST_INDEX_TIMEOUT_MS,
     ),
     runProvider(
       "local_address",
       () => searchLocalAddresses(q, { limit: Math.max(8, limit) }),
-      5000,
+      LOCAL_ADDRESS_TIMEOUT_MS,
     ),
     runProvider(
       "meilisearch",
       () => searchMeili(q, { limit: Math.max(12, limit) }),
-      1200,
+      MEILI_TIMEOUT_MS,
     ),
   ]);
 
@@ -229,12 +243,14 @@ async function index(query = {}) {
     ...localAddress.results,
     ...fastIndex.results,
   ];
+
   const providers = [meili, localAddress, fastIndex];
 
   const rankedFast = rankResults(dedupeResults(combined), q);
   const hasStrongFastResult = rankedFast.some(
     (item) => Number(item.score || 0) >= 360,
   );
+
   const addressLike = isAddressLikeQuery(q);
   const includeExternal = shouldUseExternalSearch(query);
 
@@ -248,7 +264,9 @@ async function index(query = {}) {
       runProvider("nominatim", () => searchNominatim(q, { limit: 8 }), 4500),
       runProvider("overpass", () => searchOverpass(q, { limit: 6 }), 2500),
     ]);
+
     providers.push(google, nominatim, overpass);
+
     combined = [
       ...combined,
       ...google.results,
@@ -257,7 +275,9 @@ async function index(query = {}) {
     ];
   }
 
-  if (type !== "all") combined = combined.filter((item) => item.type === type);
+  if (type !== "all") {
+    combined = combined.filter((item) => item.type === type);
+  }
 
   const ranked = rankResults(dedupeResults(combined), q);
   const safeRanked = filterUnsafeSearchResults(ranked, q);
@@ -285,18 +305,20 @@ async function index(query = {}) {
   };
 
   await setCache(cacheKey, payload, 300);
+
   return payload;
 }
 
 async function debug(query = {}) {
   const payload = await index({ ...query, limit: query.limit || 20 });
+
   return {
     ...payload,
     debug: {
       firstType: payload.results[0]?.type || null,
       firstSource: payload.results[0]?.source || null,
       expectedPriority:
-        "exact local_poi > address/city from nominatim > overpass/google > gtfs stop fallback",
+        "exact local_poi > postgres_address > address/city from nominatim > overpass/google > gtfs stop fallback",
     },
   };
 }
@@ -305,7 +327,9 @@ async function stops(query = {}) {
   const q = String(
     query.q || query.query || query.text || query.search || "",
   ).trim();
+
   const results = await searchGtfsStops(q, { limit: limitValue(query.limit) });
+
   return {
     ok: true,
     query: q,
@@ -386,6 +410,7 @@ async function reverse(query = {}) {
   const googleNearby = await runProvider("google_nearby", () =>
     searchNearbyGooglePlaces(latitude, longitude, { limit: 3 }),
   );
+
   let result = googleNearby.results[0] || null;
 
   const nominatim = !result
@@ -442,6 +467,7 @@ async function details(query = {}) {
   const placeId = String(
     query.placeId || query.id || query.googlePlaceId || "",
   ).trim();
+
   if (!placeId) {
     return {
       ok: false,
@@ -458,6 +484,7 @@ async function details(query = {}) {
   });
 
   const result = google.results[0] || null;
+
   return {
     ok: Boolean(result),
     placeId,
@@ -480,13 +507,17 @@ async function details(query = {}) {
 
 async function photo(query = {}) {
   const name = String(query.name || "").trim();
+
   const maxWidthPx =
     query.maxWidthPx ||
     query.max_width_px ||
     process.env.GOOGLE_PLACES_PHOTO_MAX_WIDTH ||
     900;
+
   if (!name) return { ok: false, error: "name required", url: null };
+
   const url = await getGooglePhotoMediaUrl(name, maxWidthPx);
+
   return { ok: Boolean(url), url };
 }
 
@@ -514,18 +545,24 @@ function allStops() {
 function findNearestStop(input) {
   const latitude = Number(input?.latitude ?? input?.lat);
   const longitude = Number(input?.longitude ?? input?.lon ?? input?.lng);
+
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
   const R = 6371000;
+
   const distance = (a, b) => {
     const dLat = ((b.latitude - a.latitude) * Math.PI) / 180;
     const dLon = ((b.longitude - a.longitude) * Math.PI) / 180;
     const lat1 = (a.latitude * Math.PI) / 180;
     const lat2 = (b.latitude * Math.PI) / 180;
+
     const h =
       Math.sin(dLat / 2) ** 2 +
       Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+
     return Math.round(2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)));
   };
+
   return (
     loadGtfsStops()
       .map((s) => ({
