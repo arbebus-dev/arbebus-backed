@@ -10,3 +10,12 @@ mobile/.expo/
 node_modules/
 mobile/node_modules/
 backend/node_modules/
+infrastructure/otp/otp.jar
+infrastructure/otp/graph/*.pbf
+infrastructure/otp/graph/*.zip
+infrastructure/meili/data.ms
+infrastructure/otp/otp.jar
+infrastructure/meili/meilisearch.exe
+infrastructure/otp/graph/*.pbf
+infrastructure/meili/
+infrastructure/otp/backend/data/import/

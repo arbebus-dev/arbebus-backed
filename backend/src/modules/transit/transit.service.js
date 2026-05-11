@@ -6,6 +6,7 @@ const http = require("http");
 const orsClient = require("../routing/ors.client");
 const vehiclePositionsRealtime = require("./realtime/vehiclePositions");
 const ETAEngine = require("./ETA.engine");
+const otpService = require("../otp/otp.service");
 
 const KLAIPEDA_BOUNDS = {
   // Expanded Klaipėda region bounds. The live stops.lt feed also contains
@@ -1343,6 +1344,48 @@ async function plan(body = {}) {
 
   const from = coordinateFromPlanInput(body, "from") || defaultOrigin;
   const to = coordinateFromPlanInput(body, "to") || defaultDestination;
+
+  const engine = String(body.engine || process.env.TRANSIT_ENGINE || "legacy").toLowerCase();
+  if ((engine === "otp" || engine === "otp2") && otpService.enabled()) {
+    const timeModeForOtp = ["now", "depart", "arrive"].includes(String(body.timeMode))
+      ? String(body.timeMode)
+      : "now";
+    const travelDate = body.travelAt ? new Date(body.travelAt) : new Date();
+    const otpResult = await otpService.plan({
+      from,
+      to,
+      date: Number.isNaN(travelDate.getTime()) ? null : travelDate.toISOString().slice(0, 10),
+      time: Number.isNaN(travelDate.getTime()) ? null : travelDate.toTimeString().slice(0, 5),
+      arriveBy: timeModeForOtp === "arrive",
+      timeoutMs: Number(process.env.OTP_TIMEOUT_MS || 9000),
+    });
+
+    if (otpResult?.ok && Array.isArray(otpResult.routes) && otpResult.routes.length) {
+      return {
+        ...otpResult,
+        meta: {
+          ...(otpResult.meta || {}),
+          engine: "otp2",
+          from,
+          to,
+          fallbackAvailable: true,
+        },
+      };
+    }
+
+    if (String(process.env.TRANSIT_OTP_STRICT || "false").toLowerCase() === "true") {
+      return {
+        ok: false,
+        source: "otp2",
+        error: otpResult?.error || otpResult?.reason || "OTP_NO_ROUTES",
+        routes: [],
+        options: [],
+        plan: null,
+        meta: { engine: "otp2", from, to },
+      };
+    }
+    // Fallback to legacy planner while OTP2 is being rolled out.
+  }
 
   const destinationTitle =
     body.selectedDestination?.title ||

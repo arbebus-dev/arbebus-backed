@@ -26,6 +26,7 @@ const {
   searchLocalAddresses,
   localAddressHealth,
 } = require("./providers/localAddress.provider");
+const { searchMeili, meiliHealth } = require("./providers/meili.provider");
 
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 30;
@@ -205,7 +206,7 @@ async function index(query = {}) {
 
   // Apple Maps style: first answer from in-memory/local sources.
   // Local address fallback is mandatory, because Google/OSM can return 0 or be rate-limited.
-  const [fastIndex, localAddress] = await Promise.all([
+  const [fastIndex, localAddress, meili] = await Promise.all([
     runProvider(
       "fast_local_index",
       () => searchFastIndex(q, { limit: Math.max(18, limit) }),
@@ -216,10 +217,15 @@ async function index(query = {}) {
       () => searchLocalAddresses(q, { limit: Math.max(8, limit) }),
       80,
     ),
+    runProvider(
+      "meilisearch",
+      () => searchMeili(q, { limit: Math.max(12, limit) }),
+      1200,
+    ),
   ]);
 
-  let combined = [...localAddress.results, ...fastIndex.results];
-  const providers = [localAddress, fastIndex];
+  let combined = [...meili.results, ...localAddress.results, ...fastIndex.results];
+  const providers = [meili, localAddress, fastIndex];
 
   const rankedFast = rankResults(dedupeResults(combined), q);
   const hasStrongFastResult = rankedFast.some(
@@ -337,6 +343,7 @@ function healthMeta() {
     ...localPoiHealth(),
     ...gtfsHealth(),
     ...searchIndexHealth(),
+    meiliConfigured: Boolean(process.env.MEILI_HOST || process.env.SEARCH_ENGINE),
     cache: cacheStats(),
   };
 }
@@ -488,6 +495,7 @@ function health() {
       "/api/search/reverse",
       "/api/search/details",
       "/api/search/photo",
+      "/api/search/autocomplete",
     ],
     meta: healthMeta(),
   };

@@ -5,15 +5,16 @@
   "scripts": {
     "dev": "node src/core/server.js",
     "start": "node src/core/server.js",
-    "test": "node -e \"require('./src/modules/search/search.service'); require('./src/modules/transit/transit.service'); console.log('backend smoke ok')\""
+    "test": "node -e \"require('./src/modules/search/search.service'); require('./src/modules/transit/transit.service'); console.log('backend smoke ok')\"",
+    "rebuild:search": "node scripts/rebuild-search-index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^5.1.0",
-    "pg": "^8.16.3",
+    "gtfs-realtime-bindings": "^1.1.1",
+    "pg": "^8.20.0",
     "pino": "^9.7.0",
-    "redis": "^5.12.1",
-    "gtfs-realtime-bindings": "^1.1.1"
+    "redis": "^5.12.1"
   }
 }

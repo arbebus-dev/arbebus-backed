@@ -1,5 +1,6 @@
 const express = require("express");
 const controller = require("../../modules/search/search.controller");
+const autocompleteRouter = require("../../modules/search/autocomplete.router");
 const { logger } = require("../../core/logging/logger");
 
 const router = express.Router();
@@ -17,6 +18,7 @@ if (typeof mainSearchHandler !== "function") {
   );
 }
 
+router.use("/autocomplete", autocompleteRouter);
 router.get("/health", controller.health);
 router.get("/debug", controller.debug);
 router.get("/reverse", controller.reverse || mainSearchHandler);
