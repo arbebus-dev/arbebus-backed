@@ -236,6 +236,7 @@ function rowToAddressResult(row, query) {
 async function searchPostgresAddresses(query, options = {}) {
   const q = String(query || "").trim();
   const nq = compactQuery(q);
+
   if (nq.length < 2) return [];
 
   const limit = Math.min(Math.max(Number(options.limit || 8), 1), 20);
@@ -245,58 +246,60 @@ async function searchPostgresAddresses(query, options = {}) {
   const streetPartRaw = nq.replace(/\b\d+[a-z]?\b/gi, "").trim();
   const streetPart = normalizeStreetPart(streetPartRaw || nq);
 
-  const sql = `
-    SELECT
-      id,
-      name,
-      street,
-      house_number,
-      city,
-      postcode,
-      lat,
-      lon,
-      (
-        similarity(COALESCE(name, ''), $1) * 1000 +
-        similarity(COALESCE(street, ''), $2) * 900 +
-        CASE
-          WHEN COALESCE(name, '') ILIKE $1 || '%' THEN 1800
-          ELSE 0
-        END +
-        CASE
-          WHEN COALESCE(street, '') ILIKE $2 || '%' THEN 1600
-          ELSE 0
-        END +
-        CASE
-          WHEN $3::text IS NOT NULL
-            AND UPPER(COALESCE(house_number, '')) = UPPER($3::text)
-          THEN 5000
-          ELSE 0
-        END +
-        CASE
-          WHEN $3::text IS NOT NULL
-            AND UPPER(COALESCE(house_number, '')) ILIKE UPPER($3::text) || '%'
-          THEN 1800
-          ELSE 0
-        END
-      ) AS rank_score
-    FROM public.addresses
-    WHERE
-      COALESCE(name, '') % $1
-      OR COALESCE(street, '') % $2
-      OR COALESCE(name, '') ILIKE $1 || '%'
-      OR COALESCE(street, '') ILIKE $2 || '%'
-      OR (
-        $3::text IS NOT NULL
-        AND COALESCE(street, '') % $2
-        AND UPPER(COALESCE(house_number, '')) ILIKE UPPER($3::text) || '%'
-      )
-    ORDER BY rank_score DESC, city ASC, street ASC, house_number ASC
-    LIMIT $4
-  `;
+  let sql;
+  let params;
 
-  await pool.query("SET pg_trgm.similarity_threshold = 0.12");
+  if (house) {
+    sql = `
+      SELECT
+        id,
+        name,
+        street,
+        house_number,
+        city,
+        postcode,
+        lat,
+        lon,
+        (
+          CASE WHEN lower(street) = lower($1) THEN 9000 ELSE 0 END +
+          CASE WHEN lower(street) LIKE lower($1) || '%' THEN 5000 ELSE 0 END +
+          CASE WHEN upper(house_number) = upper($2) THEN 9000 ELSE 0 END +
+          CASE WHEN upper(house_number) LIKE upper($2) || '%' THEN 4000 ELSE 0 END
+        ) AS rank_score
+      FROM public.addresses
+      WHERE
+        lower(street) LIKE lower($1) || '%'
+        AND upper(house_number) LIKE upper($2) || '%'
+      ORDER BY rank_score DESC, city ASC, street ASC, house_number ASC
+      LIMIT $3
+    `;
 
-  const result = await pool.query(sql, [q, streetPart || nq, house, limit]);
+    params = [streetPart || nq, house, limit];
+  } else {
+    sql = `
+      SELECT
+        id,
+        name,
+        street,
+        house_number,
+        city,
+        postcode,
+        lat,
+        lon,
+        (
+          CASE WHEN lower(street) = lower($1) THEN 9000 ELSE 0 END +
+          CASE WHEN lower(street) LIKE lower($1) || '%' THEN 5000 ELSE 0 END
+        ) AS rank_score
+      FROM public.addresses
+      WHERE lower(street) LIKE lower($1) || '%'
+      ORDER BY rank_score DESC, city ASC, street ASC, house_number ASC
+      LIMIT $2
+    `;
+
+    params = [streetPart || nq, limit];
+  }
+
+  const result = await pool.query(sql, params);
   return result.rows.map((row) => rowToAddressResult(row, q)).filter(Boolean);
 }
 
