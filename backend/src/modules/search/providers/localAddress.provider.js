@@ -144,6 +144,13 @@ function compactQuery(value) {
   return normalizeText(value).replace(/\./g, " ").replace(/\s+/g, " ").trim();
 }
 
+function normalizeStreetPart(value) {
+  return compactQuery(value)
+    .replace(/\b(g|gatve|gatvė|pr|prospektas|pl|plentas)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function matchesStreet(query, street) {
   const q = compactQuery(query);
   return street.names.some((name) => {
@@ -229,33 +236,14 @@ function rowToAddressResult(row, query) {
 async function searchPostgresAddresses(query, options = {}) {
   const q = String(query || "").trim();
   const nq = compactQuery(q);
-
   if (nq.length < 2) return [];
 
   const limit = Math.min(Math.max(Number(options.limit || 8), 1), 20);
   const house = extractHouseNumber(q);
   const pool = getPool();
 
-  const streetPart = nq.replace(/\b\d+[a-z]?\b/gi, "").trim();
-  const cityHints = [
-    "klaipeda",
-    "klaipėda",
-    "vilnius",
-    "kaunas",
-    "palanga",
-    "siauliai",
-    "šiauliai",
-    "panevezys",
-    "panevėžys",
-  ];
-
-  const normalizedStreetPart = streetPart
-    .replace(/\b(g|gatve|gatvė|pr|prospektas|pl|plentas)\b/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const cityHint =
-    cityHints.find((city) => nq.includes(compactQuery(city))) || null;
+  const streetPartRaw = nq.replace(/\b\d+[a-z]?\b/gi, "").trim();
+  const streetPart = normalizeStreetPart(streetPartRaw || nq);
 
   const sql = `
     SELECT
@@ -268,38 +256,47 @@ async function searchPostgresAddresses(query, options = {}) {
       lat,
       lon,
       (
-        CASE WHEN COALESCE(name, '') ILIKE '%' || $1 || '%' THEN 9000 ELSE 0 END +
-        CASE WHEN COALESCE(street, '') ILIKE '%' || $2 || '%' THEN 3000 ELSE 0 END +
-        CASE WHEN COALESCE(street, '') ILIKE '%' || $3 || '%' THEN 2200 ELSE 0 END +
-        CASE WHEN $4::text IS NOT NULL AND UPPER(COALESCE(house_number, '')) = UPPER($4::text) THEN 4500 ELSE 0 END +
-        CASE WHEN $4::text IS NOT NULL AND UPPER(COALESCE(house_number, '')) ILIKE UPPER($4::text) || '%' THEN 2200 ELSE 0 END +
-        CASE WHEN $5::text IS NOT NULL AND COALESCE(city, '') ILIKE '%' || $5::text || '%' THEN 2500 ELSE 0 END +
-        GREATEST(0, 800 - LEAST(800, length(COALESCE(name, ''))))
+        similarity(COALESCE(name, ''), $1) * 1000 +
+        similarity(COALESCE(street, ''), $2) * 900 +
+        CASE
+          WHEN COALESCE(name, '') ILIKE $1 || '%' THEN 1800
+          ELSE 0
+        END +
+        CASE
+          WHEN COALESCE(street, '') ILIKE $2 || '%' THEN 1600
+          ELSE 0
+        END +
+        CASE
+          WHEN $3::text IS NOT NULL
+            AND UPPER(COALESCE(house_number, '')) = UPPER($3::text)
+          THEN 5000
+          ELSE 0
+        END +
+        CASE
+          WHEN $3::text IS NOT NULL
+            AND UPPER(COALESCE(house_number, '')) ILIKE UPPER($3::text) || '%'
+          THEN 1800
+          ELSE 0
+        END
       ) AS rank_score
     FROM public.addresses
     WHERE
-      COALESCE(name, '') ILIKE '%' || $1 || '%'
-      OR COALESCE(street, '') ILIKE '%' || $2 || '%'
-      OR COALESCE(street, '') ILIKE '%' || $3 || '%'
+      COALESCE(name, '') % $1
+      OR COALESCE(street, '') % $2
+      OR COALESCE(name, '') ILIKE $1 || '%'
+      OR COALESCE(street, '') ILIKE $2 || '%'
       OR (
-        $4::text IS NOT NULL
-        AND COALESCE(street, '') ILIKE '%' || $2 || '%'
-        AND UPPER(COALESCE(house_number, '')) ILIKE UPPER($4::text) || '%'
+        $3::text IS NOT NULL
+        AND COALESCE(street, '') % $2
+        AND UPPER(COALESCE(house_number, '')) ILIKE UPPER($3::text) || '%'
       )
     ORDER BY rank_score DESC, city ASC, street ASC, house_number ASC
-    LIMIT $6
+    LIMIT $4
   `;
 
-  const params = [
-    q,
-    streetPart || nq,
-    normalizedStreetPart || streetPart || nq,
-    house,
-    cityHint,
-    limit,
-  ];
+  await pool.query("SET pg_trgm.similarity_threshold = 0.12");
 
-  const result = await pool.query(sql, params);
+  const result = await pool.query(sql, [q, streetPart || nq, house, limit]);
   return result.rows.map((row) => rowToAddressResult(row, q)).filter(Boolean);
 }
 
@@ -318,7 +315,6 @@ async function searchLocalAddresses(query, options = {}) {
 
 async function refreshDbCount() {
   if (Date.now() - lastDbHealthCheck < 30000) return lastDbCount;
-
   lastDbHealthCheck = Date.now();
 
   try {
