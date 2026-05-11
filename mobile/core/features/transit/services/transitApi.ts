@@ -1,11 +1,11 @@
 import { API_BASE, API_ENDPOINTS } from "@/constants/api";
 import type {
-    Coordinate,
-    LiveBus,
-    PlaceSearchResult,
-    TransitRouteOption,
-    TransitStep,
-    TransitStepType,
+  Coordinate,
+  LiveBus,
+  PlaceSearchResult,
+  TransitRouteOption,
+  TransitStep,
+  TransitStepType,
 } from "../models/transitTypes";
 
 export type { LiveBus } from "../models/transitTypes";
@@ -44,15 +44,43 @@ const SEARCH_MEMORY_TTL_MS = 5 * 60 * 1000;
 const API_RETRY_COUNT = 1;
 const SEARCH_RETRY_DELAYS_MS = [650, 1800, 3600];
 
+type SearchLocation = Partial<Coordinate> | null | undefined;
 type SearchCacheEntry = { createdAt: number; results: PlaceResult[] };
 const searchMemoryCache = new Map<string, SearchCacheEntry>();
 
-function searchCacheKey(query: string) {
-  return query.trim().toLowerCase().replace(/\s+/g, " ");
+let lastSearchLocation: Coordinate | null = null;
+let lastSearchLocationReadAt = 0;
+
+function normalizeSearchLocation(location?: SearchLocation): Coordinate | null {
+  const latitude = Number(
+    (location as any)?.latitude ?? (location as any)?.lat,
+  );
+  const longitude = Number(
+    (location as any)?.longitude ??
+      (location as any)?.lon ??
+      (location as any)?.lng,
+  );
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+
+  return { latitude, longitude };
 }
 
-function getSearchMemoryCache(query: string) {
-  const key = searchCacheKey(query);
+function locationCacheBucket(location?: SearchLocation) {
+  const coordinate = normalizeSearchLocation(location);
+  if (!coordinate) return "no-location";
+
+  // ~1.1 km bucket. This keeps autocomplete cache stable while still separating cities.
+  return `${coordinate.latitude.toFixed(2)},${coordinate.longitude.toFixed(2)}`;
+}
+
+function searchCacheKey(query: string, location?: SearchLocation) {
+  return `${query.trim().toLowerCase().replace(/\s+/g, " ")}:${locationCacheBucket(location)}`;
+}
+
+function getSearchMemoryCache(query: string, location?: SearchLocation) {
+  const key = searchCacheKey(query, location);
   const cached = searchMemoryCache.get(key);
   if (!cached) return null;
   if (Date.now() - cached.createdAt > SEARCH_MEMORY_TTL_MS) {
@@ -62,10 +90,56 @@ function getSearchMemoryCache(query: string) {
   return cached.results;
 }
 
-function setSearchMemoryCache(query: string, results: PlaceResult[]) {
-  searchMemoryCache.set(searchCacheKey(query), {
+function setSearchMemoryCache(
+  query: string,
+  results: PlaceResult[],
+  location?: SearchLocation,
+) {
+  searchMemoryCache.set(searchCacheKey(query, location), {
     createdAt: Date.now(),
     results,
+  });
+}
+
+async function getBestEffortDeviceLocation(): Promise<Coordinate | null> {
+  // Primary path should be explicit location from MapScreen/useTransitPlanner.
+  // This fallback only helps old call sites if React Native exposes navigator.geolocation.
+  if (lastSearchLocation && Date.now() - lastSearchLocationReadAt < 60_000) {
+    return lastSearchLocation;
+  }
+
+  const geolocation = (globalThis as any)?.navigator?.geolocation;
+  if (!geolocation?.getCurrentPosition) return null;
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), 1200);
+
+    try {
+      geolocation.getCurrentPosition(
+        (position: any) => {
+          clearTimeout(timer);
+          const coordinate = normalizeSearchLocation({
+            latitude: position?.coords?.latitude,
+            longitude: position?.coords?.longitude,
+          });
+
+          if (coordinate) {
+            lastSearchLocation = coordinate;
+            lastSearchLocationReadAt = Date.now();
+          }
+
+          resolve(coordinate);
+        },
+        () => {
+          clearTimeout(timer);
+          resolve(null);
+        },
+        { enableHighAccuracy: false, timeout: 1000, maximumAge: 60000 },
+      );
+    } catch {
+      clearTimeout(timer);
+      resolve(null);
+    }
   });
 }
 
@@ -159,9 +233,17 @@ async function fetchSearchJson(url: string): Promise<any | null> {
   const base = apiBase();
   let lastError: unknown = null;
 
-  for (let attempt = 0; attempt <= SEARCH_RETRY_DELAYS_MS.length; attempt += 1) {
+  for (
+    let attempt = 0;
+    attempt <= SEARCH_RETRY_DELAYS_MS.length;
+    attempt += 1
+  ) {
     try {
-      const response = await fetchWithTimeout(url, undefined, SEARCH_TIMEOUT_MS);
+      const response = await fetchWithTimeout(
+        url,
+        undefined,
+        SEARCH_TIMEOUT_MS,
+      );
       const text = await response.text();
 
       if (response.status === 429) {
@@ -169,12 +251,17 @@ async function fetchSearchJson(url: string): Promise<any | null> {
           await sleep(SEARCH_RETRY_DELAYS_MS[attempt]);
           continue;
         }
-        console.warn("[Arbebus search] backend rate limited; skipping this keystroke");
+        console.warn(
+          "[Arbebus search] backend rate limited; skipping this keystroke",
+        );
         return null;
       }
 
       if (!response.ok) {
-        if (shouldRetrySearchStatus(response.status) && attempt < SEARCH_RETRY_DELAYS_MS.length) {
+        if (
+          shouldRetrySearchStatus(response.status) &&
+          attempt < SEARCH_RETRY_DELAYS_MS.length
+        ) {
           await sleep(SEARCH_RETRY_DELAYS_MS[attempt]);
           continue;
         }
@@ -188,7 +275,9 @@ async function fetchSearchJson(url: string): Promise<any | null> {
           await sleep(SEARCH_RETRY_DELAYS_MS[attempt]);
           continue;
         }
-        console.warn(`[Arbebus search] backend returned HTML instead of JSON: ${text.slice(0, 120)}`);
+        console.warn(
+          `[Arbebus search] backend returned HTML instead of JSON: ${text.slice(0, 120)}`,
+        );
         return null;
       }
 
@@ -200,7 +289,9 @@ async function fetchSearchJson(url: string): Promise<any | null> {
           await sleep(SEARCH_RETRY_DELAYS_MS[attempt]);
           continue;
         }
-        console.warn(`[Arbebus search] Bad JSON response: ${text.slice(0, 180)}`);
+        console.warn(
+          `[Arbebus search] Bad JSON response: ${text.slice(0, 180)}`,
+        );
         return null;
       }
     } catch (error) {
@@ -788,10 +879,7 @@ function normalizeBackendPlan(
 }
 
 export async function getLiveBuses(): Promise<LiveBus[]> {
-  const endpoints = [
-    API_ENDPOINTS.liveBuses,
-    `${API_BASE}/live-buses`,
-  ];
+  const endpoints = [API_ENDPOINTS.liveBuses, `${API_BASE}/live-buses`];
 
   let lastError: unknown = null;
 
@@ -821,9 +909,7 @@ export async function getLiveBuses(): Promise<LiveBus[]> {
     }
   }
 
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("Live buses failed");
+  throw lastError instanceof Error ? lastError : new Error("Live buses failed");
 }
 
 function normalizePlaceType(item: any): PlaceResult["type"] {
@@ -1036,10 +1122,30 @@ function searchUrls(params: string) {
   return [`${base}/api/search?${params}`];
 }
 
-async function runSearchRequest(q: string): Promise<PlaceResult[]> {
+async function runSearchRequest(
+  q: string,
+  userLocation?: SearchLocation,
+): Promise<PlaceResult[]> {
   // Use internal/local providers first. External providers are expensive and can trigger rate limits.
-  const params = `q=${encodeURIComponent(q)}&limit=8&external=false&includeExternal=false`;
-  const url = searchUrls(params)[0];
+  const location =
+    normalizeSearchLocation(userLocation) ??
+    (await getBestEffortDeviceLocation());
+
+  const params = new URLSearchParams({
+    q,
+    limit: "8",
+    external: "false",
+    includeExternal: "false",
+  });
+
+  if (location) {
+    params.set("lat", String(location.latitude));
+    params.set("lon", String(location.longitude));
+    params.set("latitude", String(location.latitude));
+    params.set("longitude", String(location.longitude));
+  }
+
+  const url = searchUrls(params.toString())[0];
 
   try {
     const data = await fetchSearchJson(url);
@@ -1065,20 +1171,24 @@ async function runSearchRequest(q: string): Promise<PlaceResult[]> {
   }
 }
 
-export async function searchPlaces(query: string): Promise<PlaceResult[]> {
+export async function searchPlaces(
+  query: string,
+  userLocation?: SearchLocation,
+): Promise<PlaceResult[]> {
   const q = query.replace(/\s{2,}/g, " ").trim();
   if (q.length < 2) return [];
 
-  const cached = getSearchMemoryCache(q);
+  const explicitLocation = normalizeSearchLocation(userLocation);
+  const cached = getSearchMemoryCache(q, explicitLocation);
   if (cached && cached.length) return cached.slice(0, 8);
 
-  const results = await runSearchRequest(q);
+  const results = await runSearchRequest(q, explicitLocation);
 
   const ranked = dedupePlaceResults(results)
     .sort((a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q))
     .slice(0, 8);
 
-  if (ranked.length) setSearchMemoryCache(q, ranked);
+  if (ranked.length) setSearchMemoryCache(q, ranked, explicitLocation);
   return ranked;
 }
 
