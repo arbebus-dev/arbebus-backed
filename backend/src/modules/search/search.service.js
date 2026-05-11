@@ -75,8 +75,15 @@ async function runProvider(name, fn, timeoutMs = 1600) {
   }
 }
 
-function searchCacheKey(q, type, limit) {
-  return `v6:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(limit || DEFAULT_LIMIT)}`;
+function searchCacheKey(q, type, limit, query = {}) {
+  const lat = Number(query.lat ?? query.latitude);
+  const lon = Number(query.lon ?? query.lng ?? query.longitude);
+  const locationBucket =
+    Number.isFinite(lat) && Number.isFinite(lon)
+      ? `${lat.toFixed(2)},${lon.toFixed(2)}`
+      : "no-gps";
+
+  return `v7:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(limit || DEFAULT_LIMIT)}:${locationBucket}`;
 }
 
 function isAddressLikeQuery(value = "") {
@@ -206,7 +213,7 @@ async function index(query = {}) {
     };
   }
 
-  const cacheKey = searchCacheKey(q, type, limit);
+  const cacheKey = searchCacheKey(q, type, limit, query);
   const cached = await getCache(cacheKey);
 
   if (cached) {
@@ -228,7 +235,12 @@ async function index(query = {}) {
     ),
     runProvider(
       "local_address",
-      () => searchLocalAddresses(q, { limit: Math.max(8, limit) }),
+      () =>
+        searchLocalAddresses(q, {
+          limit: Math.max(8, limit),
+          lat: query.lat ?? query.latitude,
+          lon: query.lon ?? query.lng ?? query.longitude,
+        }),
       LOCAL_ADDRESS_TIMEOUT_MS,
     ),
     runProvider(
