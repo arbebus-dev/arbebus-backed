@@ -3,26 +3,132 @@ const { toResult } = require("../utils/mapSearchResult");
 const { getPool } = require("../../../db/pool");
 
 const STREETS = [
-  { names: ["taikos pr", "taikos prospektas", "taikos"], title: "Taikos pr.", lat: 55.6909, lon: 21.1567 },
-  { names: ["herkaus manto g", "h manto g", "h manto", "manto g", "herkaus manto"], title: "H. Manto g.", lat: 55.7212, lon: 21.1289 },
-  { names: ["liepu g", "liepu", "liepų g", "liepų"], title: "Liepų g.", lat: 55.7114, lon: 21.1371 },
-  { names: ["tilzes g", "tilzes", "tilžės g", "tilžės"], title: "Tilžės g.", lat: 55.6981, lon: 21.1617 },
-  { names: ["minijos g", "minijos"], title: "Minijos g.", lat: 55.6819, lon: 21.1513 },
-  { names: ["silutes pl", "silutes plentas", "šilutės pl", "šilutės plentas"], title: "Šilutės pl.", lat: 55.6751, lon: 21.1766 },
-  { names: ["baltijos pr", "baltijos prospektas", "baltijos"], title: "Baltijos pr.", lat: 55.6815, lon: 21.1644 },
-  { names: ["smilteles g", "smilteles", "smiltelės g", "smiltelės"], title: "Smiltelės g.", lat: 55.6584, lon: 21.1794 },
-  { names: ["statybininku pr", "statybininku prospektas", "statybininkų pr"], title: "Statybininkų pr.", lat: 55.6658, lon: 21.1785 },
-  { names: ["debreceno g", "debreceno", "debre ceno g", "debre ceno"], title: "Debreceno g.", lat: 55.6727, lon: 21.1805 },
-  { names: ["mokyklos g", "mokyklos"], title: "Mokyklos g.", lat: 55.7019, lon: 21.1605 },
-  { names: ["kretingos g", "kretingos"], title: "Kretingos g.", lat: 55.7345, lon: 21.1304 },
-  { names: ["priestocio g", "priestocio", "priešstočio g", "priešstočio"], title: "Priestočio g.", lat: 55.7173, lon: 21.1398 },
-  { names: ["naujojo sodo g", "naujojo sodo"], title: "Naujojo Sodo g.", lat: 55.7106, lon: 21.1341 },
-  { names: ["jurininku pr", "jūrininkų pr", "jurininku", "jūrininkų"], title: "Jūrininkų pr.", lat: 55.6547, lon: 21.1819 },
-  { names: ["mogiliovo g", "mogiliovo"], title: "Mogiliovo g.", lat: 55.6578, lon: 21.1905 },
-  { names: ["vingio g", "vingio"], title: "Vingio g.", lat: 55.6559, lon: 21.1772 },
-  { names: ["laukininku g", "laukininkų g", "laukininku", "laukininkų"], title: "Laukininkų g.", lat: 55.6546, lon: 21.1878 },
-  { names: ["reikjaviko g", "reikjaviko"], title: "Reikjaviko g.", lat: 55.6526, lon: 21.1818 },
-  { names: ["savanoriu pr", "savanorių pr", "savanoriu", "savanorių"], title: "Savanorių pr.", lat: 55.7299, lon: 21.1285 },
+  {
+    names: ["taikos pr", "taikos prospektas", "taikos"],
+    title: "Taikos pr.",
+    lat: 55.6909,
+    lon: 21.1567,
+  },
+  {
+    names: [
+      "herkaus manto g",
+      "h manto g",
+      "h manto",
+      "manto g",
+      "herkaus manto",
+    ],
+    title: "H. Manto g.",
+    lat: 55.7212,
+    lon: 21.1289,
+  },
+  {
+    names: ["liepu g", "liepu", "liepų g", "liepų"],
+    title: "Liepų g.",
+    lat: 55.7114,
+    lon: 21.1371,
+  },
+  {
+    names: ["tilzes g", "tilzes", "tilžės g", "tilžės"],
+    title: "Tilžės g.",
+    lat: 55.6981,
+    lon: 21.1617,
+  },
+  {
+    names: ["minijos g", "minijos"],
+    title: "Minijos g.",
+    lat: 55.6819,
+    lon: 21.1513,
+  },
+  {
+    names: ["silutes pl", "silutes plentas", "šilutės pl", "šilutės plentas"],
+    title: "Šilutės pl.",
+    lat: 55.6751,
+    lon: 21.1766,
+  },
+  {
+    names: ["baltijos pr", "baltijos prospektas", "baltijos"],
+    title: "Baltijos pr.",
+    lat: 55.6815,
+    lon: 21.1644,
+  },
+  {
+    names: ["smilteles g", "smilteles", "smiltelės g", "smiltelės"],
+    title: "Smiltelės g.",
+    lat: 55.6584,
+    lon: 21.1794,
+  },
+  {
+    names: ["statybininku pr", "statybininku prospektas", "statybininkų pr"],
+    title: "Statybininkų pr.",
+    lat: 55.6658,
+    lon: 21.1785,
+  },
+  {
+    names: ["debreceno g", "debreceno", "debre ceno g", "debre ceno"],
+    title: "Debreceno g.",
+    lat: 55.6727,
+    lon: 21.1805,
+  },
+  {
+    names: ["mokyklos g", "mokyklos"],
+    title: "Mokyklos g.",
+    lat: 55.7019,
+    lon: 21.1605,
+  },
+  {
+    names: ["kretingos g", "kretingos"],
+    title: "Kretingos g.",
+    lat: 55.7345,
+    lon: 21.1304,
+  },
+  {
+    names: ["priestocio g", "priestocio", "priešstočio g", "priešstočio"],
+    title: "Priestočio g.",
+    lat: 55.7173,
+    lon: 21.1398,
+  },
+  {
+    names: ["naujojo sodo g", "naujojo sodo"],
+    title: "Naujojo Sodo g.",
+    lat: 55.7106,
+    lon: 21.1341,
+  },
+  {
+    names: ["jurininku pr", "jūrininkų pr", "jurininku", "jūrininkų"],
+    title: "Jūrininkų pr.",
+    lat: 55.6547,
+    lon: 21.1819,
+  },
+  {
+    names: ["mogiliovo g", "mogiliovo"],
+    title: "Mogiliovo g.",
+    lat: 55.6578,
+    lon: 21.1905,
+  },
+  {
+    names: ["vingio g", "vingio"],
+    title: "Vingio g.",
+    lat: 55.6559,
+    lon: 21.1772,
+  },
+  {
+    names: ["laukininku g", "laukininkų g", "laukininku", "laukininkų"],
+    title: "Laukininkų g.",
+    lat: 55.6546,
+    lon: 21.1878,
+  },
+  {
+    names: ["reikjaviko g", "reikjaviko"],
+    title: "Reikjaviko g.",
+    lat: 55.6526,
+    lon: 21.1818,
+  },
+  {
+    names: ["savanoriu pr", "savanorių pr", "savanoriu", "savanorių"],
+    title: "Savanorių pr.",
+    lat: 55.7299,
+    lon: 21.1285,
+  },
 ];
 
 let lastDbError = null;
@@ -59,6 +165,7 @@ function localStreetFallback(query, options = {}) {
     if (!matchesStreet(q, street)) continue;
 
     const exactTitle = house ? `${street.title} ${house}` : street.title;
+
     results.push(
       toResult({
         id: `local-street-${compactQuery(exactTitle).replace(/\s+/g, "-")}`,
@@ -75,7 +182,13 @@ function localStreetFallback(query, options = {}) {
         score: house ? 120 : 240,
         selectable: false,
         requiresHouseNumber: true,
-        keywords: [street.title, ...street.names, "Klaipėda", "adresas", "gatvė"],
+        keywords: [
+          street.title,
+          ...street.names,
+          "Klaipėda",
+          "adresas",
+          "gatvė",
+        ],
       }),
     );
   }
@@ -84,8 +197,9 @@ function localStreetFallback(query, options = {}) {
 }
 
 function rowToAddressResult(row, query) {
-  const title = row.full_address || [row.street, row.house_number].filter(Boolean).join(" ");
-  const subtitle = [row.settlement, row.municipality].filter(Boolean).join(", ");
+  const title =
+    row.name || [row.street, row.house_number].filter(Boolean).join(" ");
+  const subtitle = [row.city, row.postcode].filter(Boolean).join(", ");
   const exactHouse = extractHouseNumber(query);
 
   return toResult({
@@ -94,8 +208,8 @@ function rowToAddressResult(row, query) {
     title,
     name: title,
     subtitle,
-    latitude: row.latitude,
-    longitude: row.longitude,
+    latitude: Number(row.lat || 0),
+    longitude: Number(row.lon || 0),
     source: "postgres_address",
     category: "Adresas",
     priority: exactHouse ? 260 : 180,
@@ -103,11 +217,11 @@ function rowToAddressResult(row, query) {
     selectable: true,
     requiresHouseNumber: false,
     keywords: [
-      row.full_address,
+      row.name,
       row.street,
       row.house_number,
-      row.settlement,
-      row.municipality,
+      row.city,
+      row.postcode,
     ].filter(Boolean),
   });
 }
@@ -115,45 +229,77 @@ function rowToAddressResult(row, query) {
 async function searchPostgresAddresses(query, options = {}) {
   const q = String(query || "").trim();
   const nq = compactQuery(q);
+
   if (nq.length < 2) return [];
 
   const limit = Math.min(Math.max(Number(options.limit || 8), 1), 20);
   const house = extractHouseNumber(q);
   const pool = getPool();
-  const streetPart = nq.replace(/\b\d+[a-z]?\b/gi, "").trim();
 
-  // Works with the existing public.addresses schema. It does not require a custom
-  // SQL function; it uses search_text when available and falls back to text ILIKE.
+  const streetPart = nq.replace(/\b\d+[a-z]?\b/gi, "").trim();
+  const cityHints = [
+    "klaipeda",
+    "klaipėda",
+    "vilnius",
+    "kaunas",
+    "palanga",
+    "siauliai",
+    "šiauliai",
+    "panevezys",
+    "panevėžys",
+  ];
+
+  const normalizedStreetPart = streetPart
+    .replace(/\b(g|gatve|gatvė|pr|prospektas|pl|plentas)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const cityHint =
+    cityHints.find((city) => nq.includes(compactQuery(city))) || null;
+
   const sql = `
     SELECT
       id,
-      municipality,
-      eldership,
-      settlement,
+      name,
       street,
       house_number,
-      building_suffix,
-      postal_code,
-      full_address,
-      latitude,
-      longitude,
+      city,
+      postcode,
+      lat,
+      lon,
       (
-        CASE WHEN COALESCE(search_text, '') ILIKE '%' || $1 || '%' THEN 6500 ELSE 0 END +
-        CASE WHEN COALESCE(full_address, '') ILIKE '%' || $4 || '%' THEN 4200 ELSE 0 END +
-        CASE WHEN COALESCE(street, '') ILIKE '%' || $2 || '%' THEN 1800 ELSE 0 END +
-        CASE WHEN $3::text IS NOT NULL AND UPPER(COALESCE(house_number, '')) = UPPER($3::text) THEN 3200 ELSE 0 END +
-        GREATEST(0, 800 - LEAST(800, length(COALESCE(full_address, ''))))
+        CASE WHEN COALESCE(name, '') ILIKE '%' || $1 || '%' THEN 9000 ELSE 0 END +
+        CASE WHEN COALESCE(street, '') ILIKE '%' || $2 || '%' THEN 3000 ELSE 0 END +
+        CASE WHEN COALESCE(street, '') ILIKE '%' || $3 || '%' THEN 2200 ELSE 0 END +
+        CASE WHEN $4::text IS NOT NULL AND UPPER(COALESCE(house_number, '')) = UPPER($4::text) THEN 4500 ELSE 0 END +
+        CASE WHEN $4::text IS NOT NULL AND UPPER(COALESCE(house_number, '')) ILIKE UPPER($4::text) || '%' THEN 2200 ELSE 0 END +
+        CASE WHEN $5::text IS NOT NULL AND COALESCE(city, '') ILIKE '%' || $5::text || '%' THEN 2500 ELSE 0 END +
+        GREATEST(0, 800 - LEAST(800, length(COALESCE(name, ''))))
       ) AS rank_score
     FROM public.addresses
     WHERE
-      COALESCE(search_text, '') ILIKE '%' || $1 || '%'
-      OR COALESCE(full_address, '') ILIKE '%' || $4 || '%'
+      COALESCE(name, '') ILIKE '%' || $1 || '%'
       OR COALESCE(street, '') ILIKE '%' || $2 || '%'
-    ORDER BY rank_score DESC, full_address ASC
-    LIMIT $5
+      OR COALESCE(street, '') ILIKE '%' || $3 || '%'
+      OR (
+        $4::text IS NOT NULL
+        AND COALESCE(street, '') ILIKE '%' || $2 || '%'
+        AND UPPER(COALESCE(house_number, '')) ILIKE UPPER($4::text) || '%'
+      )
+    ORDER BY rank_score DESC, city ASC, street ASC, house_number ASC
+    LIMIT $6
   `;
 
-  const result = await pool.query(sql, [nq, streetPart || nq, house, q, limit]);
+  const params = [
+    q,
+    streetPart || nq,
+    normalizedStreetPart || streetPart || nq,
+    house,
+    cityHint,
+    limit,
+  ];
+
+  const result = await pool.query(sql, params);
   return result.rows.map((row) => rowToAddressResult(row, q)).filter(Boolean);
 }
 
@@ -172,10 +318,13 @@ async function searchLocalAddresses(query, options = {}) {
 
 async function refreshDbCount() {
   if (Date.now() - lastDbHealthCheck < 30000) return lastDbCount;
+
   lastDbHealthCheck = Date.now();
 
   try {
-    const result = await getPool().query("SELECT COUNT(*)::int AS count FROM public.addresses");
+    const result = await getPool().query(
+      "SELECT COUNT(*)::int AS count FROM public.addresses",
+    );
     lastDbCount = Number(result.rows?.[0]?.count || 0);
     lastDbError = null;
   } catch (error) {
@@ -187,6 +336,7 @@ async function refreshDbCount() {
 
 function localAddressHealth() {
   refreshDbCount().catch(() => undefined);
+
   return {
     localAddressItems: STREETS.length,
     postgresAddressProvider: true,
