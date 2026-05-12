@@ -384,7 +384,7 @@ export default function MapScreen() {
           const title = String(provisional.title || "").trim();
 
           if (shouldReverse && title && title !== "Pasirinkta vieta") {
-            const nearbyByName = await searchPlaces(title);
+            const nearbyByName = await searchPlaces(title, userLocation ?? undefined);
             const closest = nearbyByName
               .map((item) => ({
                 item,

@@ -1289,7 +1289,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       if (requestId !== searchRequestId.current) return;
 
       try {
-        const rawResults = await searchPlaces(searchQuery);
+        const rawResults = await searchPlaces(searchQuery, userLocation ?? undefined);
         if (requestId !== searchRequestId.current) return;
 
         const results = safeArray(rawResults)
