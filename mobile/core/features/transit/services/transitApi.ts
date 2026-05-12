@@ -50,6 +50,7 @@ const searchMemoryCache = new Map<string, SearchCacheEntry>();
 
 let lastSearchLocation: Coordinate | null = null;
 let lastSearchLocationReadAt = 0;
+let activeSearchController: AbortController | null = null;
 
 function normalizeSearchLocation(location?: SearchLocation): Coordinate | null {
   const latitude = Number(
@@ -149,6 +150,14 @@ async function fetchWithTimeout(
   timeoutMs = API_TIMEOUT_MS,
 ) {
   const controller = new AbortController();
+  const externalSignal = init?.signal;
+  const abortFromExternal = () => controller.abort();
+
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener("abort", abortFromExternal, { once: true });
+  }
+
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -158,6 +167,7 @@ async function fetchWithTimeout(
     });
   } finally {
     clearTimeout(timer);
+    if (externalSignal) externalSignal.removeEventListener("abort", abortFromExternal);
   }
 }
 
@@ -229,7 +239,7 @@ async function wakeBackend(baseUrl: string) {
   }
 }
 
-async function fetchSearchJson(url: string): Promise<any | null> {
+async function fetchSearchJson(url: string, signal?: AbortSignal): Promise<any | null> {
   const base = apiBase();
   let lastError: unknown = null;
 
@@ -239,9 +249,10 @@ async function fetchSearchJson(url: string): Promise<any | null> {
     attempt += 1
   ) {
     try {
+      if (signal?.aborted) return null;
       const response = await fetchWithTimeout(
         url,
-        undefined,
+        signal ? { signal } : undefined,
         SEARCH_TIMEOUT_MS,
       );
       const text = await response.text();
@@ -1136,6 +1147,8 @@ async function runSearchRequest(
     limit: "8",
     external: "false",
     includeExternal: "false",
+    autocomplete: "true",
+    mode: "autocomplete",
   });
 
   if (location) {
@@ -1147,8 +1160,12 @@ async function runSearchRequest(
 
   const url = searchUrls(params.toString())[0];
 
+  activeSearchController?.abort();
+  const controller = new AbortController();
+  activeSearchController = controller;
+
   try {
-    const data = await fetchSearchJson(url);
+    const data = await fetchSearchJson(url, controller.signal);
     if (!data) return [];
 
     const rawResults = normalizeSearchPayload(data);
@@ -1166,8 +1183,14 @@ async function runSearchRequest(
       )
       .slice(0, 8);
   } catch (error) {
-    console.warn("[Arbebus search] failed", error);
+    if ((error as any)?.name !== "AbortError") {
+      console.warn("[Arbebus search] failed", error);
+    }
     return [];
+  } finally {
+    if (activeSearchController === controller) {
+      activeSearchController = null;
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PlaceResult, searchPlaces } from "../services/transitApi";
+import type { Coordinate } from "../models/transitTypes";
 
 const SEARCH_DEBOUNCE_MS = 250;
 const MIN_QUERY_LENGTH = 2;
@@ -14,26 +15,30 @@ type CachedSearch = {
 
 const memoryCache = new Map<string, CachedSearch>();
 
-function cleanKey(query: string) {
-  return query.trim().toLowerCase().replace(/\s+/g, " ");
+function cleanKey(query: string, userLocation?: Coordinate | null) {
+  const locationBucket = userLocation
+    ? `${Number(userLocation.latitude).toFixed(2)},${Number(userLocation.longitude).toFixed(2)}`
+    : "no-location";
+  return `${query.trim().toLowerCase().replace(/\s+/g, " ")}:${locationBucket}`;
 }
 
-function getCachedResults(query: string) {
-  const cached = memoryCache.get(cleanKey(query));
+function getCachedResults(query: string, userLocation?: Coordinate | null) {
+  const key = cleanKey(query, userLocation);
+  const cached = memoryCache.get(key);
   if (!cached) return null;
   const age = Date.now() - cached.createdAt;
   if (age > STALE_RESULT_MAX_AGE_MS) {
-    memoryCache.delete(cleanKey(query));
+    memoryCache.delete(key);
     return null;
   }
   return { ...cached, isFresh: age <= MEMORY_TTL_MS };
 }
 
-function setCachedResults(query: string, results: PlaceResult[]) {
-  memoryCache.set(cleanKey(query), { createdAt: Date.now(), results: results.slice(0, MAX_RESULTS) });
+function setCachedResults(query: string, results: PlaceResult[], userLocation?: Coordinate | null) {
+  memoryCache.set(cleanKey(query, userLocation), { createdAt: Date.now(), results: results.slice(0, MAX_RESULTS) });
 }
 
-export function useSearchPlaces(query: string) {
+export function useSearchPlaces(query: string, userLocation?: Coordinate | null) {
   const [results, setResults] = useState<PlaceResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [isStale, setIsStale] = useState(false);
@@ -52,7 +57,7 @@ export function useSearchPlaces(query: string) {
       return;
     }
 
-    const cached = getCachedResults(cleanQuery);
+    const cached = getCachedResults(cleanQuery, userLocation);
     if (cached?.results?.length) {
       setResults(cached.results.slice(0, MAX_RESULTS));
       setLoading(!cached.isFresh);
@@ -67,10 +72,10 @@ export function useSearchPlaces(query: string) {
 
     const timer = setTimeout(async () => {
       try {
-        const data = (await searchPlaces(cleanQuery)).slice(0, MAX_RESULTS);
+        const data = (await searchPlaces(cleanQuery, userLocation ?? undefined)).slice(0, MAX_RESULTS);
 
         if (!cancelled && requestId === requestIdRef.current) {
-          setCachedResults(cleanQuery, data);
+          setCachedResults(cleanQuery, data, userLocation);
           setResults(data);
           setIsStale(false);
         }
@@ -89,7 +94,7 @@ export function useSearchPlaces(query: string) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [cleanQuery]);
+  }, [cleanQuery, userLocation?.latitude, userLocation?.longitude]);
 
   return {
     results,

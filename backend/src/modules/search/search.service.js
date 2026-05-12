@@ -24,6 +24,7 @@ const {
 const { searchFastIndex, searchIndexHealth } = require("./index/searchIndex");
 const {
   searchLocalAddresses,
+  getLocalAddressDetails,
   localAddressHealth,
 } = require("./providers/localAddress.provider");
 const { searchMeili, meiliHealth } = require("./providers/meili.provider");
@@ -31,7 +32,7 @@ const { searchMeili, meiliHealth } = require("./providers/meili.provider");
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 30;
 const FAST_INDEX_TIMEOUT_MS = 120;
-const LOCAL_ADDRESS_TIMEOUT_MS = 15000;
+const LOCAL_ADDRESS_TIMEOUT_MS = 1800;
 const MEILI_TIMEOUT_MS = 1200;
 
 function limitValue(value) {
@@ -83,7 +84,7 @@ function searchCacheKey(q, type, limit, query = {}) {
       ? `${lat.toFixed(2)},${lon.toFixed(2)}`
       : "no-gps";
 
-  return `v9:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(limit || DEFAULT_LIMIT)}:${locationBucket}`;
+  return `v11:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(limit || DEFAULT_LIMIT)}:${locationBucket}`;
 }
 
 function isAddressLikeQuery(value = "") {
@@ -107,8 +108,8 @@ function shouldUseExternalSearch(query = {}) {
     query.q || query.query || query.text || query.search || "",
   ).trim();
 
-  if (q.length >= 3 && isAddressLikeQuery(q)) return true;
-
+  // Autocomplete must stay local/instant by default. External providers are used only
+  // when explicitly requested or when SEARCH_EXTERNAL_ENABLED=true.
   return envBool("SEARCH_EXTERNAL_ENABLED", false);
 }
 
@@ -251,8 +252,8 @@ async function index(query = {}) {
   ]);
 
   let combined = [
-    ...meili.results,
     ...localAddress.results,
+    ...meili.results,
     ...fastIndex.results,
   ];
 
@@ -265,8 +266,11 @@ async function index(query = {}) {
 
   const addressLike = isAddressLikeQuery(q);
   const includeExternal = shouldUseExternalSearch(query);
+  const localAddressHasResult = localAddress.results.length > 0;
 
-  if (includeExternal && (addressLike || !hasStrongFastResult)) {
+  // Address autocomplete must not wait for Google/OSM/Overpass if local DB already
+  // returned results. This is the key Apple Maps-style speed rule.
+  if (includeExternal && !(addressLike && localAddressHasResult) && (addressLike || !hasStrongFastResult)) {
     const [google, nominatim, overpass] = await Promise.all([
       runProvider(
         "google_places",
@@ -281,7 +285,7 @@ async function index(query = {}) {
 
     combined = [
       ...combined,
-      ...google.results,
+      ...google.results.map((item) => ({ ...item, photoUrls: undefined, photos: undefined })),
       ...nominatim.results,
       ...overpass.results,
     ];
@@ -289,6 +293,11 @@ async function index(query = {}) {
 
   if (type !== "all") {
     combined = combined.filter((item) => item.type === type);
+  }
+
+  if (addressLike && localAddress.results.length) {
+    const allowed = new Set(["address", "street", "stop", "station", "ferry"]);
+    combined = combined.filter((item) => allowed.has(String(item.type || "").toLowerCase()));
   }
 
   const ranked = rankResults(dedupeResults(combined), q);
@@ -310,7 +319,7 @@ async function index(query = {}) {
       instant: true,
       externalEnabled: includeExternal,
       externalSkipped:
-        !includeExternal || (!addressLike && hasStrongFastResult),
+        !includeExternal || (addressLike && localAddressHasResult) || (!addressLike && hasStrongFastResult),
       tookMs: Date.now() - startedAt,
       providers: compactProviderMeta(providers),
     },
@@ -487,6 +496,32 @@ async function details(query = {}) {
       result: null,
       place: null,
       meta: healthMeta(),
+    };
+  }
+
+  if (placeId.startsWith("address-")) {
+    const localAddress = await getLocalAddressDetails(placeId, {
+      lat: query.lat ?? query.latitude,
+      lon: query.lon ?? query.lng ?? query.longitude,
+    });
+
+    return {
+      ok: Boolean(localAddress),
+      placeId,
+      result: localAddress,
+      place: localAddress,
+      results: localAddress ? [localAddress] : [],
+      meta: {
+        ...healthMeta(),
+        providers: [
+          {
+            name: "local_address_details",
+            ok: Boolean(localAddress),
+            count: localAddress ? 1 : 0,
+            error: localAddress ? null : "address not found",
+          },
+        ],
+      },
     };
   }
 
