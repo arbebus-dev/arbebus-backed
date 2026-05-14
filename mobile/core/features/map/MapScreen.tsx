@@ -545,9 +545,10 @@ export default function MapScreen() {
 
         <LiveBusesLayer
           buses={buses}
-          selectedRouteLabel={selectedRouteLabel}
+          selectedRouteLabel={selectedRouteNumber || selectedRouteLabel}
           selectedVehicleId={selectedVehicleId}
           visibleRegion={visibleRegion}
+          focusOnSelectedRoute={Boolean(selectedRoute)}
         />
 
         {selectedMapPlace?.coordinate ? (

@@ -135,7 +135,7 @@ async function getBestEffortDeviceLocation(): Promise<Coordinate | null> {
           clearTimeout(timer);
           resolve(null);
         },
-        { enableHighAccuracy: false, timeout: 1000, maximumAge: 60000 },
+        { enableHighAccuracy: true, timeout: 1000, maximumAge: 60000 },
       );
     } catch {
       clearTimeout(timer);
@@ -155,7 +155,10 @@ async function fetchWithTimeout(
 
   if (externalSignal) {
     if (externalSignal.aborted) controller.abort();
-    else externalSignal.addEventListener("abort", abortFromExternal, { once: true });
+    else
+      externalSignal.addEventListener("abort", abortFromExternal, {
+        once: true,
+      });
   }
 
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -167,7 +170,8 @@ async function fetchWithTimeout(
     });
   } finally {
     clearTimeout(timer);
-    if (externalSignal) externalSignal.removeEventListener("abort", abortFromExternal);
+    if (externalSignal)
+      externalSignal.removeEventListener("abort", abortFromExternal);
   }
 }
 
@@ -239,7 +243,10 @@ async function wakeBackend(baseUrl: string) {
   }
 }
 
-async function fetchSearchJson(url: string, signal?: AbortSignal): Promise<any | null> {
+async function fetchSearchJson(
+  url: string,
+  signal?: AbortSignal,
+): Promise<any | null> {
   const base = apiBase();
   let lastError: unknown = null;
 
@@ -470,6 +477,18 @@ function normalizeStop(raw: any) {
     coordinate,
     distanceMeters:
       raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
+    arrivalTime: raw?.arrivalTime ?? raw?.arrival_time ?? raw?.arrivalText,
+    departureTime: raw?.departureTime ?? raw?.departure_time ?? raw?.departureText,
+    arrivalText: raw?.arrivalText ?? raw?.arrivalTime ?? raw?.arrival_time,
+    departureText: raw?.departureText ?? raw?.departureTime ?? raw?.departure_time,
+    displayTime:
+      raw?.displayTime ??
+      raw?.departureText ??
+      raw?.departureTime ??
+      raw?.departure_time ??
+      raw?.arrivalText ??
+      raw?.arrivalTime ??
+      raw?.arrival_time,
     arrivalSeconds:
       raw?.arrivalSeconds != null
         ? Number(raw.arrivalSeconds)
@@ -989,8 +1008,14 @@ function rankPlaceResult(
 
   // Mobile-side safety ranking. Backend already ranks, but this protects old builds
   // and aliases that still route through /places/search.
-  if (item.type === "poi") score += 500;
-  if (item.type === "address") score += 420;
+  if (isAddressLikeSearchQuery(query)) {
+    if (item.type === "address") score += 900;
+    if (item.type === "poi") score += 120;
+    if (item.type === "stop") score -= 180;
+  } else {
+    if (item.type === "poi") score += 500;
+    if (item.type === "address") score += 420;
+  }
   if (item.type === "city" || item.type === "region") score += 260;
   if (item.type === "stop") score += 80;
 
@@ -1145,6 +1170,8 @@ async function runSearchRequest(
   const params = new URLSearchParams({
     q,
     limit: "8",
+    // Apple Maps-style autocomplete: local DB first; external providers only after
+    // backend decides they are needed. This keeps typing instant and avoids POI noise.
     external: "false",
     includeExternal: "false",
     autocomplete: "true",
@@ -1335,7 +1362,7 @@ export async function planTransitRoute(params: {
 
   const data = await safeJson<any>(response);
 
-  if (!response.ok || data?.ok === false) {
+  if (!response.ok || data?.ok === true) {
     throw new Error(data?.error || `Transit plan failed: ${response.status}`);
   }
 

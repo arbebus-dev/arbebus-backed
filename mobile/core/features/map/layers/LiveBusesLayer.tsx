@@ -17,6 +17,7 @@ type Props = {
   selectedRouteLabel?: string | null;
   selectedVehicleId?: string | null;
   visibleRegion?: Region | null;
+  focusOnSelectedRoute?: boolean;
 };
 
 type BusMarkerProps = {
@@ -261,6 +262,7 @@ export default function LiveBusesLayer({
   selectedRouteLabel,
   selectedVehicleId,
   visibleRegion,
+  focusOnSelectedRoute = false,
 }: Props) {
   const selectedNumber = cleanRouteNumber(selectedRouteLabel);
   const selectedVehicle = normalizeId(selectedVehicleId);
@@ -333,9 +335,12 @@ export default function LiveBusesLayer({
       }
     }
 
-    const inViewport = [...dedupedByVehicle.values()].filter(
-      (item) => item.isImportant || isInRegion(item.coordinate, visibleRegion),
-    );
+    const routeFocused = Boolean(focusOnSelectedRoute && (selectedNumber || selectedVehicle));
+
+    const inViewport = [...dedupedByVehicle.values()].filter((item) => {
+      if (routeFocused) return item.isImportant;
+      return item.isImportant || isInRegion(item.coordinate, visibleRegion);
+    });
 
     const max =
       selectedNumber || selectedVehicle ? MAX_ROUTE_BUSES : MAX_IDLE_BUSES;
@@ -358,7 +363,7 @@ export default function LiveBusesLayer({
         );
       })
       .slice(0, max);
-  }, [buses, selectedNumber, selectedVehicle, visibleRegion]);
+  }, [buses, selectedNumber, selectedVehicle, visibleRegion, focusOnSelectedRoute]);
 
   return (
     <>

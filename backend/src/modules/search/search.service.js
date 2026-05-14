@@ -110,7 +110,7 @@ function shouldUseExternalSearch(query = {}) {
 
   // Autocomplete must stay local/instant by default. External providers are used only
   // when explicitly requested or when SEARCH_EXTERNAL_ENABLED=true.
-  return envBool("SEARCH_EXTERNAL_ENABLED", false);
+  return envBool("SEARCH_EXTERNAL_ENABLED", true);
 }
 
 function hasHouseNumberQuery(value = "") {
@@ -268,9 +268,46 @@ async function index(query = {}) {
   const includeExternal = shouldUseExternalSearch(query);
   const localAddressHasResult = localAddress.results.length > 0;
 
+  // Apple Maps rule: if user typed an address-like query and official
+  // PostgreSQL address DB found results, return those immediately. Do not
+  // let POI/stops/external providers outrank exact addresses.
+  if (addressLike && localAddressHasResult) {
+    const addressResults = forceExactAddressPriority(
+      dedupeResults(rankResults(localAddress.results, q)),
+      q,
+    ).slice(0, limit);
+
+    const payload = {
+      ok: true,
+      query: q,
+      count: addressResults.length,
+      results: addressResults,
+      places: addressResults,
+      stops: [],
+      addresses: addressResults,
+      meta: {
+        ...healthMeta(),
+        cached: false,
+        instant: true,
+        externalEnabled: includeExternal,
+        externalSkipped: true,
+        addressLocalFirst: true,
+        tookMs: Date.now() - startedAt,
+        providers: compactProviderMeta([localAddress, meili, fastIndex]),
+      },
+    };
+
+    await setCache(cacheKey, payload, 300);
+    return payload;
+  }
+
   // Address autocomplete must not wait for Google/OSM/Overpass if local DB already
   // returned results. This is the key Apple Maps-style speed rule.
-  if (includeExternal && !(addressLike && localAddressHasResult) && (addressLike || !hasStrongFastResult)) {
+  if (
+    includeExternal &&
+    !(addressLike && localAddressHasResult) &&
+    (addressLike || !hasStrongFastResult)
+  ) {
     const [google, nominatim, overpass] = await Promise.all([
       runProvider(
         "google_places",
@@ -285,7 +322,11 @@ async function index(query = {}) {
 
     combined = [
       ...combined,
-      ...google.results.map((item) => ({ ...item, photoUrls: undefined, photos: undefined })),
+      ...google.results.map((item) => ({
+        ...item,
+        photoUrls: undefined,
+        photos: undefined,
+      })),
       ...nominatim.results,
       ...overpass.results,
     ];
@@ -297,7 +338,9 @@ async function index(query = {}) {
 
   if (addressLike && localAddress.results.length) {
     const allowed = new Set(["address", "street", "stop", "station", "ferry"]);
-    combined = combined.filter((item) => allowed.has(String(item.type || "").toLowerCase()));
+    combined = combined.filter((item) =>
+      allowed.has(String(item.type || "").toLowerCase()),
+    );
   }
 
   const ranked = rankResults(dedupeResults(combined), q);
@@ -319,7 +362,9 @@ async function index(query = {}) {
       instant: true,
       externalEnabled: includeExternal,
       externalSkipped:
-        !includeExternal || (addressLike && localAddressHasResult) || (!addressLike && hasStrongFastResult),
+        !includeExternal ||
+        (addressLike && localAddressHasResult) ||
+        (!addressLike && hasStrongFastResult),
       tookMs: Date.now() - startedAt,
       providers: compactProviderMeta(providers),
     },

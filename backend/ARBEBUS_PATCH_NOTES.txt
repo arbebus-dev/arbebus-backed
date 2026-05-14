@@ -1,0 +1,27 @@
+ARBEBUS SEARCH + JOURNEY PATCH
+
+Pakeista:
+1) Backend search:
+- address-like queries now return official PostgreSQL addresses first.
+- POI/stops/external providers no longer outrank exact addresses.
+- search meta includes addressLocalFirst=true when official address DB was used.
+
+2) Mobile search:
+- autocomplete uses local-first backend mode: external=false/includeExternal=false.
+- mobile dedupe bug fixed.
+- mobile ranking boosts addresses over POI/stops for address-like queries.
+
+3) Journey stop times:
+- backend now sends human-readable arrival/departure times for route stops.
+- mobile now preserves arrivalTime/departureTime/arrivalText/departureText/displayTime in normalized stops.
+- JourneySheet already renders the time column for ride step stops.
+
+4) Map active route filtering:
+- when a route is selected, LiveBusesLayer hides unrelated live buses.
+- selected route line/vehicle remains visible.
+
+After deploy test:
+- /api/search?q=Taikos%2032&external=false
+- /api/search?q=Gargzdai&external=false
+- mobile search: Taikos 32, Nida, Gargždai
+- select route: only selected route buses should remain visible.
