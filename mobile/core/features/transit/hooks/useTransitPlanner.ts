@@ -1470,17 +1470,25 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           source: "useTransitPlanner.selectDestination",
         });
 
-        // IMPORTANT: never show an old route for a newly selected destination.
-        // The previous cache fallback caused "Akropolis" or any new address to open
-        // an unrelated old trip from the phone cache.
+        // Apple Maps rule: never leave the sheet stuck on loading and never show an
+        // unrelated old route. If the planner is temporarily unavailable, show a safe
+        // walk fallback to the selected destination so the user always gets a usable
+        // journey flow.
+        const fallbackRoute = buildWalkOnlyRoute({
+          origin: routeOrigin,
+          destination,
+          points: [routeOrigin, destination.coordinate],
+        });
+
         setIsOffline(true);
         setOfflineMessage(
-          "Nepavyko prisijungti prie maršrutų serverio. Senas maršrutas nerodomas, kad nenuvestų į neteisingą vietą.",
+          "Autobusų maršruto serveris laikinai neatsakė. Rodomas saugus pėsčiųjų variantas iki pasirinkto adreso.",
         );
-        setError(err?.message || "Nepavyko suplanuoti maršruto");
-        setRouteOptions([]);
-        setSelectedRoute(null);
-        setFlowState("destination_selected");
+        setError(null);
+        setRouteOptions([fallbackRoute]);
+        setSelectedRoute(fallbackRoute);
+        setCurrentStepIndex(0);
+        setFlowState("route_options");
       } finally {
         if (requestId === planRequestId.current) {
           setIsPlanning(false);

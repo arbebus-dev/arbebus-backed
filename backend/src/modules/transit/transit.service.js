@@ -7,6 +7,7 @@ const orsClient = require("../routing/ors.client");
 const vehiclePositionsRealtime = require("./realtime/vehiclePositions");
 const ETAEngine = require("./ETA.engine");
 const otpService = require("../otp/otp.service");
+const { formatJourney } = require("./routing/journeyFormatter");
 
 const KLAIPEDA_BOUNDS = {
   // Expanded Klaipėda region bounds. The live stops.lt feed also contains
@@ -1456,9 +1457,9 @@ async function plan(body = {}) {
     return {
       ok: true,
       source: "gtfs-walk-fallback",
-      plan: fallback,
-      options: [fallback],
-      routes: [fallback],
+      plan: formatJourney(fallback),
+      options: [formatJourney(fallback)],
+      routes: [formatJourney(fallback)],
       meta: {
         routingVersion: "child-routing-v1",
         hasRealBusRoute: false,
@@ -1474,9 +1475,9 @@ async function plan(body = {}) {
   return {
     ok: true,
     source: "gtfs+stops.lt+ors",
-    plan: plans[0],
-    options: plans,
-    routes: plans,
+    plan: formatJourney(plans[0]),
+    options: plans.map(formatJourney),
+    routes: plans.map(formatJourney),
     meta: {
       originStops: originStops.length,
       destinationStops: destinationStops.length,
