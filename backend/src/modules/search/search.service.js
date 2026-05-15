@@ -32,7 +32,9 @@ const { searchMeili, meiliHealth } = require("./providers/meili.provider");
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 30;
 const FAST_INDEX_TIMEOUT_MS = 120;
-const LOCAL_ADDRESS_TIMEOUT_MS = 1800;
+const LOCAL_ADDRESS_TIMEOUT_MS = Number(
+  process.env.SEARCH_LOCAL_ADDRESS_TIMEOUT_MS || 6000,
+);
 const MEILI_TIMEOUT_MS = 1200;
 
 function limitValue(value) {
