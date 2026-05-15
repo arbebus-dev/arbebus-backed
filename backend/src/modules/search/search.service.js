@@ -31,11 +31,16 @@ const { searchMeili, meiliHealth } = require("./providers/meili.provider");
 
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 30;
-const FAST_INDEX_TIMEOUT_MS = 120;
-const LOCAL_ADDRESS_TIMEOUT_MS = Number(
-  process.env.SEARCH_LOCAL_ADDRESS_TIMEOUT_MS || 6000,
+
+const FAST_INDEX_TIMEOUT_MS = Number(
+  process.env.SEARCH_FAST_INDEX_TIMEOUT_MS || 120,
 );
-const MEILI_TIMEOUT_MS = 1200;
+
+const LOCAL_ADDRESS_TIMEOUT_MS = Number(
+  process.env.SEARCH_LOCAL_ADDRESS_TIMEOUT_MS || 12000,
+);
+
+const MEILI_TIMEOUT_MS = Number(process.env.MEILI_TIMEOUT_MS || 1200);
 
 function limitValue(value) {
   return Math.min(Math.max(Number(value || DEFAULT_LIMIT), 1), MAX_LIMIT);
@@ -81,21 +86,42 @@ async function runProvider(name, fn, timeoutMs = 1600) {
 function searchCacheKey(q, type, limit, query = {}) {
   const lat = Number(query.lat ?? query.latitude);
   const lon = Number(query.lon ?? query.lng ?? query.longitude);
+
   const locationBucket =
     Number.isFinite(lat) && Number.isFinite(lon)
       ? `${lat.toFixed(2)},${lon.toFixed(2)}`
       : "no-gps";
 
-  return `v11:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(limit || DEFAULT_LIMIT)}:${locationBucket}`;
+  return `v12:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(
+    limit || DEFAULT_LIMIT,
+  )}:${locationBucket}`;
+}
+
+function hasHouseNumberQuery(value = "") {
+  return /\b\d+[a-z]?\b/i.test(String(value || ""));
 }
 
 function isAddressLikeQuery(value = "") {
   const q = String(value || "").trim();
+
   return (
     /\d/.test(q) ||
     /\b(g|g\.|gatv[eė]|pr|pr\.|prospektas|al|al\.|pl|pl\.|kelias)\b/i.test(q) ||
     q.split(/\s+/).length >= 2
   );
+}
+
+function isStreetOnlyQuery(value = "") {
+  return isAddressLikeQuery(value) && !hasHouseNumberQuery(value);
+}
+
+function isLikelyStreetQuery(value = "") {
+  const q = normalizeText(value).trim();
+
+  if (q.length < 3) return false;
+  if (hasHouseNumberQuery(q)) return true;
+
+  return /^[a-ząčęėįšųūž\s.-]+$/i.test(q);
 }
 
 function shouldUseExternalSearch(query = {}) {
@@ -106,25 +132,11 @@ function shouldUseExternalSearch(query = {}) {
   if (explicit === "false" || explicit === "0") return false;
   if (explicit === "true" || explicit === "1") return true;
 
-  const q = String(
-    query.q || query.query || query.text || query.search || "",
-  ).trim();
-
-  // Autocomplete must stay local/instant by default. External providers are used only
-  // when explicitly requested or when SEARCH_EXTERNAL_ENABLED=true.
   return envBool("SEARCH_EXTERNAL_ENABLED", true);
 }
 
-function hasHouseNumberQuery(value = "") {
-  return /\b\d+[a-z]?\b/i.test(String(value || ""));
-}
-
-function isStreetOnlyQuery(value = "") {
-  return isAddressLikeQuery(value) && !hasHouseNumberQuery(value);
-}
-
 function filterUnsafeSearchResults(items, query) {
-  const streetOnly = isStreetOnlyQuery(query);
+  const streetOnly = isStreetOnlyQuery(query) || isLikelyStreetQuery(query);
   const addressWithNumber = hasHouseNumberQuery(query);
 
   if (!streetOnly && !addressWithNumber) return items;
@@ -267,13 +279,11 @@ async function index(query = {}) {
   );
 
   const addressLike = isAddressLikeQuery(q);
+  const streetLike = isLikelyStreetQuery(q);
   const includeExternal = shouldUseExternalSearch(query);
   const localAddressHasResult = localAddress.results.length > 0;
 
-  // Apple Maps rule: if user typed an address-like query and official
-  // PostgreSQL address DB found results, return those immediately. Do not
-  // let POI/stops/external providers outrank exact addresses.
-  if (addressLike && localAddressHasResult) {
+  if ((addressLike || streetLike) && localAddressHasResult) {
     const addressResults = forceExactAddressPriority(
       dedupeResults(rankResults(localAddress.results, q)),
       q,
@@ -286,7 +296,7 @@ async function index(query = {}) {
       results: addressResults,
       places: addressResults,
       stops: [],
-      addresses: addressResults,
+      addresses: addressResults.filter((item) => item.type === "address"),
       meta: {
         ...healthMeta(),
         cached: false,
@@ -303,12 +313,11 @@ async function index(query = {}) {
     return payload;
   }
 
-  // Address autocomplete must not wait for Google/OSM/Overpass if local DB already
-  // returned results. This is the key Apple Maps-style speed rule.
   if (
     includeExternal &&
     !(addressLike && localAddressHasResult) &&
-    (addressLike || !hasStrongFastResult)
+    !(streetLike && localAddressHasResult) &&
+    (addressLike || streetLike || !hasStrongFastResult)
   ) {
     const [google, nominatim, overpass] = await Promise.all([
       runProvider(
@@ -338,8 +347,8 @@ async function index(query = {}) {
     combined = combined.filter((item) => item.type === type);
   }
 
-  if (addressLike && localAddress.results.length) {
-    const allowed = new Set(["address", "street", "stop", "station", "ferry"]);
+  if ((addressLike || streetLike) && localAddress.results.length) {
+    const allowed = new Set(["address", "street", "poi", "station", "ferry"]);
     combined = combined.filter((item) =>
       allowed.has(String(item.type || "").toLowerCase()),
     );
@@ -365,8 +374,8 @@ async function index(query = {}) {
       externalEnabled: includeExternal,
       externalSkipped:
         !includeExternal ||
-        (addressLike && localAddressHasResult) ||
-        (!addressLike && hasStrongFastResult),
+        ((addressLike || streetLike) && localAddressHasResult) ||
+        (!addressLike && !streetLike && hasStrongFastResult),
       tookMs: Date.now() - startedAt,
       providers: compactProviderMeta(providers),
     },
@@ -386,7 +395,7 @@ async function debug(query = {}) {
       firstType: payload.results[0]?.type || null,
       firstSource: payload.results[0]?.source || null,
       expectedPriority:
-        "exact local_poi > postgres_address > address/city from nominatim > overpass/google > gtfs stop fallback",
+        "postgres_address > exact local_poi > google/nominatim/overpass > gtfs stop fallback",
     },
   };
 }
@@ -434,6 +443,7 @@ function healthMeta() {
       SEARCH_REGION_LNG: process.env.SEARCH_REGION_LNG || "21.1443",
       SEARCH_REGION_RADIUS_METERS:
         process.env.SEARCH_REGION_RADIUS_METERS || "55000",
+      SEARCH_LOCAL_ADDRESS_TIMEOUT_MS: String(LOCAL_ADDRESS_TIMEOUT_MS),
     },
     ...localAddressHealth(),
     ...localPoiHealth(),
@@ -442,6 +452,7 @@ function healthMeta() {
     meiliConfigured: Boolean(
       process.env.MEILI_HOST || process.env.SEARCH_ENGINE,
     ),
+    meili: meiliHealth(),
     cache: cacheStats(),
   };
 }
