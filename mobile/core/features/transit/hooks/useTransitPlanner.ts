@@ -713,6 +713,15 @@ function hasRealBusSegment(route: TransitRouteOption | null) {
   );
 }
 
+
+function hasUsableJourneyRoute(route: TransitRouteOption | null) {
+  if (!route) return false;
+  const steps = safeArray<TransitStep>(route.journeySteps || route.steps);
+  if (!steps.length) return false;
+  if (hasRealBusSegment(route)) return true;
+  return steps.some((step) => step.type === "walk" || step.mode === "walk");
+}
+
 function estimateWalkMinutes(points: Coordinate[]) {
   if (!Array.isArray(points) || points.length < 2) return 0;
 
@@ -1394,7 +1403,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           .map((route, index) =>
             normalizeRoute(route, index, routeOrigin, destination),
           )
-          .filter(hasRealBusSegment)
+          .filter(hasUsableJourneyRoute)
           .slice(0, 6);
 
         if (!normalizedOptions.length) {
@@ -1408,7 +1417,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           setSelectedRoute(straightWalk);
           setCurrentStepIndex(0);
           setFlowState("route_options");
-          setError("Autobusų maršrutas nerastas – rodomas ėjimas pėsčiomis.");
+          setError(null);
           return;
         }
 
@@ -1672,7 +1681,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           .map((route, index) =>
             normalizeRoute(route, index, userLocation, selectedDestination),
           )
-          .filter(hasRealBusSegment);
+          .filter(hasUsableJourneyRoute);
 
         if (!normalizedOptions.length) {
           const walkOnlyRoute = await buildWalkOnlyFallback(
@@ -1685,7 +1694,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
             setSelectedRoute(walkOnlyRoute);
             setCurrentStepIndex(0);
             setFlowState("route_options");
-            setError("Autobusų maršrutas nerastas – rodomas ėjimas pėsčiomis.");
+            setError(null);
             setReroutingMessage(null);
             return;
           }

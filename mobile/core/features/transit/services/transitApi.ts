@@ -38,7 +38,7 @@ function apiBase() {
   return API_BASE.replace(/\/$/, "");
 }
 
-const API_TIMEOUT_MS = 8000;
+const API_TIMEOUT_MS = 12000;
 const SEARCH_TIMEOUT_MS = 12000;
 const SEARCH_MEMORY_TTL_MS = 5 * 60 * 1000;
 const API_RETRY_COUNT = 1;
@@ -1354,16 +1354,18 @@ export async function planTransitRoute(params: {
           params.travelAt instanceof Date
             ? params.travelAt.toISOString()
             : params.travelAt || null,
-        includeWalkingGeometry: true,
+        // Important: keep the first plan response fast. Detailed walking geometry is
+        // hydrated lazily later, so route cards never get stuck on "checking stops".
+        includeWalkingGeometry: false,
       }),
     },
-    8000,
+    15000,
   );
 
   const data = await safeJson<any>(response);
 
-  if (!response.ok || data?.ok === true) {
-    throw new Error(data?.error || `Transit plan failed: ${response.status}`);
+  if (!response.ok || data?.ok !== true) {
+    throw new Error(data?.error || data?.message || `Transit plan failed: ${response.status}`);
   }
 
   const rawRoutes = [

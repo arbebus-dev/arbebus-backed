@@ -1331,6 +1331,7 @@ function planSearchProfiles(from, to) {
     { limit: 6, radius: 2200, label: "nearby" },
     { limit: 10, radius: 3500, label: "expanded" },
     { limit: 14, radius: 5200, label: "wide" },
+    { limit: 20, radius: 8500, label: "max" },
   ].map((profile) => ({
     ...profile,
     originStops: nearestStops(from, profile.limit, profile.radius),
@@ -1454,7 +1455,7 @@ async function plan(body = {}) {
       : fallbackBase;
     return {
       ok: true,
-      source: "gtfs-no-route-walk-only",
+      source: "gtfs-walk-fallback",
       plan: fallback,
       options: [fallback],
       routes: [fallback],
