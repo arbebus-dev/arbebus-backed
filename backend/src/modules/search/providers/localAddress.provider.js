@@ -13,14 +13,109 @@ const DEFAULT_CENTER = {
 };
 
 const CITY_HINTS = [
-  { keys: ["klaipeda", "klaipėda"], city: "Klaipėda", latitude: 55.7033, longitude: 21.1443, dbPatterns: ["klaipėd", "klaiped"] },
-  { keys: ["kretinga"], city: "Kretinga", latitude: 55.8888, longitude: 21.2445, dbPatterns: ["kreting"] },
-  { keys: ["palanga"], city: "Palanga", latitude: 55.9175, longitude: 21.0686, dbPatterns: ["palang"] },
-  { keys: ["gargzdai", "gargždai"], city: "Gargždai", latitude: 55.7093, longitude: 21.3949, dbPatterns: ["gargžd", "gargzd"] },
-  { keys: ["vilnius"], city: "Vilnius", latitude: 54.6872, longitude: 25.2797, dbPatterns: ["viln"] },
-  { keys: ["kaunas"], city: "Kaunas", latitude: 54.8985, longitude: 23.9036, dbPatterns: ["kaun"] },
-  { keys: ["siauliai", "šiauliai"], city: "Šiauliai", latitude: 55.9349, longitude: 23.3137, dbPatterns: ["šiaul", "siaul"] },
-  { keys: ["panevezys", "panevėžys"], city: "Panevėžys", latitude: 55.7348, longitude: 24.3575, dbPatterns: ["panevėž", "panevez"] },
+  {
+    keys: ["klaipeda", "klaipėda"],
+    city: "Klaipėda",
+    latitude: 55.7033,
+    longitude: 21.1443,
+    dbPatterns: ["klaipėd", "klaiped"],
+  },
+  {
+    keys: ["gargzdai", "gargždai"],
+    city: "Gargždai",
+    latitude: 55.7093,
+    longitude: 21.3949,
+    dbPatterns: ["gargžd", "gargzd"],
+  },
+  {
+    keys: ["neringa"],
+    city: "Neringa",
+    latitude: 55.3712,
+    longitude: 21.0646,
+    dbPatterns: ["nering"],
+  },
+  {
+    keys: ["nida"],
+    city: "Nida",
+    latitude: 55.3039,
+    longitude: 21.0058,
+    dbPatterns: ["nida"],
+  },
+  {
+    keys: ["priekule", "priekulė"],
+    city: "Priekulė",
+    latitude: 55.5546,
+    longitude: 21.3185,
+    dbPatterns: ["priekul"],
+  },
+  {
+    keys: ["dreverna"],
+    city: "Dreverna",
+    latitude: 55.5184,
+    longitude: 21.2466,
+    dbPatterns: ["drevern"],
+  },
+  {
+    keys: ["karkle", "karklė"],
+    city: "Karklė",
+    latitude: 55.8113,
+    longitude: 21.0727,
+    dbPatterns: ["karkl"],
+  },
+  {
+    keys: ["slengiai"],
+    city: "Slengiai",
+    latitude: 55.7654,
+    longitude: 21.2315,
+    dbPatterns: ["sleng"],
+  },
+  {
+    keys: ["kretingale", "kretingalė"],
+    city: "Kretingalė",
+    latitude: 55.8322,
+    longitude: 21.1907,
+    dbPatterns: ["kretingal"],
+  },
+  {
+    keys: ["dovilai"],
+    city: "Dovilai",
+    latitude: 55.6762,
+    longitude: 21.3789,
+    dbPatterns: ["dovil"],
+  },
+];
+
+const REGION_PATTERNS = [
+  "%klaip%",
+  "%nering%",
+  "%nida%",
+  "%gargžd%",
+  "%gargzd%",
+  "%priekul%",
+  "%drevern%",
+  "%karkl%",
+  "%sleng%",
+  "%sendvar%",
+  "%kretingal%",
+  "%dovil%",
+  "%veivirž%",
+  "%veivirz%",
+  "%judrėn%",
+  "%judren%",
+  "%agluonėn%",
+  "%agluonen%",
+  "%ketverg%",
+  "%lapiai%",
+  "%pliki%",
+  "%endriejav%",
+  "%venck%",
+  "%saug%",
+  "%girul%",
+  "%melnrag%",
+  "%smiltyn%",
+  "%juodkrant%",
+  "%preil%",
+  "%pervalk%",
 ];
 
 let lastDbError = null;
@@ -38,7 +133,10 @@ function extractHouseNumber(query) {
 
 function normalizeSearchText(value) {
   return compactQuery(value)
-    .replace(/\b(g|gatve|gatvė|pr|prospektas|pl|plentas|al|aleja|kelias)\b/g, " ")
+    .replace(
+      /\b(g|gatve|gatvė|pr|prospektas|pl|plentas|al|aleja|kelias)\b/g,
+      " ",
+    )
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -74,7 +172,10 @@ function distanceMeters(a, b) {
   const lon1 = Number(a.longitude ?? a.lon ?? a.lng);
   const lat2 = Number(b.latitude ?? b.lat);
   const lon2 = Number(b.longitude ?? b.lon ?? b.lng);
-  if (!validCoordinate(lat1, lon1) || !validCoordinate(lat2, lon2)) return Number.POSITIVE_INFINITY;
+
+  if (!validCoordinate(lat1, lon1) || !validCoordinate(lat2, lon2)) {
+    return Number.POSITIVE_INFINITY;
+  }
 
   const R = 6371000;
   const toRad = (value) => (value * Math.PI) / 180;
@@ -82,20 +183,30 @@ function distanceMeters(a, b) {
   const dLon = toRad(lon2 - lon1);
   const p1 = toRad(lat1);
   const p2 = toRad(lat2);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dLon / 2) ** 2;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(p1) * Math.cos(p2) * Math.sin(dLon / 2) ** 2;
+
   return Math.round(2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)));
 }
 
 function detectCity(query, options = {}) {
   const nq = compactQuery(query);
-  const explicit = CITY_HINTS.find((item) => item.keys.some((key) => nq.includes(compactQuery(key))));
+  const explicit = CITY_HINTS.find((item) =>
+    item.keys.some((key) => nq.includes(compactQuery(key))),
+  );
+
   if (explicit) return { ...explicit, reason: "query" };
 
   const location = normalizeInputLocation(options);
   if (location) {
     const nearest = [...CITY_HINTS]
-      .map((item) => ({ ...item, distanceMeters: distanceMeters(location, item) }))
+      .map((item) => ({
+        ...item,
+        distanceMeters: distanceMeters(location, item),
+      }))
       .sort((a, b) => a.distanceMeters - b.distanceMeters)[0];
+
     return { ...(nearest || DEFAULT_CENTER), reason: "gps" };
   }
 
@@ -104,21 +215,37 @@ function detectCity(query, options = {}) {
 
 function cityPatterns(cityHint) {
   const source = cityHint || DEFAULT_CENTER;
-  const patterns = Array.isArray(source.dbPatterns) && source.dbPatterns.length ? source.dbPatterns : [source.city];
-  return patterns.map((item) => `%${String(item).toLowerCase()}%`).filter(Boolean);
+  const patterns =
+    Array.isArray(source.dbPatterns) && source.dbPatterns.length
+      ? source.dbPatterns
+      : [source.city];
+
+  return patterns
+    .map((item) => `%${String(item).toLowerCase()}%`)
+    .filter(Boolean);
 }
 
 function cityMatches(rowCity, targetCity) {
   if (!rowCity || !targetCity) return false;
   const cityText = String(rowCity).toLowerCase();
-  return cityPatterns(targetCity).some((pattern) => cityText.includes(pattern.replace(/%/g, "")));
+
+  return cityPatterns(targetCity).some((pattern) =>
+    cityText.includes(pattern.replace(/%/g, "")),
+  );
 }
 
 function removeCityWordsFromStreet(query) {
   let value = compactQuery(query);
+
   for (const city of CITY_HINTS) {
-    for (const key of city.keys) value = value.replace(new RegExp(`\\b${compactQuery(key)}\\b`, "gi"), " ");
+    for (const key of city.keys) {
+      value = value.replace(
+        new RegExp(`\\b${compactQuery(key)}\\b`, "gi"),
+        " ",
+      );
+    }
   }
+
   return value.replace(/\s+/g, " ").trim();
 }
 
@@ -131,8 +258,13 @@ function buildSubtitle(row) {
 }
 
 function readResultCoordinate(item) {
-  const latitude = Number(item?.latitude ?? item?.lat ?? item?.coordinate?.latitude);
-  const longitude = Number(item?.longitude ?? item?.lon ?? item?.lng ?? item?.coordinate?.longitude);
+  const latitude = Number(
+    item?.latitude ?? item?.lat ?? item?.coordinate?.latitude,
+  );
+  const longitude = Number(
+    item?.longitude ?? item?.lon ?? item?.lng ?? item?.coordinate?.longitude,
+  );
+
   if (!validCoordinate(latitude, longitude)) return null;
   return { latitude, longitude };
 }
@@ -141,17 +273,22 @@ function geocoderQuery(row, originalQuery, targetCity) {
   const city = row.city || targetCity?.city || DEFAULT_CENTER.city;
   const parts = [row.street, row.house_number, city, "Lietuva"].filter(Boolean);
   const query = parts.join(" ").replace(/\s+/g, " ").trim();
+
   if (query.length >= 6) return query;
   return `${originalQuery} ${city} Lietuva`.trim();
 }
 
 async function updateAddressCoordinate(id, coordinate) {
-  if (!id || !validCoordinate(coordinate?.latitude, coordinate?.longitude)) return;
+  if (!id || !validCoordinate(coordinate?.latitude, coordinate?.longitude))
+    return;
+
   await getPool().query(
-    `UPDATE public.addresses
-     SET lat = $2, lon = $3
-     WHERE id = $1
-       AND (lat IS NULL OR lon IS NULL OR lat = 0 OR lon = 0)`,
+    `
+    UPDATE public.addresses
+    SET lat = $2, lon = $3
+    WHERE id = $1
+      AND (lat IS NULL OR lon IS NULL OR lat = 0 OR lon = 0)
+    `,
     [id, coordinate.latitude, coordinate.longitude],
   );
 }
@@ -160,7 +297,13 @@ async function geocodeMissingCoordinate(row, originalQuery, targetCity) {
   const title = geocoderQuery(row, originalQuery, targetCity);
   const key = `address-geocode:v5:${compactQuery(title)}`;
   const cached = await getCache(key);
-  if (cached && validCoordinate(Number(cached.latitude), Number(cached.longitude))) return cached;
+
+  if (
+    cached &&
+    validCoordinate(Number(cached.latitude), Number(cached.longitude))
+  ) {
+    return cached;
+  }
 
   const providers = [
     () => searchGooglePlaces(title, { limit: 1 }),
@@ -170,7 +313,10 @@ async function geocodeMissingCoordinate(row, originalQuery, targetCity) {
   for (const provider of providers) {
     try {
       const results = await provider();
-      const first = Array.isArray(results) ? results.map(readResultCoordinate).find(Boolean) : null;
+      const first = Array.isArray(results)
+        ? results.map(readResultCoordinate).find(Boolean)
+        : null;
+
       if (first) {
         await setCache(key, first, 86400 * 30);
         updateAddressCoordinate(row.id, first).catch(() => undefined);
@@ -191,9 +337,17 @@ function rowToAddressResult(row, query, options = {}) {
   const longitude = Number(row.lon);
   const hasRealCoordinate = validCoordinate(latitude, longitude);
   const fallbackCoordinate = userLocation || targetCity || DEFAULT_CENTER;
-  const finalLatitude = hasRealCoordinate ? latitude : fallbackCoordinate.latitude;
-  const finalLongitude = hasRealCoordinate ? longitude : fallbackCoordinate.longitude;
-  const userDistance = userLocation && hasRealCoordinate ? distanceMeters(userLocation, { latitude, longitude }) : null;
+  const finalLatitude = hasRealCoordinate
+    ? latitude
+    : fallbackCoordinate.latitude;
+  const finalLongitude = hasRealCoordinate
+    ? longitude
+    : fallbackCoordinate.longitude;
+  const userDistance =
+    userLocation && hasRealCoordinate
+      ? distanceMeters(userLocation, { latitude, longitude })
+      : null;
+
   const rowMatchesTargetCity = cityMatches(row.city, targetCity);
   const exactHouse = extractHouseNumber(query);
 
@@ -204,7 +358,8 @@ function rowToAddressResult(row, query, options = {}) {
   if (targetCity?.reason === "default" && rowMatchesTargetCity) score += 110000;
   if (hasRealCoordinate) score += 6000;
   else score -= 4000;
-  if (userDistance != null) score += Math.max(0, 50000 - Math.min(userDistance, 50000));
+  if (userDistance != null)
+    score += Math.max(0, 50000 - Math.min(userDistance, 50000));
 
   return toResult({
     id: `address-${row.id}`,
@@ -212,7 +367,9 @@ function rowToAddressResult(row, query, options = {}) {
     type: "address",
     title: buildTitle(row),
     name: buildTitle(row),
-    subtitle: hasRealCoordinate ? buildSubtitle(row) : `${buildSubtitle(row)} · koordinatės tikslinamos`,
+    subtitle: hasRealCoordinate
+      ? buildSubtitle(row)
+      : `${buildSubtitle(row)} · koordinatės tikslinamos`,
     latitude: finalLatitude,
     longitude: finalLongitude,
     coordinate: { latitude: finalLatitude, longitude: finalLongitude },
@@ -224,7 +381,13 @@ function rowToAddressResult(row, query, options = {}) {
     requiresHouseNumber: false,
     needsGeocoding: !hasRealCoordinate,
     distanceMeters: userDistance ?? undefined,
-    keywords: [row.name, row.street, row.house_number, row.city, row.postcode].filter(Boolean),
+    keywords: [
+      row.name,
+      row.street,
+      row.house_number,
+      row.city,
+      row.postcode,
+    ].filter(Boolean),
   });
 }
 
@@ -235,7 +398,11 @@ async function mapAddressDetail(row, query, options = {}) {
   const targetCity = detectCity(query || buildTitle(row), options);
 
   if (!validCoordinate(latitude, longitude)) {
-    const resolved = await geocodeMissingCoordinate(row, query || buildTitle(row), targetCity);
+    const resolved = await geocodeMissingCoordinate(
+      row,
+      query || buildTitle(row),
+      targetCity,
+    );
     if (resolved) {
       latitude = resolved.latitude;
       longitude = resolved.longitude;
@@ -243,7 +410,12 @@ async function mapAddressDetail(row, query, options = {}) {
     }
   }
 
-  const base = rowToAddressResult({ ...row, lat: latitude, lon: longitude }, query || buildTitle(row), options);
+  const base = rowToAddressResult(
+    { ...row, lat: latitude, lon: longitude },
+    query || buildTitle(row),
+    options,
+  );
+
   return {
     ...base,
     source: geocoded ? "postgres_address_geocoded" : base.source,
@@ -251,35 +423,43 @@ async function mapAddressDetail(row, query, options = {}) {
   };
 }
 
-async function queryAddressRows({ nq, streetPart, house, targetCity, limit, cityFirst }) {
+async function queryAddressRows({ nq, streetPart, house, targetCity, limit }) {
   const pool = getPool();
-  const patterns = cityPatterns(targetCity);
+  const cityPreferredPatterns = cityPatterns(targetCity);
+  const street = normalizeSearchText(streetPart || nq);
+
+  if (!street || street.length < 2) return [];
 
   if (house) {
     const sql = `
       SELECT id, name, street, house_number, city, postcode, lat, lon,
         (
           CASE WHEN lower(street) = lower($1) THEN 9000 ELSE 0 END +
-          CASE WHEN lower(street) LIKE lower($1) || '%' THEN 5000 ELSE 0 END +
-          CASE WHEN lower(COALESCE(street, '')) LIKE '%' || lower($1) || '%' THEN 2000 ELSE 0 END +
-          CASE WHEN upper(house_number) = upper($2) THEN 9000 ELSE 0 END +
-          CASE WHEN upper(house_number) LIKE upper($2) || '%' THEN 3500 ELSE 0 END +
-          CASE WHEN lower(COALESCE(city, '')) LIKE ANY($3::text[]) THEN 50000 ELSE 0 END +
-          CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 2500 ELSE 0 END
+          CASE WHEN lower(street) LIKE lower($1) || '%' THEN 6000 ELSE 0 END +
+          CASE WHEN upper(house_number) = upper($2) THEN 10000 ELSE 0 END +
+          CASE WHEN lower(COALESCE(city, '')) LIKE ANY($3::text[]) THEN 70000 ELSE 0 END +
+          CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 5000 ELSE 0 END
         ) AS rank_score
       FROM public.addresses
-      WHERE
-        (
-          lower(street) LIKE lower($1) || '%'
-          OR lower(COALESCE(street, '')) LIKE '%' || lower($1) || '%'
-          OR lower(COALESCE(name, '')) LIKE '%' || lower($1) || '%'
+      WHERE lower(COALESCE(city, '')) LIKE ANY($4::text[])
+        AND upper(house_number) = upper($2)
+        AND (
+          lower(street) = lower($1)
+          OR lower(street) LIKE lower($1) || '%'
+          OR lower(street) LIKE '%' || lower($1) || '%'
         )
-        AND upper(house_number) LIKE upper($2) || '%'
-        AND ($5::boolean = false OR lower(COALESCE(city, '')) LIKE ANY($3::text[]))
       ORDER BY rank_score DESC, city ASC, street ASC, house_number ASC
-      LIMIT $4
+      LIMIT $5
     `;
-    const result = await pool.query(sql, [streetPart || nq, house, patterns, limit, Boolean(cityFirst)]);
+
+    const result = await pool.query(sql, [
+      street,
+      house,
+      cityPreferredPatterns,
+      REGION_PATTERNS,
+      limit,
+    ]);
+
     return result.rows;
   }
 
@@ -287,23 +467,28 @@ async function queryAddressRows({ nq, streetPart, house, targetCity, limit, city
     SELECT id, name, street, house_number, city, postcode, lat, lon,
       (
         CASE WHEN lower(street) = lower($1) THEN 9000 ELSE 0 END +
-        CASE WHEN lower(street) LIKE lower($1) || '%' THEN 5000 ELSE 0 END +
-        CASE WHEN lower(COALESCE(street, '')) LIKE '%' || lower($1) || '%' THEN 2000 ELSE 0 END +
-        CASE WHEN lower(COALESCE(city, '')) LIKE ANY($2::text[]) THEN 50000 ELSE 0 END +
-        CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 2500 ELSE 0 END
+        CASE WHEN lower(street) LIKE lower($1) || '%' THEN 6000 ELSE 0 END +
+        CASE WHEN lower(COALESCE(city, '')) LIKE ANY($2::text[]) THEN 70000 ELSE 0 END +
+        CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 5000 ELSE 0 END
       ) AS rank_score
     FROM public.addresses
-    WHERE
-      (
-        lower(street) LIKE lower($1) || '%'
-        OR lower(COALESCE(street, '')) LIKE '%' || lower($1) || '%'
-        OR lower(COALESCE(name, '')) LIKE '%' || lower($1) || '%'
+    WHERE lower(COALESCE(city, '')) LIKE ANY($3::text[])
+      AND (
+        lower(street) = lower($1)
+        OR lower(street) LIKE lower($1) || '%'
+        OR lower(street) LIKE '%' || lower($1) || '%'
       )
-      AND ($4::boolean = false OR lower(COALESCE(city, '')) LIKE ANY($2::text[]))
     ORDER BY rank_score DESC, city ASC, street ASC, house_number ASC
-    LIMIT $3
+    LIMIT $4
   `;
-  const result = await pool.query(sql, [streetPart || nq, patterns, limit, Boolean(cityFirst)]);
+
+  const result = await pool.query(sql, [
+    street,
+    cityPreferredPatterns,
+    REGION_PATTERNS,
+    limit,
+  ]);
+
   return result.rows;
 }
 
@@ -312,8 +497,14 @@ function sortAddressResults(items) {
     const aScore = Number(a.score || 0);
     const bScore = Number(b.score || 0);
     if (bScore !== aScore) return bScore - aScore;
-    const aDistance = Number.isFinite(Number(a.distanceMeters)) ? Number(a.distanceMeters) : Number.MAX_SAFE_INTEGER;
-    const bDistance = Number.isFinite(Number(b.distanceMeters)) ? Number(b.distanceMeters) : Number.MAX_SAFE_INTEGER;
+
+    const aDistance = Number.isFinite(Number(a.distanceMeters))
+      ? Number(a.distanceMeters)
+      : Number.MAX_SAFE_INTEGER;
+    const bDistance = Number.isFinite(Number(b.distanceMeters))
+      ? Number(b.distanceMeters)
+      : Number.MAX_SAFE_INTEGER;
+
     if (aDistance !== bDistance) return aDistance - bDistance;
     return String(a.title || "").localeCompare(String(b.title || ""), "lt");
   });
@@ -331,27 +522,17 @@ async function searchPostgresAddresses(query, options = {}) {
   const streetPartRaw = qWithoutCity.replace(/\b\d+[a-z]?\b/gi, " ").trim();
   const streetPart = normalizeSearchText(streetPartRaw || nq);
 
-  let rows = await queryAddressRows({
+  const rows = await queryAddressRows({
     nq,
     streetPart,
     house,
     targetCity,
     limit: Math.max(limit, 14),
-    cityFirst: true,
   });
 
-  if (!rows.length) {
-    rows = await queryAddressRows({
-      nq,
-      streetPart,
-      house,
-      targetCity,
-      limit: Math.max(limit, 14),
-      cityFirst: false,
-    });
-  }
-
-  return sortAddressResults(rows.map((row) => rowToAddressResult(row, q, options))).slice(0, limit);
+  return sortAddressResults(
+    rows.map((row) => rowToAddressResult(row, q, options)),
+  ).slice(0, limit);
 }
 
 async function searchLocalAddresses(query, options = {}) {
@@ -366,19 +547,25 @@ async function searchLocalAddresses(query, options = {}) {
 }
 
 async function getLocalAddressDetails(placeId, options = {}) {
-  const rawId = String(placeId || "").replace(/^address-/, "").trim();
+  const rawId = String(placeId || "")
+    .replace(/^address-/, "")
+    .trim();
   if (!rawId) return null;
 
   try {
     const result = await getPool().query(
-      `SELECT id, name, street, house_number, city, postcode, lat, lon
-       FROM public.addresses
-       WHERE id::text = $1
-       LIMIT 1`,
+      `
+      SELECT id, name, street, house_number, city, postcode, lat, lon
+      FROM public.addresses
+      WHERE id::text = $1
+      LIMIT 1
+      `,
       [rawId],
     );
+
     const row = result.rows?.[0];
     if (!row) return null;
+
     lastDbError = null;
     return mapAddressDetail(row, buildTitle(row), options);
   } catch (error) {
@@ -392,7 +579,9 @@ async function refreshDbCount() {
   lastDbHealthCheck = Date.now();
 
   try {
-    const result = await getPool().query("SELECT COUNT(*)::int AS count FROM public.addresses");
+    const result = await getPool().query(
+      "SELECT COUNT(*)::int AS count FROM public.addresses",
+    );
     lastDbCount = Number(result.rows?.[0]?.count || 0);
     lastDbError = null;
   } catch (error) {
@@ -404,6 +593,7 @@ async function refreshDbCount() {
 
 function localAddressHealth() {
   refreshDbCount().catch(() => undefined);
+
   return {
     postgresAddressProvider: true,
     postgresAddressCount: lastDbCount,
@@ -411,4 +601,8 @@ function localAddressHealth() {
   };
 }
 
-module.exports = { searchLocalAddresses, getLocalAddressDetails, localAddressHealth };
+module.exports = {
+  searchLocalAddresses,
+  getLocalAddressDetails,
+  localAddressHealth,
+};
