@@ -1130,6 +1130,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
   const searchRequestId = useRef(0);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const planRequestId = useRef(0);
+  const planningAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     selectedRouteRef.current = selectedRoute;
@@ -1388,6 +1389,10 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       setFlowState("routes_loading");
       setIsPlanning(true);
 
+      planningAbortRef.current?.abort();
+      const planningController = new AbortController();
+      planningAbortRef.current = planningController;
+
       try {
         const rawOptions = await planTransitRoute({
           from: routeOrigin,
@@ -1395,6 +1400,8 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           destination,
           timeMode: travelTimeMode,
           travelAt: travelTimeMode === "now" ? null : travelTimeDate,
+          signal: planningController.signal,
+          timeoutMs: 12000,
         });
 
         if (requestId !== planRequestId.current) return;
@@ -1492,6 +1499,9 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       } finally {
         if (requestId === planRequestId.current) {
           setIsPlanning(false);
+          if (planningAbortRef.current === planningController) {
+            planningAbortRef.current = null;
+          }
         }
       }
     },
@@ -1676,6 +1686,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
               destination: selectedDestination,
               timeMode: travelTimeMode,
               travelAt: travelTimeMode === "now" ? null : travelTimeDate,
+              timeoutMs: 12000,
             });
 
             if (rawOptions?.length) break;

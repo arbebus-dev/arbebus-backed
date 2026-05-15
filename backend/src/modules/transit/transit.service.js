@@ -989,6 +989,98 @@ function attachChildGuide(route) {
   };
 }
 
+
+const FINAL_ROUTING_VERSION = "apple-maps-polish-v3";
+
+function routeDuration(route) {
+  return Number(route?.totalDurationMinutes ?? route?.totalMinutes ?? route?.summary?.totalDurationMinutes ?? 9999);
+}
+
+function routeWalkMinutes(route) {
+  return Number(route?.totalWalkMinutes ?? route?.walkingMinutes ?? route?.summary?.totalWalkMinutes ?? 9999);
+}
+
+function routeTransfers(route) {
+  return Number(route?.transfersCount ?? route?.transfers ?? route?.summary?.transfersCount ?? 99);
+}
+
+function optionSignature(route) {
+  const numbers = Array.isArray(route?.routeNumbers) ? route.routeNumbers.join(">") : String(route?.routeLabel || route?.routeId || "");
+  return [numbers, routeTransfers(route), route?.boardStopName || route?.originStop?.name, route?.alightStopName || route?.destinationStop?.name].join("|");
+}
+
+function decorateRouteOption(route, optionType, optionLabel, rank) {
+  const suffix = optionType ? `-${optionType}` : "";
+  const summary = {
+    ...(route.summary || {}),
+    optionType,
+    optionLabel,
+    rank,
+    totalDurationMinutes: routeDuration(route),
+    totalWalkMinutes: routeWalkMinutes(route),
+    transfersCount: routeTransfers(route),
+  };
+
+  return attachChildGuide({
+    ...route,
+    id: String(route.id || `route-${rank}`) + suffix,
+    optionType,
+    optionLabel,
+    rank,
+    badge: optionLabel,
+    summary,
+  });
+}
+
+function buildPolishedRouteOptions(plans = []) {
+  const valid = (plans || []).filter(Boolean);
+  if (!valid.length) return [];
+
+  const pickers = [
+    {
+      type: "fastest",
+      label: "Greičiausias",
+      sort: (a, b) => routeDuration(a) - routeDuration(b) || routeTransfers(a) - routeTransfers(b) || routeWalkMinutes(a) - routeWalkMinutes(b),
+    },
+    {
+      type: "less_walk",
+      label: "Mažiau ėjimo",
+      sort: (a, b) => routeWalkMinutes(a) - routeWalkMinutes(b) || routeDuration(a) - routeDuration(b) || routeTransfers(a) - routeTransfers(b),
+    },
+    {
+      type: "less_transfer",
+      label: "Mažiau persėdimų",
+      sort: (a, b) => routeTransfers(a) - routeTransfers(b) || routeDuration(a) - routeDuration(b) || routeWalkMinutes(a) - routeWalkMinutes(b),
+    },
+  ];
+
+  const selected = [];
+  const seen = new Set();
+
+  pickers.forEach((picker) => {
+    const route = [...valid].sort(picker.sort)[0];
+    if (!route) return;
+    const sig = optionSignature(route);
+    if (seen.has(sig)) return;
+    seen.add(sig);
+    selected.push(decorateRouteOption(route, picker.type, picker.label, selected.length));
+  });
+
+  for (const route of valid) {
+    if (selected.length >= 4) break;
+    const sig = optionSignature(route);
+    if (seen.has(sig)) continue;
+    seen.add(sig);
+    selected.push(decorateRouteOption(route, "alternative", "Alternatyva", selected.length));
+  }
+
+  return selected;
+}
+
+function stableFormattedRoutes(routes = []) {
+  return routes.map((route) => formatJourney(route));
+}
+
 function fallbackOption(from, to, destinationTitle) {
   const meters = Math.round(distanceMeters(from, to));
   const walkingMinutes = Math.max(1, Math.round(meters / WALK_SPEED_M_PER_MIN));
@@ -1461,7 +1553,8 @@ async function plan(body = {}) {
       options: [formatJourney(fallback)],
       routes: [formatJourney(fallback)],
       meta: {
-        routingVersion: "child-routing-v1",
+        routingVersion: FINAL_ROUTING_VERSION,
+        routeOptionTypes: ["walk_only_fallback"],
         hasRealBusRoute: false,
         walkingGeometryHydrated: shouldEnrichWalkingGeometry,
         originStops: originStops.length,
@@ -1472,20 +1565,24 @@ async function plan(body = {}) {
     };
   }
 
+  const polishedOptions = buildPolishedRouteOptions(plans);
+  const formattedOptions = stableFormattedRoutes(polishedOptions.length ? polishedOptions : plans);
+
   return {
     ok: true,
     source: "gtfs+stops.lt+ors",
-    plan: formatJourney(plans[0]),
-    options: plans.map(formatJourney),
-    routes: plans.map(formatJourney),
+    plan: formattedOptions[0],
+    options: formattedOptions,
+    routes: formattedOptions,
     meta: {
       originStops: originStops.length,
       destinationStops: destinationStops.length,
       candidates: candidates.length,
       searchProfile: selectedProfile?.label || "nearby",
       searchRadiusMeters: selectedProfile?.radius || 2200,
-      routingVersion: "child-routing-v1",
-      fields: ["journeySteps", "childGuide", "parentSummary", "legs", "stopCount", "transfersCount", "departureText", "arrivalText", "routingQuality"],
+      routingVersion: FINAL_ROUTING_VERSION,
+      routeOptionTypes: formattedOptions.map((route) => route.summary?.optionType || route.optionType || "route"),
+      fields: ["journeySteps", "childGuide", "parentSummary", "legs", "stopCount", "transfersCount", "departureText", "arrivalText", "routingQuality", "optionType", "optionLabel"],
       walkingGeometryHydrated: shouldEnrichWalkingGeometry,
       timeMode,
       travelAt: body.travelAt || null,

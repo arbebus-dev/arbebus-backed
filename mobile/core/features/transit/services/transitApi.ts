@@ -1320,6 +1320,8 @@ export async function planTransitRoute(params: {
   destination?: PlaceResult;
   timeMode?: "now" | "depart" | "arrive";
   travelAt?: string | Date | null;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }): Promise<TransitRouteOption[]> {
   const destination = params.destination ?? {
     id: "destination",
@@ -1337,6 +1339,7 @@ export async function planTransitRoute(params: {
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: params.signal,
       body: JSON.stringify({
         origin: {
           latitude: params.from.latitude,
@@ -1359,7 +1362,7 @@ export async function planTransitRoute(params: {
         includeWalkingGeometry: false,
       }),
     },
-    15000,
+    params.timeoutMs ?? 12000,
   );
 
   const data = await safeJson<any>(response);

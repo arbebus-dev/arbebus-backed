@@ -2,6 +2,16 @@ const service = require("./transit.service");
 const realtimeAlerts = require("./realtime/alerts");
 const tripUpdatesService = require("./realtime/tripUpdates");
 
+function withTimeout(promise, ms, fallback) {
+  let timer = null;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(fallback()), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 async function index(_req, res, next) {
   try {
     res.json({ ok: true, module: "transit" });
@@ -12,7 +22,21 @@ async function index(_req, res, next) {
 
 async function plan(req, res, next) {
   try {
-    res.json(await service.plan({ ...(req.query || {}), ...(req.body || {}) }));
+    const input = { ...(req.query || {}), ...(req.body || {}) };
+    const result = await withTimeout(
+      service.plan(input),
+      Number(process.env.TRANSIT_PLAN_TIMEOUT_MS || 18000),
+      () => ({
+        ok: false,
+        error: "TRANSIT_PLAN_TIMEOUT",
+        message: "Kelionės planavimas užtruko per ilgai. Bandykite dar kartą arba pasirinkite artimesnę pradžios vietą.",
+        routes: [],
+        options: [],
+        plan: null,
+        meta: { timeout: true, routingVersion: "apple-maps-polish-v3" },
+      }),
+    );
+    res.json(result);
   } catch (error) {
     next(error);
   }

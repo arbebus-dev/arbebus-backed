@@ -124,6 +124,8 @@ function routeWindow(route: TransitRouteOption) {
 }
 
 function routeReliability(route: TransitRouteOption) {
+  const optionLabel = String((route as any).optionLabel || route.summary?.optionLabel || "").trim();
+  if (optionLabel) return optionLabel;
   if (route.liveEta?.etaMinutes != null)
     return `Live ETA ${Math.round(Number(route.liveEta.etaMinutes))} min`;
   if (route.boardingState) return String(route.boardingState);
