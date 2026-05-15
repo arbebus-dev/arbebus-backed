@@ -526,7 +526,7 @@ async function searchPostgresAddresses(query, options = {}) {
   const rows = await queryAddressRows({
     nq,
     streetPart,
-    house,
+    house: house || null,
     targetCity,
     limit: Math.max(limit, 14),
   });
