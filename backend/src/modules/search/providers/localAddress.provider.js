@@ -250,7 +250,11 @@ function removeCityWordsFromStreet(query) {
 }
 
 function buildTitle(row) {
-  return row.name || [row.street, row.house_number].filter(Boolean).join(" ");
+  if (row.house_number) {
+    return row.name || [row.street, row.house_number].filter(Boolean).join(" ");
+  }
+
+  return row.street ? `${row.street} g.` : row.name || "Adresas";
 }
 
 function buildSubtitle(row) {
@@ -371,7 +375,7 @@ function rowToAddressResult(row, query, options = {}) {
     name: buildTitle(row),
     subtitle: hasRealCoordinate
       ? buildSubtitle(row)
-      : `${buildSubtitle(row)} · koordinatės tikslinamos`,
+      : `${buildSubtitle(row)} · pasirinkite namo numerį`,
     latitude: finalLatitude,
     longitude: finalLongitude,
     coordinate: { latitude: finalLatitude, longitude: finalLongitude },
@@ -380,7 +384,7 @@ function rowToAddressResult(row, query, options = {}) {
     priority: exactHouse ? 320 : 210,
     score,
     selectable: true,
-    requiresHouseNumber: false,
+    requiresHouseNumber: !row.house_number,
     needsGeocoding: !hasRealCoordinate,
     distanceMeters: userDistance ?? undefined,
     keywords: [
@@ -466,26 +470,37 @@ async function queryAddressRows({ nq, streetPart, house, targetCity, limit }) {
   }
 
   const sql = `
-    SELECT DISTINCT ON (lower(street), lower(city))
-      id,
-      name,
-      street,
+    WITH street_candidates AS (
+      SELECT
+        MIN(id) AS id,
+        street,
+        city,
+        MAX(
+          CASE WHEN lower(street) = lower($1) THEN 15000 ELSE 0 END +
+          CASE WHEN lower(street) LIKE lower($1) || '%' THEN 12000 ELSE 0 END +
+          CASE WHEN lower(COALESCE(city, '')) LIKE ANY($2::text[]) THEN 90000 ELSE 0 END +
+          CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 5000 ELSE 0 END
+        ) AS rank_score
+      FROM public.addresses
+      WHERE lower(COALESCE(city, '')) LIKE ANY($3::text[])
+        AND lower(street) LIKE lower($1) || '%'
+      GROUP BY street, city
+      ORDER BY rank_score DESC, city ASC, street ASC
+      LIMIT $4
+    )
+    SELECT
+      sc.id,
+      COALESCE(a.name, sc.street) AS name,
+      sc.street,
       NULL::text AS house_number,
-      city,
-      postcode,
-      lat,
-      lon,
-      (
-        CASE WHEN lower(street) = lower($1) THEN 15000 ELSE 0 END +
-        CASE WHEN lower(street) LIKE lower($1) || '%' THEN 12000 ELSE 0 END +
-        CASE WHEN lower(COALESCE(city, '')) LIKE ANY($2::text[]) THEN 90000 ELSE 0 END +
-        CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 5000 ELSE 0 END
-      ) AS rank_score
-    FROM public.addresses
-    WHERE lower(COALESCE(city, '')) LIKE ANY($3::text[])
-      AND lower(street) LIKE lower($1) || '%'
-    ORDER BY lower(street), lower(city), rank_score DESC, id ASC
-    LIMIT $4
+      sc.city,
+      NULL::text AS postcode,
+      NULL::double precision AS lat,
+      NULL::double precision AS lon,
+      sc.rank_score
+    FROM street_candidates sc
+    LEFT JOIN public.addresses a ON a.id = sc.id
+    ORDER BY sc.rank_score DESC, sc.city ASC, sc.street ASC
   `;
 
   const result = await pool.query(sql, [
