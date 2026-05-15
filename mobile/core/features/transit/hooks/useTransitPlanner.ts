@@ -114,6 +114,8 @@ function toCoordinate(input: any): Coordinate | null {
       input?.coordinate?.longitude,
   );
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (latitude === 0 || longitude === 0) return null;
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
   return { latitude, longitude };
 }
 
@@ -127,10 +129,17 @@ function isStreetSuggestion(place: PlaceSearchResult | null | undefined) {
 }
 
 function canPlanToPlace(place: PlaceSearchResult | null | undefined) {
-  if (!place?.coordinate) return false;
+  const coordinate = toCoordinate(place);
+  if (!coordinate) return false;
   if ((place as any).selectable === false) return false;
   if ((place as any).requiresHouseNumber === true) return false;
+  if ((place as any).needsGeocoding === true) return false;
   if (isStreetSuggestion(place)) return false;
+
+  // Hard safety: never start routing from fallback/invalid coordinates.
+  // This prevents wrong-city routes when autocomplete returns a street suggestion
+  // or an address without official lat/lon.
+  if (coordinate.latitude === 0 || coordinate.longitude === 0) return false;
   return true;
 }
 
@@ -1130,7 +1139,6 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
   const searchRequestId = useRef(0);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const planRequestId = useRef(0);
-  const planningAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     selectedRouteRef.current = selectedRoute;
@@ -1389,10 +1397,6 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       setFlowState("routes_loading");
       setIsPlanning(true);
 
-      planningAbortRef.current?.abort();
-      const planningController = new AbortController();
-      planningAbortRef.current = planningController;
-
       try {
         const rawOptions = await planTransitRoute({
           from: routeOrigin,
@@ -1400,8 +1404,6 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           destination,
           timeMode: travelTimeMode,
           travelAt: travelTimeMode === "now" ? null : travelTimeDate,
-          signal: planningController.signal,
-          timeoutMs: 12000,
         });
 
         if (requestId !== planRequestId.current) return;
@@ -1499,9 +1501,6 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       } finally {
         if (requestId === planRequestId.current) {
           setIsPlanning(false);
-          if (planningAbortRef.current === planningController) {
-            planningAbortRef.current = null;
-          }
         }
       }
     },
@@ -1686,7 +1685,6 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
               destination: selectedDestination,
               timeMode: travelTimeMode,
               travelAt: travelTimeMode === "now" ? null : travelTimeDate,
-              timeoutMs: 12000,
             });
 
             if (rawOptions?.length) break;

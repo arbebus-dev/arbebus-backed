@@ -92,7 +92,7 @@ function searchCacheKey(q, type, limit, query = {}) {
       ? `${lat.toFixed(2)},${lon.toFixed(2)}`
       : "no-gps";
 
-  return `v12:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(
+  return `v14:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(
     limit || DEFAULT_LIMIT,
   )}:${locationBucket}`;
 }
@@ -282,6 +282,42 @@ async function index(query = {}) {
   const streetLike = isLikelyStreetQuery(q);
   const includeExternal = shouldUseExternalSearch(query);
   const localAddressHasResult = localAddress.results.length > 0;
+
+  // FINAL ADDRESS SAFETY RULE:
+  // Address / street typing must be resolved ONLY by official local addresses.
+  // Do not allow fast index, POI, Google, OSM or fallback coordinates to become
+  // a destination. This prevents wrong-city results such as Palanga for Klaipėda
+  // address searches and blocks routing until a precise address is selected.
+  if (addressLike || streetLike) {
+    const localOnlyResults = forceExactAddressPriority(
+      dedupeResults(rankResults(localAddress.results, q)),
+      q,
+    ).slice(0, limit);
+
+    const payload = {
+      ok: true,
+      query: q,
+      count: localOnlyResults.length,
+      results: localOnlyResults,
+      places: localOnlyResults,
+      stops: [],
+      addresses: localOnlyResults.filter((item) => item.type === "address"),
+      meta: {
+        ...healthMeta(),
+        cached: false,
+        instant: true,
+        externalEnabled: includeExternal,
+        externalSkipped: true,
+        addressLocalFirst: true,
+        strictLocalAddressOnly: true,
+        tookMs: Date.now() - startedAt,
+        providers: compactProviderMeta([localAddress, meili, fastIndex]),
+      },
+    };
+
+    await setCache(cacheKey, payload, 120);
+    return payload;
+  }
 
   if ((addressLike || streetLike) && localAddressHasResult) {
     const addressResults = forceExactAddressPriority(

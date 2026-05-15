@@ -10,7 +10,7 @@ export default ({ config }) => {
       bundleIdentifier: "com.arbebus.app",
       supportsTablet: true,
       usesAppleSignIn: true,
-      buildNumber: "109",
+      buildNumber: "110",
       config: {
         ...(config.ios?.config || {}),
         googleMapsApiKey,

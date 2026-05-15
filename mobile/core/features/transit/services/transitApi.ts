@@ -345,6 +345,28 @@ function toCoordinate(input: any): Coordinate | null {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
 }
+function isUsableCoordinate(coordinate: Coordinate | null): coordinate is Coordinate {
+  if (!coordinate) return false;
+  const { latitude, longitude } = coordinate;
+  return (
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude !== 0 &&
+    longitude !== 0 &&
+    Math.abs(latitude) <= 90 &&
+    Math.abs(longitude) <= 180
+  );
+}
+
+function isAddressOrStreetQuery(query: string) {
+  const q = String(query || "").trim();
+  return (
+    /\d/.test(q) ||
+    /(g|g\.|gatv[eė]|pr|pr\.|prospektas|al|al\.|pl|pl\.|kelias)/i.test(q) ||
+    /^[a-ząčęėįšųūž\s.-]{3,}$/i.test(q)
+  );
+}
+
 
 function normalizeGeometry(raw: any): Coordinate[] {
   const candidates =
@@ -959,7 +981,11 @@ function normalizePlaceType(item: any): PlaceResult["type"] {
     return "stop" as PlaceResult["type"];
   }
 
-  if (rawType === "address" || rawType === "street" || rawType === "house") {
+  if (rawType === "street") {
+    return "street" as PlaceResult["type"];
+  }
+
+  if (rawType === "address" || rawType === "house") {
     return "address" as PlaceResult["type"];
   }
 
@@ -1080,9 +1106,11 @@ function isAddressLikeSearchQuery(query: string) {
 
 function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
   const coordinate = toCoordinate(item);
-  if (!coordinate) return null;
-
   const type = normalizePlaceType(item);
+  const selectable = item?.selectable !== false && item?.requiresHouseNumber !== true && type !== "street";
+
+  if (!isUsableCoordinate(coordinate) && selectable) return null;
+  if (!coordinate) return null;
   const placeId =
     item?.placeId ??
     item?.googlePlaceId ??
@@ -1120,6 +1148,9 @@ function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
     latitude: coordinate.latitude,
     longitude: coordinate.longitude,
     coordinate,
+    selectable: item?.selectable,
+    requiresHouseNumber: item?.requiresHouseNumber,
+    needsGeocoding: item?.needsGeocoding,
     placeId: placeId != null ? String(placeId) : undefined,
     googlePlaceId:
       item.googlePlaceId != null
@@ -1204,7 +1235,16 @@ async function runSearchRequest(
       )
       .filter(Boolean) as PlaceResult[];
 
-    return dedupePlaceResults(normalized)
+    const safeResults = isAddressOrStreetQuery(q)
+      ? normalized.filter((item: any) => {
+          const type = String(item.type || "").toLowerCase();
+          if (!["address", "street"].includes(type)) return false;
+          if (item.selectable === false || item.requiresHouseNumber === true) return type === "street";
+          return isUsableCoordinate(item.coordinate || null);
+        })
+      : normalized;
+
+    return dedupePlaceResults(safeResults)
       .sort(
         (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
       )
@@ -1320,8 +1360,6 @@ export async function planTransitRoute(params: {
   destination?: PlaceResult;
   timeMode?: "now" | "depart" | "arrive";
   travelAt?: string | Date | null;
-  signal?: AbortSignal;
-  timeoutMs?: number;
 }): Promise<TransitRouteOption[]> {
   const destination = params.destination ?? {
     id: "destination",
@@ -1339,7 +1377,6 @@ export async function planTransitRoute(params: {
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: params.signal,
       body: JSON.stringify({
         origin: {
           latitude: params.from.latitude,
@@ -1362,7 +1399,7 @@ export async function planTransitRoute(params: {
         includeWalkingGeometry: false,
       }),
     },
-    params.timeoutMs ?? 12000,
+    15000,
   );
 
   const data = await safeJson<any>(response);

@@ -35,3 +35,21 @@ ON public.addresses (lat, lon);
 ANALYZE public.addresses;
 
 SELECT COUNT(*) AS addresses_count FROM public.addresses;
+
+-- FINAL ADDRESS SEARCH SAFETY / PERFORMANCE
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+CREATE INDEX IF NOT EXISTS idx_addresses_city_lower_trgm
+ON public.addresses USING gin (lower(city) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_addresses_street_lower_trgm
+ON public.addresses USING gin (lower(street) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_addresses_house_upper_btree
+ON public.addresses (upper(house_number));
+
+CREATE INDEX IF NOT EXISTS idx_addresses_region_valid_coords
+ON public.addresses (lower(city), lower(street), upper(house_number))
+WHERE lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0;
+
+ANALYZE public.addresses;

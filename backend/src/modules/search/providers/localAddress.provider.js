@@ -250,11 +250,15 @@ function removeCityWordsFromStreet(query) {
 }
 
 function buildTitle(row) {
-  if (row.house_number) {
-    return row.name || [row.street, row.house_number].filter(Boolean).join(" ");
+  if (row.suggestion_type === "street" || !row.house_number) {
+    const street = String(row.street || row.name || "Gatvė").trim();
+    if (/(g\.|gatvė|pr\.|prospektas|pl\.|plentas|al\.|aleja)$/i.test(street)) {
+      return street;
+    }
+    return `${street} g.`;
   }
 
-  return row.street ? `${row.street} g.` : row.name || "Adresas";
+  return row.name || [row.street, row.house_number].filter(Boolean).join(" ");
 }
 
 function buildSubtitle(row) {
@@ -370,7 +374,7 @@ function rowToAddressResult(row, query, options = {}) {
   return toResult({
     id: `address-${row.id}`,
     placeId: `address-${row.id}`,
-    type: "address",
+    type: row.suggestion_type === "street" ? "street" : "address",
     title: buildTitle(row),
     name: buildTitle(row),
     subtitle: hasRealCoordinate
@@ -380,11 +384,11 @@ function rowToAddressResult(row, query, options = {}) {
     longitude: finalLongitude,
     coordinate: { latitude: finalLatitude, longitude: finalLongitude },
     source: "postgres_address",
-    category: "Adresas",
+    category: row.suggestion_type === "street" ? "Gatvė" : "Adresas",
     priority: exactHouse ? 320 : 210,
     score,
-    selectable: true,
-    requiresHouseNumber: !row.house_number,
+    selectable: row.suggestion_type === "street" ? false : hasRealCoordinate,
+    requiresHouseNumber: row.suggestion_type === "street" ? true : !row.house_number,
     needsGeocoding: !hasRealCoordinate,
     distanceMeters: userDistance ?? undefined,
     keywords: [
@@ -439,15 +443,17 @@ async function queryAddressRows({ nq, streetPart, house, targetCity, limit }) {
   if (house) {
     const sql = `
       SELECT id, name, street, house_number, city, postcode, lat, lon,
+        'address'::text AS suggestion_type,
         (
           CASE WHEN lower(street) = lower($1) THEN 9000 ELSE 0 END +
           CASE WHEN lower(street) LIKE lower($1) || '%' THEN 6000 ELSE 0 END +
           CASE WHEN upper(house_number) = upper($2) THEN 10000 ELSE 0 END +
-          CASE WHEN lower(COALESCE(city, '')) LIKE ANY($3::text[]) THEN 70000 ELSE 0 END +
+          CASE WHEN lower(COALESCE(city, '')) LIKE ANY($3::text[]) THEN 90000 ELSE 0 END +
           CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 5000 ELSE 0 END
         ) AS rank_score
       FROM public.addresses
       WHERE lower(COALESCE(city, '')) LIKE ANY($4::text[])
+        AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0
         AND upper(house_number) = upper($2)
         AND (
           lower(street) = lower($1)
@@ -469,6 +475,9 @@ async function queryAddressRows({ nq, streetPart, house, targetCity, limit }) {
     return result.rows;
   }
 
+  // Street-only autocomplete must be fast and non-navigable.
+  // It returns distinct street suggestions only. It intentionally does not return
+  // fallback coordinates and cannot start routing until the user selects a house number.
   const sql = `
     WITH street_candidates AS (
       SELECT
@@ -478,8 +487,15 @@ async function queryAddressRows({ nq, streetPart, house, targetCity, limit }) {
         MAX(
           CASE WHEN lower(street) = lower($1) THEN 15000 ELSE 0 END +
           CASE WHEN lower(street) LIKE lower($1) || '%' THEN 12000 ELSE 0 END +
-          CASE WHEN lower(COALESCE(city, '')) LIKE ANY($2::text[]) THEN 90000 ELSE 0 END +
-          CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 5000 ELSE 0 END
+          CASE WHEN lower(COALESCE(city, '')) LIKE ANY($2::text[]) THEN 120000 ELSE 0 END +
+          CASE WHEN EXISTS (
+            SELECT 1 FROM public.addresses a2
+            WHERE a2.street = public.addresses.street
+              AND a2.city = public.addresses.city
+              AND a2.lat IS NOT NULL AND a2.lon IS NOT NULL
+              AND a2.lat <> 0 AND a2.lon <> 0
+            LIMIT 1
+          ) THEN 5000 ELSE 0 END
         ) AS rank_score
       FROM public.addresses
       WHERE lower(COALESCE(city, '')) LIKE ANY($3::text[])
@@ -490,16 +506,16 @@ async function queryAddressRows({ nq, streetPart, house, targetCity, limit }) {
     )
     SELECT
       sc.id,
-      COALESCE(a.name, sc.street) AS name,
+      sc.street AS name,
       sc.street,
       NULL::text AS house_number,
       sc.city,
       NULL::text AS postcode,
       NULL::double precision AS lat,
       NULL::double precision AS lon,
+      'street'::text AS suggestion_type,
       sc.rank_score
     FROM street_candidates sc
-    LEFT JOIN public.addresses a ON a.id = sc.id
     ORDER BY sc.rank_score DESC, sc.city ASC, sc.street ASC
   `;
 
