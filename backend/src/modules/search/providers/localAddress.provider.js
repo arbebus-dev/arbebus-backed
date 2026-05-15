@@ -352,8 +352,9 @@ function rowToAddressResult(row, query, options = {}) {
   const exactHouse = extractHouseNumber(query);
 
   let score = Number(row.rank_score || 0);
-  if (rowMatchesTargetCity) score += 100000;
+  if (rowMatchesTargetCity) score += 300000; // 🔥 stipriai boostinam miestą
   if (targetCity?.reason === "query" && rowMatchesTargetCity) score += 150000;
+  if (!rowMatchesTargetCity) score -= 200000; // 🔥 numušam kitus miestus
   if (targetCity?.reason === "gps" && rowMatchesTargetCity) score += 120000;
   if (targetCity?.reason === "default" && rowMatchesTargetCity) score += 110000;
   if (hasRealCoordinate) score += 6000;
