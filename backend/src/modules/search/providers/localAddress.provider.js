@@ -352,15 +352,16 @@ function rowToAddressResult(row, query, options = {}) {
   const exactHouse = extractHouseNumber(query);
 
   let score = Number(row.rank_score || 0);
-  if (rowMatchesTargetCity) score += 300000; // 🔥 stipriai boostinam miestą
+  if (rowMatchesTargetCity) score += 300000;
   if (targetCity?.reason === "query" && rowMatchesTargetCity) score += 150000;
-  if (!rowMatchesTargetCity) score -= 200000; // 🔥 numušam kitus miestus
+  if (!rowMatchesTargetCity) score -= 200000;
   if (targetCity?.reason === "gps" && rowMatchesTargetCity) score += 120000;
   if (targetCity?.reason === "default" && rowMatchesTargetCity) score += 110000;
   if (hasRealCoordinate) score += 6000;
   else score -= 4000;
-  if (userDistance != null)
+  if (userDistance != null) {
     score += Math.max(0, 50000 - Math.min(userDistance, 50000));
+  }
 
   return toResult({
     id: `address-${row.id}`,
@@ -465,21 +466,25 @@ async function queryAddressRows({ nq, streetPart, house, targetCity, limit }) {
   }
 
   const sql = `
-    SELECT id, name, street, house_number, city, postcode, lat, lon,
+    SELECT DISTINCT ON (lower(street), lower(city))
+      id,
+      name,
+      street,
+      NULL::text AS house_number,
+      city,
+      postcode,
+      lat,
+      lon,
       (
-        CASE WHEN lower(street) = lower($1) THEN 9000 ELSE 0 END +
-        CASE WHEN lower(street) LIKE lower($1) || '%' THEN 6000 ELSE 0 END +
-        CASE WHEN lower(COALESCE(city, '')) LIKE ANY($2::text[]) THEN 70000 ELSE 0 END +
+        CASE WHEN lower(street) = lower($1) THEN 15000 ELSE 0 END +
+        CASE WHEN lower(street) LIKE lower($1) || '%' THEN 12000 ELSE 0 END +
+        CASE WHEN lower(COALESCE(city, '')) LIKE ANY($2::text[]) THEN 90000 ELSE 0 END +
         CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 5000 ELSE 0 END
       ) AS rank_score
     FROM public.addresses
     WHERE lower(COALESCE(city, '')) LIKE ANY($3::text[])
-      AND (
-        lower(street) = lower($1)
-        OR lower(street) LIKE lower($1) || '%'
-        OR lower(street) LIKE '%' || lower($1) || '%'
-      )
-    ORDER BY rank_score DESC, city ASC, street ASC, house_number ASC
+      AND lower(street) LIKE lower($1) || '%'
+    ORDER BY lower(street), lower(city), rank_score DESC, id ASC
     LIMIT $4
   `;
 
@@ -487,7 +492,7 @@ async function queryAddressRows({ nq, streetPart, house, targetCity, limit }) {
     street,
     cityPreferredPatterns,
     REGION_PATTERNS,
-    limit,
+    Math.min(Math.max(limit, 8), 20),
   ]);
 
   return result.rows;
@@ -528,7 +533,7 @@ async function searchPostgresAddresses(query, options = {}) {
     streetPart,
     house: house || null,
     targetCity,
-    limit: Math.max(limit, 14),
+    limit: house ? Math.max(limit, 14) : 20,
   });
 
   return sortAddressResults(
