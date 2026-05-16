@@ -1,49 +1,156 @@
 const { getPool } = require("../../../db/pool");
 const { toResult } = require("../utils/mapSearchResult");
 
-// Arbebus Lithuania geocoder v160
-// One request = one indexed query against public.addresses_search_lookup.
-// Requirements satisfied:
-// - no timeout / no Promise.race
-// - no addresses_rc_import scan for autocomplete
-// - strict prefix only: q_prefix LIKE 'query%'
-// - supports settlement, street, and settlement+street prefixes
-// - in-memory cache for hot autocomplete responses
+// Arbebus FINAL local geocoder provider v170
+// Goal:
+// - one DB query per autocomplete request
+// - reads only public.addresses_search_lookup
+// - supports Lithuanian text without accents: silute -> Šilutė, laivu -> Laivų
+// - supports combined search: slengiai l -> Slengių gatvės, silute lietu -> Lietuvininkų g., Šilutė
+// - no provider timeout, no old addresses_rc_import scan, no POI/Meili/OSM fallback here
 
-const PROVIDER_VERSION = "ultra-fast-v160-cache-single-query";
-const MEMORY_TTL_MS = Number(process.env.SEARCH_LOCAL_MEMORY_CACHE_TTL_MS || 5 * 60 * 1000);
-const MAX_CACHE_ITEMS = Number(process.env.SEARCH_LOCAL_MEMORY_CACHE_MAX || 1000);
+const PROVIDER_VERSION = "ultra-fast-v170-dual-prefix-cache";
+const CACHE_TTL_MS = Number(process.env.SEARCH_MEMORY_CACHE_TTL_MS || 300000);
+const MAX_CACHE_SIZE = Number(process.env.SEARCH_MEMORY_CACHE_MAX || 5000);
+
 const memoryCache = new Map();
-
-const LT_FROM = "ąčęėįšųūžĄČĘĖĮŠŲŪŽ";
-const LT_TO = "aceeisuuzACEEISUUZ";
-
 let lastDbError = null;
-let lastLookupCount = null;
-let lastLookupCountAt = 0;
 let lastQueryMs = null;
-let lastProviderMode = "addresses_search_lookup";
+let lastLookupCount = null;
+let lastHealthCheck = 0;
+
+const MANUAL_PLACE_ALIASES = [
+  {
+    keys: ["nida"],
+    id: "settlement-manual-nida",
+    type: "settlement",
+    name: "Nida",
+    city: "Nida",
+    street: null,
+    house_number: null,
+    lat: 55.3039,
+    lon: 21.0058,
+    q_prefix: "nida",
+    address_count: 1,
+    source: "manual_alias",
+  },
+  {
+    keys: ["smiltyne", "smiltynė"],
+    id: "settlement-manual-smiltyne",
+    type: "settlement",
+    name: "Smiltynė",
+    city: "Smiltynė",
+    street: null,
+    house_number: null,
+    lat: 55.7064,
+    lon: 21.1056,
+    q_prefix: "smiltyne",
+    address_count: 1,
+    source: "manual_alias",
+  },
+];
 
 function cleanText(value) {
-  return String(value || "").trim().replace(/\s+/g, " ");
-}
-
-function normalizeLt(value) {
-  return cleanText(value)
-    .split("")
-    .map((char) => {
-      const index = LT_FROM.indexOf(char);
-      return index >= 0 ? LT_TO[index] || char : char;
-    })
-    .join("")
+  return String(value || "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[.,;:()\[\]{}]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
-function numberValue(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
+function stripLithuanian(value) {
+  return cleanText(value)
+    .replace(/[ąáàâä]/g, "a")
+    .replace(/[č]/g, "c")
+    .replace(/[ęėéèêë]/g, "e")
+    .replace(/[įíìîï]/g, "i")
+    .replace(/[š]/g, "s")
+    .replace(/[ųūúùûü]/g, "u")
+    .replace(/[ž]/g, "z");
+}
+
+function uniq(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function expandLithuanianVariants(value) {
+  const base = cleanText(value);
+  if (!base) return [];
+
+  // Keep this intentionally small and deterministic. These variants cover the practical cases
+  // the app needs most often: Šilutė/Silute, Klaipėda/Klaipeda, Laivų/Laivu, etc.
+  const replacements = [
+    ["silute", "šilutė"],
+    ["silutes", "šilutės"],
+    ["klaipeda", "klaipėda"],
+    ["klaipedos", "klaipėdos"],
+    ["siauliai", "šiauliai"],
+    ["panevezys", "panevėžys"],
+    ["gargzdai", "gargždai"],
+    ["kretinga", "kretinga"],
+    ["palanga", "palanga"],
+    ["slengiai", "slengiai"],
+    ["radailiai", "radailiai"],
+    ["nida", "nida"],
+    ["neringa", "neringa"],
+    ["laivu", "laivų"],
+    ["liuties", "liūties"],
+    ["vesos", "vėsos"],
+    ["sviesos", "šviesos"],
+    ["zaliakelio", "žaliakelio"],
+    ["zvaigzdyno", "žvaigždyno"],
+    ["ezer", "ežer"],
+    ["klipsciu", "klipščių"],
+  ];
+
+  const variants = new Set([base]);
+  for (const [plain, accented] of replacements) {
+    for (const current of [...variants]) {
+      if (current.includes(plain)) variants.add(current.replaceAll(plain, accented));
+      if (current.includes(accented)) variants.add(current.replaceAll(accented, plain));
+    }
+  }
+
+  return [...variants].slice(0, 32);
+}
+
+function buildPrefixSets(query) {
+  const q = cleanText(query);
+  const tokens = q.split(" ").filter(Boolean);
+  const lastToken = tokens[tokens.length - 1] || q;
+
+  const fullVariants = expandLithuanianVariants(q).map((item) => `${item}%`);
+  const lastTokenVariants = expandLithuanianVariants(lastToken).map((item) => `${item}%`);
+
+  // Full prefix handles: "slengiai l", "silute lietu".
+  // Last token prefix handles Apple/Google-like fallback: "silute lietu" -> also "lietu%".
+  const allPrefixes = uniq([...fullVariants, ...lastTokenVariants]);
+
+  return {
+    q,
+    tokens,
+    fullPrefixes: uniq(fullVariants),
+    lastTokenPrefixes: uniq(lastTokenVariants),
+    allPrefixes,
+  };
+}
+
+function cacheGet(key) {
+  const cached = memoryCache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    memoryCache.delete(key);
+    return null;
+  }
+  return cached.value;
+}
+
+function cacheSet(key, value) {
+  if (memoryCache.size >= MAX_CACHE_SIZE) {
+    const first = memoryCache.keys().next().value;
+    if (first) memoryCache.delete(first);
+  }
+  memoryCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
 function validCoordinate(latitude, longitude) {
@@ -57,109 +164,69 @@ function validCoordinate(latitude, longitude) {
   );
 }
 
-function normalizeInputLocation(options = {}) {
-  const latitude = numberValue(options.lat ?? options.latitude);
-  const longitude = numberValue(options.lon ?? options.lng ?? options.longitude);
-  if (!validCoordinate(latitude, longitude)) return null;
-  return { latitude, longitude };
+function rowTitle(row) {
+  if (row.type === "settlement") return row.name || row.city || "Gyvenvietė";
+  return row.street || row.name || "Gatvė";
 }
 
-function distanceMeters(a, b) {
-  const lat1 = Number(a.latitude ?? a.lat);
-  const lon1 = Number(a.longitude ?? a.lon ?? a.lng);
-  const lat2 = Number(b.latitude ?? b.lat);
-  const lon2 = Number(b.longitude ?? b.lon ?? b.lng);
-  if (!validCoordinate(lat1, lon1) || !validCoordinate(lat2, lon2)) return null;
-  const R = 6371000;
-  const toRad = (value) => (value * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const p1 = toRad(lat1);
-  const p2 = toRad(lat2);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dLon / 2) ** 2;
-  return Math.round(2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)));
+function rowSubtitle(row) {
+  if (row.type === "settlement") return `${row.city || row.name} · Gyvenvietė`;
+  return `${row.city || "Lietuva"} · Gatvė`;
 }
 
-function memoryGet(key) {
-  const item = memoryCache.get(key);
-  if (!item) return null;
-  if (Date.now() > item.expiresAt) {
-    memoryCache.delete(key);
-    return null;
-  }
-  // refresh LRU position
-  memoryCache.delete(key);
-  memoryCache.set(key, item);
-  return item.value;
+function scoreRow(row, queryInfo) {
+  const qNorm = stripLithuanian(queryInfo.q);
+  const prefixNorm = stripLithuanian(row.q_prefix || "");
+  const nameNorm = stripLithuanian(row.name || "");
+  const cityNorm = stripLithuanian(row.city || "");
+  const streetNorm = stripLithuanian(row.street || "");
+  const tokenCount = queryInfo.tokens.length;
+
+  let score = Number(row.address_count || 0);
+
+  if (prefixNorm === qNorm) score += 1200000;
+  else if (prefixNorm.startsWith(qNorm)) score += 900000;
+
+  if (tokenCount > 1 && prefixNorm.startsWith(qNorm)) score += 450000;
+  if (tokenCount > 1 && cityNorm && qNorm.startsWith(cityNorm)) score += 250000;
+
+  if (row.type === "settlement") score += 250000;
+  if (row.type === "street") score += 180000;
+
+  if (nameNorm.startsWith(qNorm)) score += 120000;
+  if (streetNorm && streetNorm.startsWith(qNorm)) score += 120000;
+
+  if (row.source === "manual_alias") score += 200000;
+
+  return score;
 }
 
-function memorySet(key, value) {
-  memoryCache.set(key, { value, expiresAt: Date.now() + MEMORY_TTL_MS });
-  while (memoryCache.size > MAX_CACHE_ITEMS) {
-    const firstKey = memoryCache.keys().next().value;
-    if (!firstKey) break;
-    memoryCache.delete(firstKey);
-  }
-}
-
-function categoryFor(type) {
-  if (type === "settlement") return "Gyvenvietė";
-  if (type === "street") return "Gatvė";
-  return "Adresas";
-}
-
-function titleFor(row) {
-  const type = String(row.result_type || row.type || "").toLowerCase();
-  if (type === "settlement") return cleanText(row.city || row.name || "Gyvenvietė");
-  if (type === "street") return cleanText(row.street || row.name || "Gatvė");
-  return cleanText(row.name || [row.street, row.house_number].filter(Boolean).join(" "));
-}
-
-function subtitleFor(row) {
-  const type = String(row.result_type || row.type || "").toLowerCase();
-  const city = cleanText(row.city || "");
-  if (type === "settlement") return [city, "Gyvenvietė"].filter(Boolean).join(" · ");
-  if (type === "street") return [city, "Gatvė"].filter(Boolean).join(" · ");
-  return [city, row.postcode].filter(Boolean).join(", ") || "Adresas";
-}
-
-function rowToResult(row, originalQuery, options = {}) {
-  const type = String(row.result_type || row.type || "street").toLowerCase();
+function rowToResult(row, queryInfo) {
   const latitude = Number(row.lat);
   const longitude = Number(row.lon);
-
-  // Do not silently return Klaipeda fallback for bad RC/LKS94 coordinates.
-  // If the lookup is built correctly, coordinates are WGS84 55.x / 21.x.
-  if (!validCoordinate(latitude, longitude)) return null;
-
-  const location = normalizeInputLocation(options);
-  const userDistance = location ? distanceMeters(location, { latitude, longitude }) : null;
-  const title = titleFor(row);
-  const subtitle = subtitleFor(row);
-  const priority = type === "settlement" ? 330 : type === "street" ? 340 : 360;
-  const score = Number(row.rank_score || 0) + (userDistance == null ? 0 : Math.max(0, 25000 - Math.min(userDistance, 25000)));
-  const stableId = cleanText(row.id || `${type}-${normalizeLt([title, subtitle].join(" "))}`);
+  const hasCoordinate = validCoordinate(latitude, longitude);
+  const finalLat = hasCoordinate ? latitude : 55.7033;
+  const finalLon = hasCoordinate ? longitude : 21.1443;
+  const type = row.type === "settlement" ? "settlement" : "street";
+  const title = rowTitle(row);
 
   return toResult({
-    id: stableId,
-    placeId: stableId,
+    id: String(row.id || `${type}-${title}-${row.city || "lt"}`),
+    placeId: String(row.id || `${type}-${title}-${row.city || "lt"}`),
     type,
     title,
     name: title,
-    subtitle,
-    latitude,
-    longitude,
-    coordinate: { latitude, longitude },
-    source: "postgres_address",
-    category: categoryFor(type),
-    priority,
-    score,
+    subtitle: rowSubtitle(row),
+    latitude: finalLat,
+    longitude: finalLon,
+    coordinate: { latitude: finalLat, longitude: finalLon },
+    source: row.source || "postgres_address",
+    category: type === "settlement" ? "Gyvenvietė" : "Gatvė",
+    score: scoreRow(row, queryInfo),
+    priority: type === "settlement" ? 330 : 340,
     selectable: true,
     requiresHouseNumber: false,
-    needsGeocoding: false,
-    distanceMeters: userDistance ?? undefined,
-    keywords: [row.name, row.street, row.house_number, row.city, row.postcode, type].filter(Boolean),
-    addressCount: Number(row.address_count || 0) || undefined,
+    keywords: [row.name, row.street, row.city, type].filter(Boolean),
   });
 }
 
@@ -167,8 +234,7 @@ function dedupe(items) {
   const seen = new Set();
   const out = [];
   for (const item of items) {
-    if (!item) continue;
-    const key = `${String(item.type || "").toLowerCase()}|${normalizeLt(item.title)}|${normalizeLt(item.subtitle)}`;
+    const key = `${stripLithuanian(item.title)}|${stripLithuanian(item.subtitle)}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(item);
@@ -176,89 +242,95 @@ function dedupe(items) {
   return out;
 }
 
-async function searchLocalAddresses(query, options = {}) {
-  const started = Date.now();
-  const q = cleanText(query);
-  const qNorm = normalizeLt(q);
-  const limit = Math.min(Math.max(Number(options.limit || 8), 1), 12);
+function manualAliasRows(queryInfo) {
+  const qNorm = stripLithuanian(queryInfo.q);
+  return MANUAL_PLACE_ALIASES.filter((item) => item.keys.some((key) => stripLithuanian(key).startsWith(qNorm) || qNorm.startsWith(stripLithuanian(key))));
+}
 
-  if (qNorm.length < 2) return [];
-
-  const cacheKey = `lt-geocoder:${PROVIDER_VERSION}:${qNorm}:${limit}:${options.lat || ""}:${options.lon || ""}`;
-  const cached = memoryGet(cacheKey);
-  if (cached) {
-    lastQueryMs = Date.now() - started;
-    return cached;
-  }
+async function queryLookup(queryInfo, limit) {
+  const pool = getPool();
 
   const sql = `
     SELECT
-      id::text AS id,
-      type::text AS result_type,
-      name::text AS name,
-      city::text AS city,
-      street::text AS street,
-      house_number::text AS house_number,
-      lat::double precision AS lat,
-      lon::double precision AS lon,
-      q_prefix::text AS q_prefix,
-      address_count::int AS address_count,
-      (
-        CASE WHEN q_prefix = $1 THEN 1000000 ELSE 0 END +
-        CASE WHEN type = 'settlement' AND q_prefix = $1 THEN 700000 ELSE 0 END +
-        CASE WHEN type = 'street' AND q_prefix LIKE $1 || '%' THEN 650000 ELSE 0 END +
-        LEAST(COALESCE(address_count, 0), 50000)
-      )::int AS rank_score
+      id::text,
+      type::text,
+      name::text,
+      city::text,
+      street::text,
+      house_number::text,
+      lat::double precision,
+      lon::double precision,
+      q_prefix::text,
+      COALESCE(address_count, 0)::int AS address_count,
+      'postgres_address'::text AS source
     FROM public.addresses_search_lookup
-    WHERE q_prefix LIKE $1 || '%'
-      AND lat BETWEEN 53 AND 57
-      AND lon BETWEEN 20 AND 27
-    ORDER BY rank_score DESC, address_count DESC, type ASC, name ASC, city ASC
-    LIMIT $2
+    WHERE q_prefix LIKE ANY($1::text[])
+    ORDER BY
+      CASE WHEN q_prefix LIKE ANY($2::text[]) THEN 0 ELSE 1 END,
+      address_count DESC,
+      type ASC,
+      name ASC
+    LIMIT $3
   `;
 
+  const started = Date.now();
+  const result = await pool.query(sql, [queryInfo.allPrefixes, queryInfo.fullPrefixes, Math.max(limit * 4, 24)]);
+  lastQueryMs = Date.now() - started;
+  return result.rows || [];
+}
+
+async function searchLocalAddresses(query, options = {}) {
+  const queryInfo = buildPrefixSets(query);
+  if (!queryInfo.q || queryInfo.q.length < 2) return [];
+
+  const limit = Math.min(Math.max(Number(options.limit || 8), 1), 20);
+  const cacheKey = `local-address:${PROVIDER_VERSION}:${queryInfo.q}:${limit}:${options.autocomplete ? "auto" : "search"}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
   try {
-    const res = await getPool().query(sql, [qNorm, limit]);
-    lastQueryMs = Date.now() - started;
-    lastProviderMode = "addresses_search_lookup";
+    const dbRows = await queryLookup(queryInfo, limit);
+    const rows = [...dbRows, ...manualAliasRows(queryInfo)];
+    const results = dedupe(rows.map((row) => rowToResult(row, queryInfo)))
+      .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
+      .slice(0, limit);
+
+    cacheSet(cacheKey, results);
     lastDbError = null;
-    const results = dedupe((res.rows || []).map((row) => rowToResult(row, q, options))).slice(0, limit);
-    memorySet(cacheKey, results);
     return results;
   } catch (error) {
-    lastQueryMs = Date.now() - started;
     lastDbError = error?.message || String(error);
-    console.error("localAddress.provider error:", lastDbError);
     return [];
   }
 }
 
 async function getLocalAddressDetails(placeId, options = {}) {
-  const raw = cleanText(placeId);
-  if (!raw) return null;
+  const id = String(placeId || "").replace(/^address-/, "").trim();
+  if (!id) return null;
 
-  const sql = `
-    SELECT
-      id::text AS id,
-      type::text AS result_type,
-      name::text AS name,
-      city::text AS city,
-      street::text AS street,
-      house_number::text AS house_number,
-      lat::double precision AS lat,
-      lon::double precision AS lon,
-      q_prefix::text AS q_prefix,
-      address_count::int AS address_count,
-      COALESCE(address_count, 0)::int AS rank_score
-    FROM public.addresses_search_lookup
-    WHERE id::text = $1 OR ($1 LIKE type || '-%' AND id::text = regexp_replace($1, '^(address|street|settlement)-', ''))
-    LIMIT 1
-  `;
+  const cacheKey = `local-address-details:${PROVIDER_VERSION}:${id}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
 
   try {
-    const res = await getPool().query(sql, [raw]);
-    const row = res.rows?.[0];
-    return row ? rowToResult(row, raw, options) : null;
+    const result = await getPool().query(
+      `SELECT id::text, type::text, name::text, city::text, street::text, house_number::text,
+              lat::double precision, lon::double precision, q_prefix::text,
+              COALESCE(address_count, 0)::int AS address_count,
+              'postgres_address'::text AS source
+       FROM public.addresses_search_lookup
+       WHERE id::text = $1
+       LIMIT 1`,
+      [id],
+    );
+
+    const row = result.rows?.[0] || MANUAL_PLACE_ALIASES.find((item) => item.id === id);
+    if (!row) return null;
+    const queryInfo = buildPrefixSets(row.name || row.city || row.street || id);
+    const mapped = rowToResult(row, queryInfo);
+    cacheSet(cacheKey, mapped);
+    lastDbError = null;
+    return mapped;
   } catch (error) {
     lastDbError = error?.message || String(error);
     return null;
@@ -266,11 +338,11 @@ async function getLocalAddressDetails(placeId, options = {}) {
 }
 
 async function refreshLookupCount() {
-  if (Date.now() - lastLookupCountAt < 60_000) return lastLookupCount;
-  lastLookupCountAt = Date.now();
+  if (Date.now() - lastHealthCheck < 30000) return lastLookupCount;
+  lastHealthCheck = Date.now();
   try {
-    const res = await getPool().query("SELECT COUNT(*)::int AS count FROM public.addresses_search_lookup");
-    lastLookupCount = Number(res.rows?.[0]?.count || 0);
+    const result = await getPool().query("SELECT COUNT(*)::int AS count FROM public.addresses_search_lookup");
+    lastLookupCount = Number(result.rows?.[0]?.count || 0);
     lastDbError = null;
   } catch (error) {
     lastDbError = error?.message || String(error);
@@ -282,28 +354,19 @@ function localAddressHealth() {
   refreshLookupCount().catch(() => undefined);
   return {
     postgresAddressProvider: true,
-    postgresAddressCount: null,
+    postgresAddressCount: lastLookupCount,
     postgresAddressError: lastDbError,
     rcAddressProvider: true,
     rcAddressCount: lastLookupCount,
-    rcAddressError: lastDbError,
-    noTimeout: true,
-    strictPrefixOnly: true,
-    streetFallback: true,
-    settlementFallback: true,
-    lookupTables: true,
-    singleLookupTable: true,
-    oneQueryPerRequest: true,
-    memoryCache: memoryCache.size,
-    memoryCacheTtlMs: MEMORY_TTL_MS,
-    lastQueryMs,
-    providerMode: lastProviderMode,
+    rcAddressError: null,
+    providerMode: "addresses_search_lookup",
     providerVersion: PROVIDER_VERSION,
+    oneQueryPerRequest: true,
+    dualPrefixFallback: true,
+    memoryCache: memoryCache.size,
+    memoryCacheTtlMs: CACHE_TTL_MS,
+    lastQueryMs,
   };
 }
 
-module.exports = {
-  searchLocalAddresses,
-  getLocalAddressDetails,
-  localAddressHealth,
-};
+module.exports = { searchLocalAddresses, getLocalAddressDetails, localAddressHealth };
