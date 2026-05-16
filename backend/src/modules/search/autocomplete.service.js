@@ -1,10 +1,39 @@
 /* eslint-env node */
 const { normalizeText } = require("./utils/normalizeText");
-const { getCache, setCache } = require("./cache/searchCache");
 const { searchLocalAddresses } = require("./providers/localAddress.provider");
+
+const SERVICE_VERSION = "ultra-fast-v160-cache-single-query";
+const CACHE_TTL_MS = Number(process.env.SEARCH_AUTOCOMPLETE_MEMORY_CACHE_TTL_MS || 5 * 60 * 1000);
+const CACHE_MAX = Number(process.env.SEARCH_AUTOCOMPLETE_MEMORY_CACHE_MAX || 1000);
+const responseCache = new Map();
 
 function limitValue(value) {
   return Math.min(Math.max(Number(value || 8), 1), 12);
+}
+
+function normalizeKey(value) {
+  return normalizeText(value).toLowerCase();
+}
+
+function cacheGet(key) {
+  const item = responseCache.get(key);
+  if (!item) return null;
+  if (Date.now() > item.expiresAt) {
+    responseCache.delete(key);
+    return null;
+  }
+  responseCache.delete(key);
+  responseCache.set(key, item);
+  return item.value;
+}
+
+function cacheSet(key, value) {
+  responseCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+  while (responseCache.size > CACHE_MAX) {
+    const first = responseCache.keys().next().value;
+    if (!first) break;
+    responseCache.delete(first);
+  }
 }
 
 function responsePayload({ q, ranked, startedAt, cached = false }) {
@@ -28,7 +57,9 @@ function responsePayload({ q, ranked, startedAt, cached = false }) {
       strictPrefixOnly: true,
       ultraFastLookup: true,
       poiDisabledForAutocomplete: true,
-      searchServiceVersion: "ultra-fast-single-lookup-v150",
+      oneQueryPerRequest: true,
+      memoryCache: responseCache.size,
+      searchServiceVersion: SERVICE_VERSION,
       providers: [
         {
           name: "local_address",
@@ -50,8 +81,8 @@ async function autocomplete(query = {}) {
     return responsePayload({ q, ranked: [], startedAt });
   }
 
-  const cacheKey = `autocomplete-local-only-ultra-v150:${normalizeText(q)}:${limit}`;
-  const cached = await getCache(cacheKey);
+  const cacheKey = `autocomplete:${SERVICE_VERSION}:${normalizeKey(q)}:${limit}:${query.lat || query.latitude || ""}:${query.lon || query.lng || query.longitude || ""}`;
+  const cached = cacheGet(cacheKey);
   if (cached) {
     return {
       ...cached,
@@ -59,21 +90,21 @@ async function autocomplete(query = {}) {
         ...(cached.meta || {}),
         cached: true,
         tookMs: Date.now() - startedAt,
+        memoryCache: responseCache.size,
+        searchServiceVersion: SERVICE_VERSION,
       },
     };
   }
 
-  // FINAL RULE: autocomplete uses ONLY the Lithuania local geocoder.
-  // No meili, no POI, no stops, no OSM/Google. This fixes Slengiai/Radailiai/Nida/Laivų.
   const ranked = await searchLocalAddresses(q, {
-    limit: Math.max(limit, 10),
+    limit,
     autocomplete: true,
     lat: query.lat ?? query.latitude,
     lon: query.lon ?? query.lng ?? query.longitude,
   });
 
   const payload = responsePayload({ q, ranked: ranked.slice(0, limit), startedAt });
-  await setCache(cacheKey, payload, 120);
+  cacheSet(cacheKey, payload);
   return payload;
 }
 

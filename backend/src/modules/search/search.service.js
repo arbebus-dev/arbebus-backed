@@ -38,6 +38,31 @@ const FAST_INDEX_TIMEOUT_MS = Number(
 
 const MEILI_TIMEOUT_MS = Number(process.env.MEILI_TIMEOUT_MS || 1200);
 
+const SEARCH_SERVICE_VERSION = "ultra-fast-v160-cache-single-query";
+const AUTOCOMPLETE_MEMORY_TTL_MS = Number(process.env.SEARCH_AUTOCOMPLETE_MEMORY_CACHE_TTL_MS || 5 * 60 * 1000);
+const autocompleteMemoryCache = new Map();
+
+function memoryGet(key) {
+  const item = autocompleteMemoryCache.get(key);
+  if (!item) return null;
+  if (Date.now() > item.expiresAt) {
+    autocompleteMemoryCache.delete(key);
+    return null;
+  }
+  autocompleteMemoryCache.delete(key);
+  autocompleteMemoryCache.set(key, item);
+  return item.value;
+}
+
+function memorySet(key, value) {
+  autocompleteMemoryCache.set(key, { value, expiresAt: Date.now() + AUTOCOMPLETE_MEMORY_TTL_MS });
+  while (autocompleteMemoryCache.size > 1000) {
+    const first = autocompleteMemoryCache.keys().next().value;
+    if (!first) break;
+    autocompleteMemoryCache.delete(first);
+  }
+}
+
 function limitValue(value) {
   return Math.min(Math.max(Number(value || DEFAULT_LIMIT), 1), MAX_LIMIT);
 }
@@ -110,7 +135,7 @@ function searchCacheKey(q, type, limit, query = {}) {
       ? `${lat.toFixed(2)},${lon.toFixed(2)}`
       : "no-gps";
 
-  return `v150-single-lookup-geocoder:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(
+  return `v160-cache-single-query:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(
     limit || DEFAULT_LIMIT,
   )}:${locationBucket}`;
 }
@@ -273,14 +298,28 @@ async function index(query = {}) {
   }
 
   if (isAutocompleteRequest(query)) {
-    const localResults = await searchLocalAddresses(q, {
-      limit: Math.max(10, limit),
+    const autoCacheKey = `autocomplete:${SEARCH_SERVICE_VERSION}:${nq}:${limit}:${query.lat || query.latitude || ""}:${query.lon || query.lng || query.longitude || ""}`;
+    const memoryCached = memoryGet(autoCacheKey);
+    if (memoryCached) {
+      return {
+        ...memoryCached,
+        meta: {
+          ...(memoryCached.meta || {}),
+          cached: true,
+          tookMs: Date.now() - startedAt,
+          memoryCache: autocompleteMemoryCache.size,
+          searchServiceVersion: SEARCH_SERVICE_VERSION,
+        },
+      };
+    }
+
+    const results = await searchLocalAddresses(q, {
+      limit,
       autocomplete: true,
       lat: query.lat ?? query.latitude,
       lon: query.lon ?? query.lng ?? query.longitude,
     });
 
-    const results = dedupeResults(rankResults(localResults, q)).slice(0, limit);
     const payload = {
       ok: true,
       query: q,
@@ -302,8 +341,9 @@ async function index(query = {}) {
         ultraFastLookup: true,
         strictPrefixOnly: true,
         oneQueryPerRequest: true,
-        searchServiceVersion: "ultra-fast-single-lookup-v150",
         poiDisabledForAutocomplete: true,
+        memoryCache: autocompleteMemoryCache.size,
+        searchServiceVersion: SEARCH_SERVICE_VERSION,
         tookMs: Date.now() - startedAt,
         providers: [
           {
@@ -316,7 +356,7 @@ async function index(query = {}) {
       },
     };
 
-    await setCache(cacheKey, payload, 120);
+    memorySet(autoCacheKey, payload);
     return payload;
   }
 
@@ -505,7 +545,7 @@ async function stops(query = {}) {
 function healthMeta() {
   return {
     module: "dynamic_search",
-    searchServiceVersion: "ultra-fast-single-lookup-v150",
+    searchServiceVersion: SEARCH_SERVICE_VERSION,
     env: {
       ORS_API_KEY: Boolean(process.env.ORS_API_KEY),
       GOOGLE_PLACES_API_KEY: Boolean(process.env.GOOGLE_PLACES_API_KEY),
