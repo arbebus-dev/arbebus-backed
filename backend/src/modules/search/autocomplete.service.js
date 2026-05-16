@@ -5,6 +5,12 @@ function limitValue(value) {
   return Math.min(Math.max(Number(value || 8), 1), 12);
 }
 
+function looksLikeAddressTyping(value = "") {
+  const q = String(value || "").trim();
+  if (q.length < 2) return false;
+  return /\d/.test(q) || /^[a-ząčęėįšųūž\s.-]+$/i.test(q);
+}
+
 async function autocomplete(query = {}) {
   const startedAt = Date.now();
   const q = String(query.q || query.query || query.text || query.search || "").trim();
@@ -24,6 +30,8 @@ async function autocomplete(query = {}) {
     };
   }
 
+  const forceOfficialAddress = looksLikeAddressTyping(q);
+
   const payload = await index({
     ...query,
     q,
@@ -34,7 +42,13 @@ async function autocomplete(query = {}) {
     mode: "autocomplete",
   });
 
-  const results = Array.isArray(payload.results) ? payload.results.slice(0, limit) : [];
+  let results = Array.isArray(payload.results) ? payload.results : [];
+
+  if (forceOfficialAddress) {
+    results = results.filter((item) => String(item.type || "").toLowerCase() === "address");
+  }
+
+  results = results.slice(0, limit);
 
   return {
     ...payload,
@@ -47,6 +61,7 @@ async function autocomplete(query = {}) {
     meta: {
       ...(payload.meta || {}),
       autocomplete: true,
+      addressAutocompleteOnly: forceOfficialAddress,
       tookMs: Date.now() - startedAt,
     },
   };

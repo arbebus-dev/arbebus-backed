@@ -55,3 +55,26 @@ ANALYZE public.addresses_rc_import;
 
 SELECT COUNT(*) AS addresses_count FROM public.addresses;
 SELECT COUNT(*) AS rc_addresses_count FROM public.addresses_rc_import;
+
+
+-- Final Apple Maps autocomplete: real addresses first, prefix search only.
+CREATE INDEX IF NOT EXISTS idx_addresses_autocomplete_address_prefix_fast
+ON public.addresses (
+  (lower(translate(COALESCE(street, ''), 'ĄČĘĖĮŠŲŪŽąčęėįšųūž', 'ACEEISUUZaceeisuuz'))) text_pattern_ops,
+  (lower(translate(COALESCE(city, ''), 'ĄČĘĖĮŠŲŪŽąčęėįšųūž', 'ACEEISUUZaceeisuuz'))) text_pattern_ops,
+  upper(house_number)
+)
+WHERE house_number IS NOT NULL AND house_number <> ''
+  AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0;
+
+CREATE INDEX IF NOT EXISTS idx_rc_addresses_autocomplete_address_prefix_fast
+ON public.addresses_rc_import (
+  (lower(translate(COALESCE(street, ''), 'ĄČĘĖĮŠŲŪŽąčęėįšųūž', 'ACEEISUUZaceeisuuz'))) text_pattern_ops,
+  (lower(translate(COALESCE(city, ''), 'ĄČĘĖĮŠŲŪŽąčęėįšųūž', 'ACEEISUUZaceeisuuz'))) text_pattern_ops,
+  upper(house_number)
+)
+WHERE house_number IS NOT NULL AND house_number <> ''
+  AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0;
+
+ANALYZE public.addresses;
+ANALYZE public.addresses_rc_import;

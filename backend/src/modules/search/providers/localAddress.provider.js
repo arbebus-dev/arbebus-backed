@@ -85,7 +85,7 @@ function parseAddressQuery(query) {
 
 function buildTitle(row) {
   const street = String(row.street || row.name || "Gatvė").trim();
-  if (row.suggestion_type === "street" || !row.house_number) return street;
+  if (!row.house_number) return street;
   return row.name || `${street} ${row.house_number}`;
 }
 
@@ -97,7 +97,7 @@ function rowToAddressResult(row, query) {
   const latitude = Number(row.lat);
   const longitude = Number(row.lon);
   const hasRealCoordinate = validCoordinate(latitude, longitude);
-  const type = row.suggestion_type === "street" ? "street" : "address";
+  const type = "address";
   const exactHouse = Boolean(extractHouseNumber(query));
 
   return toResult({
@@ -111,11 +111,11 @@ function rowToAddressResult(row, query) {
     longitude,
     coordinate: { latitude, longitude },
     source: "postgres_address",
-    category: type === "street" ? "Gatvė" : "Adresas",
-    priority: exactHouse ? 360 : 240,
+    category: "Adresas",
+    priority: exactHouse ? 380 : 320,
     score: Number(row.rank_score || 0),
-    selectable: type === "address" && hasRealCoordinate,
-    requiresHouseNumber: type === "street",
+    selectable: hasRealCoordinate,
+    requiresHouseNumber: false,
     needsGeocoding: !hasRealCoordinate,
     keywords: [row.name, row.street, row.house_number, row.city, row.postcode].filter(Boolean),
   });
@@ -157,31 +157,28 @@ async function queryAddressRows({ query, limit }) {
   }
 
   const sql = `
-    WITH street_candidates AS (
-      SELECT DISTINCT ON (${streetNorm}, ${cityNorm})
-        id,
-        street,
-        city,
-        postcode,
-        lat,
-        lon,
-        (
-          CASE WHEN ${cityNorm} LIKE $2 THEN 160000 ELSE 0 END +
-          CASE WHEN ${streetNorm} = $1 THEN 30000 ELSE 0 END +
-          CASE WHEN ${streetNorm} LIKE $1 || '%' THEN 20000 ELSE 0 END +
-          CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 8000 ELSE 0 END
-        ) AS rank_score
-      FROM public.addresses
-      WHERE ${streetNorm} LIKE $1 || '%'
-        AND ${cityNorm} LIKE $2
-        AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0
-      ORDER BY ${streetNorm}, ${cityNorm}, rank_score DESC, id ASC
-      LIMIT $3
-    )
-    SELECT id, street AS name, street, NULL::text AS house_number, city, postcode, lat, lon,
-      'street'::text AS suggestion_type, rank_score
-    FROM street_candidates
-    ORDER BY rank_score DESC, city ASC, street ASC
+    SELECT id, name, street, house_number, city, postcode, lat, lon,
+      'address'::text AS suggestion_type,
+      (
+        CASE WHEN ${cityNorm} LIKE $2 THEN 180000 ELSE 0 END +
+        CASE WHEN ${streetNorm} = $1 THEN 45000 ELSE 0 END +
+        CASE WHEN ${streetNorm} LIKE $1 || '%' THEN 30000 ELSE 0 END +
+        CASE WHEN house_number IS NOT NULL AND house_number <> '' THEN 12000 ELSE 0 END +
+        CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 10000 ELSE 0 END
+      ) AS rank_score
+    FROM public.addresses
+    WHERE ${streetNorm} LIKE $1 || '%'
+      AND ${cityNorm} LIKE $2
+      AND house_number IS NOT NULL
+      AND house_number <> ''
+      AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0
+    ORDER BY
+      rank_score DESC,
+      city ASC,
+      street ASC,
+      NULLIF(regexp_replace(house_number, '\D.*$', ''), '')::int NULLS LAST,
+      house_number ASC
+    LIMIT $3
   `;
 
   const result = await pool.query(sql, [streetPrefix, cityPattern, Math.min(Math.max(limit, 8), 20)]);

@@ -123,7 +123,7 @@ function isStreetOnlyQuery(value = "") {
 function isLikelyStreetQuery(value = "") {
   const q = normalizeText(value).trim();
 
-  if (q.length < 3) return false;
+  if (q.length < 2) return false;
   if (hasHouseNumberQuery(q)) return true;
 
   return /^[a-ząčęėįšųūž\s.-]+$/i.test(q);
@@ -390,7 +390,7 @@ function rcAddressToResult(row, query) {
   return {
     id: `address-rc-${row.id}`,
     placeId: `address-rc-${row.id}`,
-    type: exactHouse ? "address" : "street",
+    type: "address",
     title,
     name: title,
     subtitle: [row.city, row.postcode].filter(Boolean).join(", ") || "Adresas",
@@ -399,10 +399,10 @@ function rcAddressToResult(row, query) {
     coordinate: converted,
     source: "postgres_rc_address",
     category: "Adresas",
-    priority: exactHouse ? 340 : 220,
+    priority: exactHouse ? 340 : 260,
     score: Number(row.rank_score || 0),
-    selectable: exactHouse,
-    requiresHouseNumber: !exactHouse,
+    selectable: true,
+    requiresHouseNumber: false,
     keywords: [
       row.name,
       row.street,
@@ -449,22 +449,19 @@ async function searchRcAddresses(query, options = {}) {
   } else {
     params.push(limit);
     sql = `
-      WITH street_candidates AS (
-        SELECT DISTINCT ON (${streetNorm}, ${cityNorm})
-          id, name, street, NULL::text AS house_number, city, postcode, lat, lon,
-          (
-            CASE WHEN ${cityNorm} LIKE $2 THEN 120000 ELSE 0 END +
-            CASE WHEN ${streetNorm} = $1 THEN 20000 ELSE 0 END +
-            CASE WHEN ${streetNorm} LIKE $1 || '%' THEN 15000 ELSE 0 END
-          ) AS rank_score
-        FROM public.addresses_rc_import
-        WHERE ${streetNorm} LIKE $1 || '%'
-          AND ${cityNorm} LIKE $2
-        ORDER BY ${streetNorm}, ${cityNorm}, rank_score DESC, id ASC
-        LIMIT $3
-      )
-      SELECT * FROM street_candidates
-      ORDER BY rank_score DESC, city ASC, street ASC
+      SELECT id, name, street, house_number, city, postcode, lat, lon,
+        (
+          CASE WHEN ${cityNorm} LIKE $2 THEN 90000 ELSE 0 END +
+          CASE WHEN ${streetNorm} = $1 THEN 12000 ELSE 0 END +
+          CASE WHEN ${streetNorm} LIKE $1 || '%' THEN 9000 ELSE 0 END
+        ) AS rank_score
+      FROM public.addresses_rc_import
+      WHERE ${streetNorm} LIKE $1 || '%'
+        AND ${cityNorm} LIKE $2
+        AND house_number IS NOT NULL
+        AND house_number <> ''
+      ORDER BY rank_score DESC, city ASC, street ASC, house_number ASC
+      LIMIT $3
     `;
   }
 
@@ -590,13 +587,17 @@ async function index(query = {}) {
       LOCAL_ADDRESS_TIMEOUT_MS,
     );
 
-    const rcAddress = localAddress.results.length
-      ? { name: "rc_address", ok: true, results: [], error: null }
-      : await runProvider(
+    const isAutocomplete = String(query.autocomplete || query.mode || "")
+      .toLowerCase()
+      .includes("autocomplete");
+
+    const rcAddress = isAutocomplete || !localAddress.results.length
+      ? await runProvider(
           "rc_address",
           () => searchRcAddresses(q, { limit: Math.max(8, limit) }),
           RC_ADDRESS_TIMEOUT_MS,
-        );
+        )
+      : { name: "rc_address", ok: true, results: [], error: null };
 
     const officialAddressResults = [...localAddress.results, ...rcAddress.results];
     const localOnlyResults = forceExactAddressPriority(
@@ -616,7 +617,7 @@ async function index(query = {}) {
         ...healthMeta(),
         cached: false,
         instant: true,
-        autocomplete: String(query.autocomplete || query.mode || "").toLowerCase().includes("autocomplete"),
+        autocomplete: isAutocomplete,
         externalEnabled: includeExternal,
         externalSkipped: true,
         addressLocalFirst: true,
