@@ -25,7 +25,10 @@ function responsePayload({ q, ranked, startedAt, cached = false }) {
       addressFirst: true,
       localAddressOnly: true,
       noProviderTimeout: true,
+      strictPrefixOnly: true,
+      ultraFastLookup: true,
       poiDisabledForAutocomplete: true,
+      searchServiceVersion: "ultra-fast-lookup-v140",
       providers: [
         {
           name: "local_address",
@@ -47,7 +50,7 @@ async function autocomplete(query = {}) {
     return responsePayload({ q, ranked: [], startedAt });
   }
 
-  const cacheKey = `autocomplete-local-only-final-v130:${normalizeText(q)}:${limit}`;
+  const cacheKey = `autocomplete-local-only-ultra-v140:${normalizeText(q)}:${limit}`;
   const cached = await getCache(cacheKey);
   if (cached) {
     return {

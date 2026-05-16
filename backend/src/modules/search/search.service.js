@@ -110,7 +110,7 @@ function searchCacheKey(q, type, limit, query = {}) {
       ? `${lat.toFixed(2)},${lon.toFixed(2)}`
       : "no-gps";
 
-  return `v99-hard-local-geocoder:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(
+  return `v140-ultra-fast-geocoder:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(
     limit || DEFAULT_LIMIT,
   )}:${locationBucket}`;
 }
@@ -299,7 +299,9 @@ async function index(query = {}) {
         localAddressOnly: true,
         noProviderTimeout: true,
         hardLocalGeocoderFix: true,
-        searchServiceVersion: "hard-local-no-timeout-v999",
+        ultraFastLookup: true,
+        strictPrefixOnly: true,
+        searchServiceVersion: "ultra-fast-lookup-v140",
         poiDisabledForAutocomplete: true,
         tookMs: Date.now() - startedAt,
         providers: [
@@ -502,7 +504,7 @@ async function stops(query = {}) {
 function healthMeta() {
   return {
     module: "dynamic_search",
-    searchServiceVersion: "hard-local-no-timeout-v999",
+    searchServiceVersion: "ultra-fast-lookup-v140",
     env: {
       ORS_API_KEY: Boolean(process.env.ORS_API_KEY),
       GOOGLE_PLACES_API_KEY: Boolean(process.env.GOOGLE_PLACES_API_KEY),
