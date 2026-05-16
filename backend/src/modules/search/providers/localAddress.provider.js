@@ -2,37 +2,31 @@ const { getPool } = require("../../../db/pool");
 const { getCache, setCache } = require("../cache/searchCache");
 const { toResult } = require("../utils/mapSearchResult");
 
-// Arbebus ULTRA FAST Lithuania geocoder provider.
-// Production rules:
-// - NO provider timeout / NO Promise.race.
-// - Autocomplete uses tiny derived lookup tables first:
-//   public.addresses_search_settlements + public.addresses_search_streets.
-// - Strict prefix queries only: norm LIKE 'query%'.
-// - addresses_rc_import is used for exact house-number results.
-// - Falls back safely if derived tables are not created yet.
+// Arbebus ULTRA FAST Lithuania geocoder provider v150.
+// Hard rule: autocomplete/search uses ONE DB query against public.addresses_search_lookup.
+// No timeout. No addresses_rc_import scan. No old settlement/street split tables.
 
+const VERSION = "ultra-fast-single-lookup-v150";
 const LT_FROM = "ąčęėįšųūžĄČĘĖĮŠŲŪŽ";
 const LT_TO = "aceeisuuzACEEISUUZ";
-const MEMORY_TTL_MS = 60_000;
+const MEMORY_TTL_MS = 5 * 60 * 1000;
 const memoryCache = new Map();
 
 let lastDbError = null;
-let lastRcCount = null;
+let lastLookupCount = null;
 let lastDbHealthCheck = 0;
-let lastProviderMode = "lookup";
+let lastProviderMode = "addresses_search_lookup";
 
 function cleanText(value) {
   return String(value || "").trim().replace(/\s+/g, " ");
 }
 
 function normalizeLt(value) {
-  const from = LT_FROM;
-  const to = LT_TO;
   return cleanText(value)
     .split("")
     .map((char) => {
-      const index = from.indexOf(char);
-      return index >= 0 ? to[index] || char : char;
+      const index = LT_FROM.indexOf(char);
+      return index >= 0 ? LT_TO[index] || char : char;
     })
     .join("")
     .toLowerCase()
@@ -60,12 +54,10 @@ function removeHouseNumber(query) {
   return cleanText(query).replace(/\b\d+[a-zA-Z]?\b/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function normalizeStreetQuery(query) {
-  return stripStreetType(removeHouseNumber(query));
-}
-
-function normalizeSettlementQuery(query) {
-  return stripStreetType(query);
+function normalizeLookupQuery(query) {
+  const withoutHouse = removeHouseNumber(query);
+  const stripped = stripStreetType(withoutHouse);
+  return stripped || normalizeLt(withoutHouse) || normalizeLt(query);
 }
 
 function validCoordinate(latitude, longitude) {
@@ -123,7 +115,7 @@ function subtitleFor(row) {
 }
 
 function rowToResult(row, query, options = {}) {
-  const resultType = String(row.result_type || "address").toLowerCase();
+  const resultType = String(row.result_type || row.type || "address").toLowerCase();
   const latitude = Number(row.lat);
   const longitude = Number(row.lon);
   const finalLatitude = validCoordinate(latitude, longitude) ? latitude : 55.7033;
@@ -205,233 +197,110 @@ function memoryGet(key) {
 
 function memorySet(key, value) {
   memoryCache.set(key, { time: Date.now(), value });
-  if (memoryCache.size > 500) {
+  if (memoryCache.size > 1000) {
     for (const firstKey of memoryCache.keys()) {
       memoryCache.delete(firstKey);
-      if (memoryCache.size <= 450) break;
+      if (memoryCache.size <= 900) break;
     }
   }
 }
 
-async function runSql(label, sql, params) {
-  const started = Date.now();
-  console.log("QUERY:", label, params);
-  const res = await getPool().query(sql, params);
-  console.log("ROWS:", label, res.rowCount, `${Date.now() - started}ms`);
-  return res.rows || [];
-}
-
-async function queryAddresses({ streetNorm, house, limit }) {
-  if (!streetNorm || streetNorm.length < 2 || !house) return [];
+async function runSingleLookupQuery({ qNorm, rawPrefix, limit }) {
+  const normalizedPrefix = `${qNorm}%`;
+  const lowerRawPrefix = `${String(rawPrefix || "").toLowerCase()}%`;
+  const normQPrefix = sqlNorm("q_prefix");
+  const normName = sqlNorm("name");
+  const normCity = sqlNorm("city");
   const normStreet = sqlNorm("street");
-  return runSql(
-    "address-prefix",
-    `
-    SELECT
-      id::text AS id,
-      name::text AS name,
-      street::text AS street,
-      house_number::text AS house_number,
-      city::text AS city,
-      postcode::text AS postcode,
-      lat,
-      lon,
-      'address' AS result_type,
-      1::int AS address_count,
-      (
-        CASE WHEN ${normStreet} = $1 THEN 700000 ELSE 0 END +
-        CASE WHEN ${normStreet} LIKE $1 || '%' THEN 520000 ELSE 0 END +
-        CASE WHEN upper(coalesce(house_number::text, '')) = upper($2) THEN 700000 ELSE 0 END +
-        CASE WHEN upper(coalesce(house_number::text, '')) LIKE upper($2) || '%' THEN 350000 ELSE 0 END
-      ) AS rank_score
-    FROM public.addresses_rc_import
-    WHERE ${normStreet} LIKE $1 || '%'
-      AND upper(coalesce(house_number::text, '')) LIKE upper($2) || '%'
-      AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0
-    ORDER BY rank_score DESC, length(house_number::text), house_number::text, city::text
-    LIMIT $3
-    `,
-    [streetNorm, house, limit],
-  );
-}
 
-async function querySettlementLookup({ qNorm, limit }) {
-  if (!qNorm || qNorm.length < 2) return [];
-  try {
-    lastProviderMode = "lookup";
-    return await runSql(
-      "settlement-lookup-prefix",
-      `
+  // ONE DB query. Fast path uses idx_addresses_search_lookup_prefix.
+  // Fallback path is accent-insensitive over only ~63k lookup rows, never 1M raw rows.
+  const sql = `
+    WITH direct AS (
       SELECT
         id::text AS id,
+        type::text AS result_type,
+        name::text AS name,
         city::text AS city,
-        city::text AS name,
-        NULL::text AS street,
-        NULL::text AS house_number,
-        NULL::text AS postcode,
-        lat,
-        lon,
-        'settlement' AS result_type,
-        address_count::int AS address_count,
-        (
-          CASE WHEN city_norm = $1 THEN 900000 ELSE 0 END +
-          CASE WHEN city_norm LIKE $1 || '%' THEN 650000 ELSE 0 END +
-          LEAST(address_count, 5000)
-        ) AS rank_score
-      FROM public.addresses_search_settlements
-      WHERE city_norm LIKE $1 || '%'
-      ORDER BY rank_score DESC, city
-      LIMIT $2
-      `,
-      [qNorm, limit],
-    );
-  } catch (error) {
-    if (String(error?.message || "").includes("addresses_search_settlements")) return [];
-    throw error;
-  }
-}
-
-async function queryStreetLookup({ qNorm, limit }) {
-  if (!qNorm || qNorm.length < 2) return [];
-  try {
-    lastProviderMode = "lookup";
-    return await runSql(
-      "street-lookup-prefix",
-      `
-      SELECT
-        id::text AS id,
         street::text AS street,
-        street::text AS name,
-        city::text AS city,
-        NULL::text AS house_number,
+        house_number::text AS house_number,
         NULL::text AS postcode,
         lat,
         lon,
-        'street' AS result_type,
         address_count::int AS address_count,
         (
-          CASE WHEN street_norm = $1 THEN 820000 ELSE 0 END +
-          CASE WHEN street_norm LIKE $1 || '%' THEN 600000 ELSE 0 END +
-          LEAST(address_count, 5000)
+          CASE WHEN q_prefix = $1 THEN 900000 ELSE 0 END +
+          CASE WHEN q_prefix LIKE $1 || '%' THEN 650000 ELSE 0 END +
+          CASE WHEN lower(coalesce(name::text, '')) LIKE $2 THEN 200000 ELSE 0 END +
+          LEAST(coalesce(address_count, 0), 5000)
         ) AS rank_score
-      FROM public.addresses_search_streets
-      WHERE street_norm LIKE $1 || '%'
-      ORDER BY rank_score DESC, street, city
-      LIMIT $2
-      `,
-      [qNorm, limit],
-    );
-  } catch (error) {
-    if (String(error?.message || "").includes("addresses_search_streets")) return [];
-    throw error;
-  }
-}
+      FROM public.addresses_search_lookup
+      WHERE q_prefix LIKE $1 || '%'
+         OR lower(coalesce(name::text, '')) LIKE $2
+         OR lower(coalesce(city::text, '')) LIKE $2
+         OR lower(coalesce(street::text, '')) LIKE $2
+      ORDER BY rank_score DESC, address_count DESC, name, city
+      LIMIT $3
+    ),
+    fallback AS (
+      SELECT
+        id::text AS id,
+        type::text AS result_type,
+        name::text AS name,
+        city::text AS city,
+        street::text AS street,
+        house_number::text AS house_number,
+        NULL::text AS postcode,
+        lat,
+        lon,
+        address_count::int AS address_count,
+        (
+          CASE WHEN ${normQPrefix} = $1 THEN 850000 ELSE 0 END +
+          CASE WHEN ${normQPrefix} LIKE $1 || '%' THEN 620000 ELSE 0 END +
+          CASE WHEN ${normName} LIKE $1 || '%' THEN 180000 ELSE 0 END +
+          LEAST(coalesce(address_count, 0), 5000)
+        ) AS rank_score
+      FROM public.addresses_search_lookup
+      WHERE NOT EXISTS (SELECT 1 FROM direct)
+        AND (
+          ${normQPrefix} LIKE $1 || '%'
+          OR ${normName} LIKE $1 || '%'
+          OR ${normCity} LIKE $1 || '%'
+          OR ${normStreet} LIKE $1 || '%'
+        )
+      ORDER BY rank_score DESC, address_count DESC, name, city
+      LIMIT $3
+    )
+    SELECT * FROM direct
+    UNION ALL
+    SELECT * FROM fallback
+    LIMIT $3
+  `;
 
-async function querySettlementRawFallback({ qNorm, limit }) {
-  if (!qNorm || qNorm.length < 2) return [];
-  lastProviderMode = "raw-fallback";
-  const normCity = sqlNorm("city");
-  return runSql(
-    "settlement-raw-prefix",
-    `
-    SELECT
-      md5(${normCity}) AS id,
-      min(city::text) AS city,
-      min(city::text) AS name,
-      NULL::text AS street,
-      NULL::text AS house_number,
-      NULL::text AS postcode,
-      avg(lat)::double precision AS lat,
-      avg(lon)::double precision AS lon,
-      'settlement' AS result_type,
-      count(*)::int AS address_count,
-      550000 + LEAST(count(*)::int, 5000) AS rank_score
-    FROM public.addresses_rc_import
-    WHERE ${normCity} LIKE $1 || '%'
-      AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0
-    GROUP BY ${normCity}
-    ORDER BY rank_score DESC, min(city::text)
-    LIMIT $2
-    `,
-    [qNorm, limit],
-  );
-}
-
-async function queryStreetRawFallback({ qNorm, limit }) {
-  if (!qNorm || qNorm.length < 2) return [];
-  lastProviderMode = "raw-fallback";
-  const normStreet = sqlNorm("street");
-  const normCity = sqlNorm("city");
-  return runSql(
-    "street-raw-prefix",
-    `
-    SELECT
-      md5(${normStreet} || '|' || ${normCity}) AS id,
-      min(street::text) AS street,
-      min(street::text) AS name,
-      min(city::text) AS city,
-      NULL::text AS house_number,
-      NULL::text AS postcode,
-      avg(lat)::double precision AS lat,
-      avg(lon)::double precision AS lon,
-      'street' AS result_type,
-      count(*)::int AS address_count,
-      500000 + LEAST(count(*)::int, 5000) AS rank_score
-    FROM public.addresses_rc_import
-    WHERE ${normStreet} LIKE $1 || '%'
-      AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0
-    GROUP BY ${normStreet}, ${normCity}
-    ORDER BY rank_score DESC, min(street::text), min(city::text)
-    LIMIT $2
-    `,
-    [qNorm, limit],
-  );
+  const started = Date.now();
+  const result = await getPool().query(sql, [qNorm, lowerRawPrefix, limit]);
+  console.log("QUERY: addresses_search_lookup", { qNorm, rawPrefix, rows: result.rowCount, ms: Date.now() - started });
+  lastProviderMode = "addresses_search_lookup";
+  return result.rows || [];
 }
 
 async function searchPostgresAddresses(query, options = {}) {
   const q = cleanText(query);
   if (q.length < 2) return [];
   const limit = Math.min(Math.max(Number(options.limit || 8), 1), 30);
-  const house = extractHouseNumber(q);
-  const streetNorm = normalizeStreetQuery(q);
-  const settlementNorm = normalizeSettlementQuery(q);
-  const rows = [];
+  const qNorm = normalizeLookupQuery(q);
+  if (qNorm.length < 2) return [];
 
-  if (house && streetNorm.length >= 2) {
-    rows.push(...(await queryAddresses({ streetNorm, house, limit })));
-  }
-
-  if (!house && rows.length < limit && settlementNorm.length >= 2) {
-    let settlementRows = await querySettlementLookup({ qNorm: settlementNorm, limit: limit - rows.length });
-    if (settlementRows.length === 0) {
-      settlementRows = await querySettlementRawFallback({ qNorm: settlementNorm, limit: limit - rows.length });
-    }
-    rows.push(...settlementRows);
-  }
-
-  if (rows.length < limit && streetNorm.length >= 2) {
-    let streetRows = await queryStreetLookup({ qNorm: streetNorm, limit: limit - rows.length });
-    if (streetRows.length === 0) {
-      streetRows = await queryStreetRawFallback({ qNorm: streetNorm, limit: limit - rows.length });
-    }
-    rows.push(...streetRows);
-  }
-
-  if (house && rows.length < limit && settlementNorm.length >= 2) {
-    let settlementRows = await querySettlementLookup({ qNorm: settlementNorm, limit: limit - rows.length });
-    if (settlementRows.length === 0) settlementRows = await querySettlementRawFallback({ qNorm: settlementNorm, limit: limit - rows.length });
-    rows.push(...settlementRows);
-  }
-
+  const rows = await runSingleLookupQuery({ qNorm, rawPrefix: removeHouseNumber(q) || q, limit });
   return dedupe(sortResults(rows.map((row) => rowToResult(row, q, options)))).slice(0, limit);
 }
 
 async function searchLocalAddresses(query, options = {}) {
   try {
     const q = cleanText(query);
-    const normalized = normalizeLt(q);
+    const normalized = normalizeLookupQuery(q);
     const limit = Number(options.limit || 8);
-    const cacheKey = `local-address-ultra-v140:${normalized}:${limit}:${options.autocomplete ? "auto" : "search"}:${options.lat || ""}:${options.lon || ""}`;
+    const cacheKey = `local-address-single-lookup-v150:${normalized}:${limit}:${options.autocomplete ? "auto" : "search"}:${options.lat || ""}:${options.lon || ""}`;
 
     const mem = memoryGet(cacheKey);
     if (mem) return mem;
@@ -461,25 +330,12 @@ async function getLocalAddressDetails(placeId, options = {}) {
   if (!rawId) return null;
 
   try {
-    if (type === "settlement") {
-      const result = await getPool().query(
-        `SELECT id::text, city::text, city::text AS name, NULL::text AS street, NULL::text AS house_number, NULL::text AS postcode, lat, lon, 'settlement' AS result_type, address_count::int FROM public.addresses_search_settlements WHERE id::text = $1 LIMIT 1`,
-        [rawId],
-      );
-      if (result.rows?.[0]) return rowToResult(result.rows[0], result.rows[0].city, options);
-    }
-
-    if (type === "street") {
-      const result = await getPool().query(
-        `SELECT id::text, street::text, street::text AS name, city::text, NULL::text AS house_number, NULL::text AS postcode, lat, lon, 'street' AS result_type, address_count::int FROM public.addresses_search_streets WHERE id::text = $1 LIMIT 1`,
-        [rawId],
-      );
-      if (result.rows?.[0]) return rowToResult(result.rows[0], result.rows[0].street, options);
-    }
-
     const result = await getPool().query(
-      `SELECT id::text AS id, name::text AS name, street::text AS street, house_number::text AS house_number, city::text AS city, postcode::text AS postcode, lat, lon, 'address' AS result_type FROM public.addresses_rc_import WHERE id::text = $1 LIMIT 1`,
-      [rawId],
+      `SELECT id::text AS id, type::text AS result_type, name::text AS name, city::text AS city, street::text AS street, house_number::text AS house_number, NULL::text AS postcode, lat, lon, address_count::int AS address_count
+       FROM public.addresses_search_lookup
+       WHERE id::text = $1 AND type::text = $2
+       LIMIT 1`,
+      [rawId, type],
     );
     const row = result.rows?.[0];
     return row ? rowToResult(row, titleFor(row), options) : null;
@@ -490,35 +346,37 @@ async function getLocalAddressDetails(placeId, options = {}) {
 }
 
 async function refreshDbCount() {
-  if (Date.now() - lastDbHealthCheck < 30000) return lastRcCount;
+  if (Date.now() - lastDbHealthCheck < 30000) return lastLookupCount;
   lastDbHealthCheck = Date.now();
   try {
-    const result = await getPool().query("SELECT COUNT(*)::int AS count FROM public.addresses_rc_import");
-    lastRcCount = Number(result.rows?.[0]?.count || 0);
+    const result = await getPool().query("SELECT COUNT(*)::int AS count FROM public.addresses_search_lookup");
+    lastLookupCount = Number(result.rows?.[0]?.count || 0);
     lastDbError = null;
   } catch (error) {
     lastDbError = error?.message || String(error);
   }
-  return lastRcCount;
+  return lastLookupCount;
 }
 
 function localAddressHealth() {
   refreshDbCount().catch(() => undefined);
   return {
     postgresAddressProvider: true,
-    postgresAddressCount: lastRcCount,
+    postgresAddressCount: lastLookupCount,
     postgresAddressError: lastDbError,
     rcAddressProvider: true,
-    rcAddressCount: lastRcCount,
+    rcAddressCount: lastLookupCount,
     rcAddressError: null,
     noTimeout: true,
     strictPrefixOnly: true,
     streetFallback: true,
     settlementFallback: true,
     lookupTables: true,
+    singleLookupTable: true,
+    oneQueryPerRequest: true,
     memoryCache: memoryCache.size,
     providerMode: lastProviderMode,
-    providerVersion: "ultra-fast-lookup-v140",
+    providerVersion: VERSION,
   };
 }
 
