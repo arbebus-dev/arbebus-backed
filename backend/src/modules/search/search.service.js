@@ -36,10 +36,6 @@ const FAST_INDEX_TIMEOUT_MS = Number(
   process.env.SEARCH_FAST_INDEX_TIMEOUT_MS || 120,
 );
 
-const LOCAL_ADDRESS_TIMEOUT_MS = Number(
-  process.env.SEARCH_LOCAL_ADDRESS_TIMEOUT_MS || 10000,
-);
-
 const MEILI_TIMEOUT_MS = Number(process.env.MEILI_TIMEOUT_MS || 1200);
 
 function limitValue(value) {
@@ -53,6 +49,28 @@ function envBool(name, fallback = false) {
 }
 
 async function runProvider(name, fn, timeoutMs = 1600) {
+  // IMPORTANT: local_address must NEVER be wrapped in provider timeout.
+  // It is called directly in index()/autocomplete branch below. This guard prevents
+  // accidental future regressions if someone calls runProvider("local_address", ...).
+  if (String(name || "") === "local_address") {
+    try {
+      const results = await Promise.resolve().then(fn);
+      return {
+        name,
+        ok: true,
+        results: Array.isArray(results) ? results : [],
+        error: null,
+      };
+    } catch (error) {
+      return {
+        name,
+        ok: false,
+        results: [],
+        error: error?.message || String(error),
+      };
+    }
+  }
+
   let timer = null;
 
   try {
@@ -92,7 +110,7 @@ function searchCacheKey(q, type, limit, query = {}) {
       ? `${lat.toFixed(2)},${lon.toFixed(2)}`
       : "no-gps";
 
-  return `v21:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(
+  return `v99-hard-local-geocoder:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(
     limit || DEFAULT_LIMIT,
   )}:${locationBucket}`;
 }
@@ -124,6 +142,17 @@ function isLikelyStreetQuery(value = "") {
   return /^[a-ząčęėįšųūž\s.-]+$/i.test(q);
 }
 
+
+function isAutocompleteRequest(query = {}) {
+  return (
+    query.autocomplete === true ||
+    String(query.autocomplete || "").toLowerCase() === "true" ||
+    String(query.mode || "").toLowerCase() === "autocomplete" ||
+    String(query.endpoint || "").toLowerCase() === "autocomplete" ||
+    String(query.addressAutocompleteOnly || "").toLowerCase() === "true"
+  );
+}
+
 function shouldUseExternalSearch(query = {}) {
   const explicit = String(
     query.external ?? query.includeExternal ?? "",
@@ -144,7 +173,7 @@ function filterUnsafeSearchResults(items, query) {
   return items.filter((item) => {
     const type = String(item.type || "").toLowerCase();
 
-    if (["city", "region", "village"].includes(type)) return false;
+    if (["region"].includes(type)) return false;
 
     if (
       type === "stop" &&
@@ -154,11 +183,11 @@ function filterUnsafeSearchResults(items, query) {
     }
 
     if (streetOnly) {
-      return ["street", "address", "poi", "station", "ferry"].includes(type);
+      return ["street", "address", "settlement", "city", "village", "poi", "station", "ferry"].includes(type);
     }
 
     if (addressWithNumber) {
-      return ["address", "street", "poi", "station", "ferry"].includes(type);
+      return ["address", "street", "settlement", "city", "village", "poi", "station", "ferry"].includes(type);
     }
 
     return true;
@@ -182,7 +211,8 @@ function forceExactAddressPriority(items, query) {
       if (source === "postgres_address") value += 6000;
       if (source === "google_geocoding") value += 2500;
       if (source === "nominatim") value += 900;
-      if (type === "street") value -= 1500;
+      if (type === "street") value += 1500;
+      if (type === "settlement" || type === "city" || type === "village") value += 1200;
       if (type === "stop") value -= 2500;
       if (item.selectable === false || item.requiresHouseNumber === true) {
         value -= 3000;
@@ -242,21 +272,69 @@ async function index(query = {}) {
     };
   }
 
-  const [fastIndex, localAddress, meili] = await Promise.all([
+  if (isAutocompleteRequest(query)) {
+    const localResults = await searchLocalAddresses(q, {
+      limit: Math.max(10, limit),
+      autocomplete: true,
+      lat: query.lat ?? query.latitude,
+      lon: query.lon ?? query.lng ?? query.longitude,
+    });
+
+    const results = dedupeResults(rankResults(localResults, q)).slice(0, limit);
+    const payload = {
+      ok: true,
+      query: q,
+      count: results.length,
+      results,
+      suggestions: results,
+      places: results,
+      stops: [],
+      addresses: results.filter((item) => item.type === "address"),
+      meta: {
+        ...healthMeta(),
+        cached: false,
+        autocomplete: true,
+        addressAutocompleteOnly: true,
+        addressFirst: true,
+        localAddressOnly: true,
+        noProviderTimeout: true,
+        hardLocalGeocoderFix: true,
+        searchServiceVersion: "hard-local-no-timeout-v999",
+        poiDisabledForAutocomplete: true,
+        tookMs: Date.now() - startedAt,
+        providers: [
+          {
+            name: "local_address",
+            ok: true,
+            count: results.length,
+            error: null,
+          },
+        ],
+      },
+    };
+
+    await setCache(cacheKey, payload, 120);
+    return payload;
+  }
+
+  const localAddress = await (async () => {
+    try {
+      const results = await searchLocalAddresses(q, {
+        limit: Math.max(8, limit),
+        lat: query.lat ?? query.latitude,
+        lon: query.lon ?? query.lng ?? query.longitude,
+      });
+      return { name: "local_address", ok: true, results: Array.isArray(results) ? results : [], error: null };
+    } catch (error) {
+      return { name: "local_address", ok: false, results: [], error: error?.message || String(error) };
+    }
+  })();
+
+  const [fastIndex, meili] = await Promise.all([
     runProvider(
       "fast_local_index",
       () => searchFastIndex(q, { limit: Math.max(18, limit) }),
       FAST_INDEX_TIMEOUT_MS,
-    ),
-    runProvider(
-      "local_address",
-      () =>
-        searchLocalAddresses(q, {
-          limit: Math.max(8, limit),
-          lat: query.lat ?? query.latitude,
-          lon: query.lon ?? query.lng ?? query.longitude,
-        }),
-      LOCAL_ADDRESS_TIMEOUT_MS,
     ),
     runProvider(
       "meilisearch",
@@ -271,7 +349,7 @@ async function index(query = {}) {
     ...fastIndex.results,
   ];
 
-  const providers = [meili, localAddress, fastIndex];
+  const providers = [localAddress, meili, fastIndex];
 
   const rankedFast = rankResults(dedupeResults(combined), q);
   const hasStrongFastResult = rankedFast.some(
@@ -424,6 +502,7 @@ async function stops(query = {}) {
 function healthMeta() {
   return {
     module: "dynamic_search",
+    searchServiceVersion: "hard-local-no-timeout-v999",
     env: {
       ORS_API_KEY: Boolean(process.env.ORS_API_KEY),
       GOOGLE_PLACES_API_KEY: Boolean(process.env.GOOGLE_PLACES_API_KEY),
@@ -446,7 +525,8 @@ function healthMeta() {
       SEARCH_REGION_LNG: process.env.SEARCH_REGION_LNG || "21.1443",
       SEARCH_REGION_RADIUS_METERS:
         process.env.SEARCH_REGION_RADIUS_METERS || "55000",
-      SEARCH_LOCAL_ADDRESS_TIMEOUT_MS: String(LOCAL_ADDRESS_TIMEOUT_MS),
+      SEARCH_LOCAL_ADDRESS_TIMEOUT_MS: "disabled",
+      SEARCH_LOCAL_ADDRESS_NO_TIMEOUT_PROVIDER: true,
     },
     ...localAddressHealth(),
     ...localPoiHealth(),
