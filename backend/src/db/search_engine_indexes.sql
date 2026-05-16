@@ -1,82 +1,57 @@
--- Arbebus search engine indexes for fast autocomplete and routing.
--- SAFE: this file only creates extensions/indexes and analyzes; it does not DELETE/UPDATE data.
--- Run once in Render PostgreSQL/TablePlus.
+-- Arbebus Instant Search PRO indexes.
+-- SAFE: creates extensions/indexes and analyzes only. Does NOT delete/update data.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
-CREATE INDEX IF NOT EXISTS idx_addresses_street_lower
-ON public.addresses (lower(street));
+-- Lithuanian accent-normalized expression indexes for old official addresses table.
+CREATE INDEX IF NOT EXISTS idx_addresses_norm_street_prefix
+ON public.addresses (
+  (lower(translate(COALESCE(street, ''), 'ĄČĘĖĮŠŲŪŽąčęėįšųūž', 'ACEEISUUZaceeisuuz'))) text_pattern_ops
+);
 
-CREATE INDEX IF NOT EXISTS idx_addresses_street_lower_pattern
-ON public.addresses (lower(street) text_pattern_ops);
+CREATE INDEX IF NOT EXISTS idx_addresses_norm_city_prefix
+ON public.addresses (
+  (lower(translate(COALESCE(city, ''), 'ĄČĘĖĮŠŲŪŽąčęėįšųūž', 'ACEEISUUZaceeisuuz'))) text_pattern_ops
+);
 
-CREATE INDEX IF NOT EXISTS idx_addresses_street_trgm
-ON public.addresses USING gin (lower(street) gin_trgm_ops);
-
-CREATE INDEX IF NOT EXISTS idx_addresses_house_upper
+CREATE INDEX IF NOT EXISTS idx_addresses_house_upper_fast
 ON public.addresses (upper(house_number));
 
-CREATE INDEX IF NOT EXISTS idx_addresses_city_lower
-ON public.addresses (lower(city));
-
-CREATE INDEX IF NOT EXISTS idx_addresses_city_trgm
-ON public.addresses USING gin (lower(city) gin_trgm_ops);
-
-CREATE INDEX IF NOT EXISTS idx_addresses_street_house_city_fast
-ON public.addresses (lower(street), upper(house_number), lower(city));
-
-CREATE INDEX IF NOT EXISTS idx_addresses_missing_coords
-ON public.addresses (city, street, house_number)
-WHERE lat = 0 OR lon = 0 OR lat IS NULL OR lon IS NULL;
-
-CREATE INDEX IF NOT EXISTS idx_addresses_lat_lon
-ON public.addresses (lat, lon);
-
-ANALYZE public.addresses;
-
-SELECT COUNT(*) AS addresses_count FROM public.addresses;
-
--- FINAL ADDRESS SEARCH SAFETY / PERFORMANCE
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-
-CREATE INDEX IF NOT EXISTS idx_addresses_city_lower_trgm
-ON public.addresses USING gin (lower(city) gin_trgm_ops);
-
-CREATE INDEX IF NOT EXISTS idx_addresses_street_lower_trgm
-ON public.addresses USING gin (lower(street) gin_trgm_ops);
-
-CREATE INDEX IF NOT EXISTS idx_addresses_house_upper_btree
-ON public.addresses (upper(house_number));
-
-CREATE INDEX IF NOT EXISTS idx_addresses_region_valid_coords
-ON public.addresses (lower(city), lower(street), upper(house_number))
+CREATE INDEX IF NOT EXISTS idx_addresses_norm_street_house_city_fast
+ON public.addresses (
+  (lower(translate(COALESCE(street, ''), 'ĄČĘĖĮŠŲŪŽąčęėįšųūž', 'ACEEISUUZaceeisuuz'))) text_pattern_ops,
+  upper(house_number),
+  (lower(translate(COALESCE(city, ''), 'ĄČĘĖĮŠŲŪŽąčęėįšųūž', 'ACEEISUUZaceeisuuz'))) text_pattern_ops
+)
 WHERE lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0;
 
+CREATE INDEX IF NOT EXISTS idx_addresses_valid_lat_lon
+ON public.addresses (lat, lon)
+WHERE lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0;
+
+-- RC imported coordinate table indexes. Useful for street autocomplete fallback.
+CREATE INDEX IF NOT EXISTS idx_rc_addresses_norm_street_prefix
+ON public.addresses_rc_import (
+  (lower(translate(COALESCE(street, ''), 'ĄČĘĖĮŠŲŪŽąčęėįšųūž', 'ACEEISUUZaceeisuuz'))) text_pattern_ops
+);
+
+CREATE INDEX IF NOT EXISTS idx_rc_addresses_norm_city_prefix
+ON public.addresses_rc_import (
+  (lower(translate(COALESCE(city, ''), 'ĄČĘĖĮŠŲŪŽąčęėįšųūž', 'ACEEISUUZaceeisuuz'))) text_pattern_ops
+);
+
+CREATE INDEX IF NOT EXISTS idx_rc_addresses_house_upper_fast
+ON public.addresses_rc_import (upper(house_number));
+
+CREATE INDEX IF NOT EXISTS idx_rc_addresses_norm_street_house_city_fast
+ON public.addresses_rc_import (
+  (lower(translate(COALESCE(street, ''), 'ĄČĘĖĮŠŲŪŽąčęėįšųūž', 'ACEEISUUZaceeisuuz'))) text_pattern_ops,
+  upper(house_number),
+  (lower(translate(COALESCE(city, ''), 'ĄČĘĖĮŠŲŪŽąčęėįšųūž', 'ACEEISUUZaceeisuuz'))) text_pattern_ops
+);
+
 ANALYZE public.addresses;
-
--- RC OFFICIAL ADDRESS SEARCH / AUTOCOMPLETE INDEXES
--- Safe: creates indexes only. Required after importing public.addresses_rc_import.
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-
-CREATE INDEX IF NOT EXISTS idx_addresses_rc_import_street_lower_pattern
-ON public.addresses_rc_import (lower(street) text_pattern_ops);
-
-CREATE INDEX IF NOT EXISTS idx_addresses_rc_import_city_lower_pattern
-ON public.addresses_rc_import (lower(city) text_pattern_ops);
-
-CREATE INDEX IF NOT EXISTS idx_addresses_rc_import_house_upper_pattern
-ON public.addresses_rc_import (upper(house_number) text_pattern_ops);
-
-CREATE INDEX IF NOT EXISTS idx_addresses_rc_import_street_house_city_fast
-ON public.addresses_rc_import (lower(street), upper(house_number), lower(city));
-
-CREATE INDEX IF NOT EXISTS idx_addresses_rc_import_name_trgm
-ON public.addresses_rc_import USING gin (lower(name) gin_trgm_ops);
-
-CREATE INDEX IF NOT EXISTS idx_addresses_rc_import_valid_coords
-ON public.addresses_rc_import (lower(street), upper(house_number), lower(city))
-WHERE lat IS NOT NULL AND lon IS NOT NULL;
-
 ANALYZE public.addresses_rc_import;
 
-SELECT COUNT(*) AS addresses_rc_import_count FROM public.addresses_rc_import;
+SELECT COUNT(*) AS addresses_count FROM public.addresses;
+SELECT COUNT(*) AS rc_addresses_count FROM public.addresses_rc_import;

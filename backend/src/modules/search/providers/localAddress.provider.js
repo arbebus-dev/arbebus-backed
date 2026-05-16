@@ -1,121 +1,30 @@
 const { normalizeText } = require("../utils/normalizeText");
-const { getCache, setCache } = require("../cache/searchCache");
 const { toResult } = require("../utils/mapSearchResult");
 const { getPool } = require("../../../db/pool");
-const { searchGooglePlaces } = require("./googlePlaces.provider");
-const { searchNominatim } = require("./nominatim.provider");
 
-const DEFAULT_CENTER = {
+const LT_FROM = "ĄČĘĖĮŠŲŪŽąčęėįšųūž";
+const LT_TO = "ACEEISUUZaceeisuuz";
+const NORMALIZE_SQL = (column) => `lower(translate(COALESCE(${column}, ''), '${LT_FROM}', '${LT_TO}'))`;
+
+const DEFAULT_CITY = {
   city: "Klaipėda",
+  pattern: "klaip%",
   latitude: 55.7033,
   longitude: 21.1443,
-  dbPatterns: ["klaipėd", "klaiped"],
 };
 
 const CITY_HINTS = [
-  {
-    keys: ["klaipeda", "klaipėda"],
-    city: "Klaipėda",
-    latitude: 55.7033,
-    longitude: 21.1443,
-    dbPatterns: ["klaipėd", "klaiped"],
-  },
-  {
-    keys: ["gargzdai", "gargždai"],
-    city: "Gargždai",
-    latitude: 55.7093,
-    longitude: 21.3949,
-    dbPatterns: ["gargžd", "gargzd"],
-  },
-  {
-    keys: ["neringa"],
-    city: "Neringa",
-    latitude: 55.3712,
-    longitude: 21.0646,
-    dbPatterns: ["nering"],
-  },
-  {
-    keys: ["nida"],
-    city: "Nida",
-    latitude: 55.3039,
-    longitude: 21.0058,
-    dbPatterns: ["nida"],
-  },
-  {
-    keys: ["priekule", "priekulė"],
-    city: "Priekulė",
-    latitude: 55.5546,
-    longitude: 21.3185,
-    dbPatterns: ["priekul"],
-  },
-  {
-    keys: ["dreverna"],
-    city: "Dreverna",
-    latitude: 55.5184,
-    longitude: 21.2466,
-    dbPatterns: ["drevern"],
-  },
-  {
-    keys: ["karkle", "karklė"],
-    city: "Karklė",
-    latitude: 55.8113,
-    longitude: 21.0727,
-    dbPatterns: ["karkl"],
-  },
-  {
-    keys: ["slengiai"],
-    city: "Slengiai",
-    latitude: 55.7654,
-    longitude: 21.2315,
-    dbPatterns: ["sleng"],
-  },
-  {
-    keys: ["kretingale", "kretingalė"],
-    city: "Kretingalė",
-    latitude: 55.8322,
-    longitude: 21.1907,
-    dbPatterns: ["kretingal"],
-  },
-  {
-    keys: ["dovilai"],
-    city: "Dovilai",
-    latitude: 55.6762,
-    longitude: 21.3789,
-    dbPatterns: ["dovil"],
-  },
-];
-
-const REGION_PATTERNS = [
-  "%klaip%",
-  "%nering%",
-  "%nida%",
-  "%gargžd%",
-  "%gargzd%",
-  "%priekul%",
-  "%drevern%",
-  "%karkl%",
-  "%sleng%",
-  "%sendvar%",
-  "%kretingal%",
-  "%dovil%",
-  "%veivirž%",
-  "%veivirz%",
-  "%judrėn%",
-  "%judren%",
-  "%agluonėn%",
-  "%agluonen%",
-  "%ketverg%",
-  "%lapiai%",
-  "%pliki%",
-  "%endriejav%",
-  "%venck%",
-  "%saug%",
-  "%girul%",
-  "%melnrag%",
-  "%smiltyn%",
-  "%juodkrant%",
-  "%preil%",
-  "%pervalk%",
+  { keys: ["klaipeda", "klaipedos", "klaipėda", "klaipėdos"], city: "Klaipėda", pattern: "klaip%", latitude: 55.7033, longitude: 21.1443 },
+  { keys: ["gargzdai", "gargždai", "gargzdu", "gargždų"], city: "Gargždai", pattern: "gargzd%", latitude: 55.7093, longitude: 21.3949 },
+  { keys: ["palanga", "palangos"], city: "Palanga", pattern: "palang%", latitude: 55.9175, longitude: 21.0686 },
+  { keys: ["vilnius", "vilniaus"], city: "Vilnius", pattern: "viln%", latitude: 54.6872, longitude: 25.2797 },
+  { keys: ["kaunas", "kauno"], city: "Kaunas", pattern: "kaun%", latitude: 54.8985, longitude: 23.9036 },
+  { keys: ["siauliai", "šiauliai", "siauliu", "šiaulių"], city: "Šiauliai", pattern: "siaul%", latitude: 55.9349, longitude: 23.3137 },
+  { keys: ["panevezys", "panevėžys", "panevezio", "panevėžio"], city: "Panevėžys", pattern: "panevez%", latitude: 55.7348, longitude: 24.3575 },
+  { keys: ["kretinga", "kretingos"], city: "Kretinga", pattern: "kreting%", latitude: 55.8888, longitude: 21.2445 },
+  { keys: ["neringa", "neringos"], city: "Neringa", pattern: "nering%", latitude: 55.3712, longitude: 21.0646 },
+  { keys: ["nida", "nidos"], city: "Nida", pattern: "nida%", latitude: 55.3039, longitude: 21.0058 },
+  { keys: ["priekule", "priekulė", "priekules", "priekulės"], city: "Priekulė", pattern: "priekul%", latitude: 55.5546, longitude: 21.3185 },
 ];
 
 let lastDbError = null;
@@ -124,29 +33,6 @@ let lastDbHealthCheck = 0;
 
 function compactQuery(value) {
   return normalizeText(value).replace(/\./g, " ").replace(/\s+/g, " ").trim();
-}
-
-function extractHouseNumber(query) {
-  const match = String(query || "").match(/\b(\d+[a-zA-Z]?)\b/);
-  return match ? match[1].toUpperCase() : null;
-}
-
-function normalizeSearchText(value) {
-  return compactQuery(value)
-    .replace(
-      /\b(g|gatve|gatvė|pr|prospektas|pl|plentas|al|aleja|kelias)\b/g,
-      " ",
-    )
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function parseCoordinate(input, keys) {
-  for (const key of keys) {
-    const value = Number(input?.[key]);
-    if (Number.isFinite(value)) return value;
-  }
-  return null;
 }
 
 function validCoordinate(latitude, longitude) {
@@ -160,451 +46,176 @@ function validCoordinate(latitude, longitude) {
   );
 }
 
-function normalizeInputLocation(options = {}) {
-  const latitude = parseCoordinate(options, ["lat", "latitude"]);
-  const longitude = parseCoordinate(options, ["lon", "lng", "longitude"]);
-  if (!validCoordinate(latitude, longitude)) return null;
-  return { latitude, longitude };
+function extractHouseNumber(query) {
+  const match = String(query || "").match(/\b(\d+[a-zA-Z]?)\b/);
+  return match ? match[1].toUpperCase() : null;
 }
 
-function distanceMeters(a, b) {
-  const lat1 = Number(a.latitude ?? a.lat);
-  const lon1 = Number(a.longitude ?? a.lon ?? a.lng);
-  const lat2 = Number(b.latitude ?? b.lat);
-  const lon2 = Number(b.longitude ?? b.lon ?? b.lng);
-
-  if (!validCoordinate(lat1, lon1) || !validCoordinate(lat2, lon2)) {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  const R = 6371000;
-  const toRad = (value) => (value * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const p1 = toRad(lat1);
-  const p2 = toRad(lat2);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(p1) * Math.cos(p2) * Math.sin(dLon / 2) ** 2;
-
-  return Math.round(2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)));
-}
-
-function detectCity(query, options = {}) {
+function detectCity(query) {
   const nq = compactQuery(query);
-  const explicit = CITY_HINTS.find((item) =>
-    item.keys.some((key) => nq.includes(compactQuery(key))),
-  );
-
-  if (explicit) return { ...explicit, reason: "query" };
-
-  const location = normalizeInputLocation(options);
-  if (location) {
-    const nearest = [...CITY_HINTS]
-      .map((item) => ({
-        ...item,
-        distanceMeters: distanceMeters(location, item),
-      }))
-      .sort((a, b) => a.distanceMeters - b.distanceMeters)[0];
-
-    return { ...(nearest || DEFAULT_CENTER), reason: "gps" };
-  }
-
-  return { ...DEFAULT_CENTER, reason: "default" };
+  return CITY_HINTS.find((item) => item.keys.some((key) => nq.includes(compactQuery(key)))) || DEFAULT_CITY;
 }
 
-function cityPatterns(cityHint) {
-  const source = cityHint || DEFAULT_CENTER;
-  const patterns =
-    Array.isArray(source.dbPatterns) && source.dbPatterns.length
-      ? source.dbPatterns
-      : [source.city];
+function parseAddressQuery(query) {
+  const raw = String(query || "").trim();
+  const normalized = compactQuery(raw);
+  const house = extractHouseNumber(normalized);
+  const cityHint = detectCity(normalized);
 
-  return patterns
-    .map((item) => `%${String(item).toLowerCase()}%`)
-    .filter(Boolean);
-}
-
-function cityMatches(rowCity, targetCity) {
-  if (!rowCity || !targetCity) return false;
-  const cityText = String(rowCity).toLowerCase();
-
-  return cityPatterns(targetCity).some((pattern) =>
-    cityText.includes(pattern.replace(/%/g, "")),
-  );
-}
-
-function removeCityWordsFromStreet(query) {
-  let value = compactQuery(query);
+  let street = normalized
+    .replace(/\b\d+[a-zA-Z]?\b/g, " ")
+    .replace(/\b(g|gatve|gatvė|pr|prospektas|pl|plentas|al|aleja|kelias)\b/gi, " ");
 
   for (const city of CITY_HINTS) {
     for (const key of city.keys) {
-      value = value.replace(
-        new RegExp(`\\b${compactQuery(key)}\\b`, "gi"),
-        " ",
-      );
+      street = street.replace(new RegExp(`\\b${compactQuery(key)}\\b`, "gi"), " ");
     }
   }
 
-  return value.replace(/\s+/g, " ").trim();
+  street = street.replace(/\s+/g, " ").trim();
+
+  return {
+    raw,
+    normalized,
+    house,
+    cityHint,
+    street: street || normalized,
+  };
 }
 
 function buildTitle(row) {
-  if (row.suggestion_type === "street" || !row.house_number) {
-    const street = String(row.street || row.name || "Gatvė").trim();
-    if (/(g\.|gatvė|pr\.|prospektas|pl\.|plentas|al\.|aleja)$/i.test(street)) {
-      return street;
-    }
-    return `${street} g.`;
-  }
-
-  return row.name || [row.street, row.house_number].filter(Boolean).join(" ");
+  const street = String(row.street || row.name || "Gatvė").trim();
+  if (row.suggestion_type === "street" || !row.house_number) return street;
+  return row.name || `${street} ${row.house_number}`;
 }
 
 function buildSubtitle(row) {
   return [row.city, row.postcode].filter(Boolean).join(", ") || "Adresas";
 }
 
-function readResultCoordinate(item) {
-  const latitude = Number(
-    item?.latitude ?? item?.lat ?? item?.coordinate?.latitude,
-  );
-  const longitude = Number(
-    item?.longitude ?? item?.lon ?? item?.lng ?? item?.coordinate?.longitude,
-  );
-
-  if (!validCoordinate(latitude, longitude)) return null;
-  return { latitude, longitude };
-}
-
-function geocoderQuery(row, originalQuery, targetCity) {
-  const city = row.city || targetCity?.city || DEFAULT_CENTER.city;
-  const parts = [row.street, row.house_number, city, "Lietuva"].filter(Boolean);
-  const query = parts.join(" ").replace(/\s+/g, " ").trim();
-
-  if (query.length >= 6) return query;
-  return `${originalQuery} ${city} Lietuva`.trim();
-}
-
-async function updateAddressCoordinate(id, coordinate) {
-  if (!id || !validCoordinate(coordinate?.latitude, coordinate?.longitude))
-    return;
-
-  await getPool().query(
-    `
-    UPDATE public.addresses
-    SET lat = $2, lon = $3
-    WHERE id = $1
-      AND (lat IS NULL OR lon IS NULL OR lat = 0 OR lon = 0)
-    `,
-    [id, coordinate.latitude, coordinate.longitude],
-  );
-}
-
-async function geocodeMissingCoordinate(row, originalQuery, targetCity) {
-  const title = geocoderQuery(row, originalQuery, targetCity);
-  const key = `address-geocode:v5:${compactQuery(title)}`;
-  const cached = await getCache(key);
-
-  if (
-    cached &&
-    validCoordinate(Number(cached.latitude), Number(cached.longitude))
-  ) {
-    return cached;
-  }
-
-  const providers = [
-    () => searchGooglePlaces(title, { limit: 1 }),
-    () => searchNominatim(title, { limit: 1 }),
-  ];
-
-  for (const provider of providers) {
-    try {
-      const results = await provider();
-      const first = Array.isArray(results)
-        ? results.map(readResultCoordinate).find(Boolean)
-        : null;
-
-      if (first) {
-        await setCache(key, first, 86400 * 30);
-        updateAddressCoordinate(row.id, first).catch(() => undefined);
-        return first;
-      }
-    } catch {
-      // External geocoder must never break local autocomplete.
-    }
-  }
-
-  return null;
-}
-
-function rowToAddressResult(row, query, options = {}) {
-  const targetCity = detectCity(query, options);
-  const userLocation = normalizeInputLocation(options);
+function rowToAddressResult(row, query) {
   const latitude = Number(row.lat);
   const longitude = Number(row.lon);
   const hasRealCoordinate = validCoordinate(latitude, longitude);
-  const fallbackCoordinate = userLocation || targetCity || DEFAULT_CENTER;
-  const finalLatitude = hasRealCoordinate
-    ? latitude
-    : fallbackCoordinate.latitude;
-  const finalLongitude = hasRealCoordinate
-    ? longitude
-    : fallbackCoordinate.longitude;
-  const userDistance =
-    userLocation && hasRealCoordinate
-      ? distanceMeters(userLocation, { latitude, longitude })
-      : null;
-
-  const rowMatchesTargetCity = cityMatches(row.city, targetCity);
-  const exactHouse = extractHouseNumber(query);
-
-  let score = Number(row.rank_score || 0);
-  if (rowMatchesTargetCity) score += 300000;
-  if (targetCity?.reason === "query" && rowMatchesTargetCity) score += 150000;
-  if (!rowMatchesTargetCity) score -= 200000;
-  if (targetCity?.reason === "gps" && rowMatchesTargetCity) score += 120000;
-  if (targetCity?.reason === "default" && rowMatchesTargetCity) score += 110000;
-  if (hasRealCoordinate) score += 6000;
-  else score -= 4000;
-  if (userDistance != null) {
-    score += Math.max(0, 50000 - Math.min(userDistance, 50000));
-  }
+  const type = row.suggestion_type === "street" ? "street" : "address";
+  const exactHouse = Boolean(extractHouseNumber(query));
 
   return toResult({
     id: `address-${row.id}`,
     placeId: `address-${row.id}`,
-    type: row.suggestion_type === "street" ? "street" : "address",
+    type,
     title: buildTitle(row),
     name: buildTitle(row),
-    subtitle: hasRealCoordinate
-      ? buildSubtitle(row)
-      : `${buildSubtitle(row)} · pasirinkite namo numerį`,
-    latitude: finalLatitude,
-    longitude: finalLongitude,
-    coordinate: { latitude: finalLatitude, longitude: finalLongitude },
+    subtitle: hasRealCoordinate ? buildSubtitle(row) : `${buildSubtitle(row)} · pasirinkite namo numerį`,
+    latitude,
+    longitude,
+    coordinate: { latitude, longitude },
     source: "postgres_address",
-    category: row.suggestion_type === "street" ? "Gatvė" : "Adresas",
-    priority: exactHouse ? 320 : 210,
-    score,
-    selectable: row.suggestion_type === "street" ? false : hasRealCoordinate,
-    requiresHouseNumber: row.suggestion_type === "street" ? true : !row.house_number,
+    category: type === "street" ? "Gatvė" : "Adresas",
+    priority: exactHouse ? 360 : 240,
+    score: Number(row.rank_score || 0),
+    selectable: type === "address" && hasRealCoordinate,
+    requiresHouseNumber: type === "street",
     needsGeocoding: !hasRealCoordinate,
-    distanceMeters: userDistance ?? undefined,
-    keywords: [
-      row.name,
-      row.street,
-      row.house_number,
-      row.city,
-      row.postcode,
-    ].filter(Boolean),
+    keywords: [row.name, row.street, row.house_number, row.city, row.postcode].filter(Boolean),
   });
 }
 
-async function mapAddressDetail(row, query, options = {}) {
-  let latitude = Number(row.lat);
-  let longitude = Number(row.lon);
-  let geocoded = false;
-  const targetCity = detectCity(query || buildTitle(row), options);
-
-  if (!validCoordinate(latitude, longitude)) {
-    const resolved = await geocodeMissingCoordinate(
-      row,
-      query || buildTitle(row),
-      targetCity,
-    );
-    if (resolved) {
-      latitude = resolved.latitude;
-      longitude = resolved.longitude;
-      geocoded = true;
-    }
-  }
-
-  const base = rowToAddressResult(
-    { ...row, lat: latitude, lon: longitude },
-    query || buildTitle(row),
-    options,
-  );
-
-  return {
-    ...base,
-    source: geocoded ? "postgres_address_geocoded" : base.source,
-    needsGeocoding: !validCoordinate(latitude, longitude),
-  };
-}
-
-async function queryAddressRows({ nq, streetPart, house, targetCity, limit }) {
+async function queryAddressRows({ query, limit }) {
   const pool = getPool();
-  const cityPreferredPatterns = cityPatterns(targetCity);
-  const street = normalizeSearchText(streetPart || nq);
+  const parsed = parseAddressQuery(query);
+  const streetPrefix = compactQuery(parsed.street).slice(0, 80);
+  if (streetPrefix.length < 2) return [];
 
-  if (!street || street.length < 2) return [];
+  const streetNorm = NORMALIZE_SQL("street");
+  const cityNorm = NORMALIZE_SQL("city");
+  const cityPattern = parsed.cityHint?.pattern || DEFAULT_CITY.pattern;
 
-  if (house) {
+  if (parsed.house) {
     const sql = `
       SELECT id, name, street, house_number, city, postcode, lat, lon,
         'address'::text AS suggestion_type,
         (
-          CASE WHEN lower(street) = lower($1) THEN 9000 ELSE 0 END +
-          CASE WHEN lower(street) LIKE lower($1) || '%' THEN 6000 ELSE 0 END +
-          CASE WHEN upper(house_number) = upper($2) THEN 10000 ELSE 0 END +
-          CASE WHEN lower(COALESCE(city, '')) LIKE ANY($3::text[]) THEN 90000 ELSE 0 END +
-          CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 5000 ELSE 0 END
+          CASE WHEN ${cityNorm} LIKE $3 THEN 160000 ELSE 0 END +
+          CASE WHEN upper(house_number) = upper($2) THEN 120000 ELSE 0 END +
+          CASE WHEN upper(house_number) LIKE upper($2) || '%' THEN 45000 ELSE 0 END +
+          CASE WHEN ${streetNorm} = $1 THEN 30000 ELSE 0 END +
+          CASE WHEN ${streetNorm} LIKE $1 || '%' THEN 20000 ELSE 0 END +
+          CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 8000 ELSE 0 END
         ) AS rank_score
       FROM public.addresses
-      WHERE lower(COALESCE(city, '')) LIKE ANY($4::text[])
-        AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0
-        AND upper(house_number) = upper($2)
-        AND (
-          lower(street) = lower($1)
-          OR lower(street) LIKE lower($1) || '%'
-          OR lower(street) LIKE '%' || lower($1) || '%'
-        )
+      WHERE lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0
+        AND ${streetNorm} LIKE $1 || '%'
+        AND upper(house_number) LIKE upper($2) || '%'
+        AND ${cityNorm} LIKE $3
       ORDER BY rank_score DESC, city ASC, street ASC, house_number ASC
-      LIMIT $5
+      LIMIT $4
     `;
 
-    const result = await pool.query(sql, [
-      street,
-      house,
-      cityPreferredPatterns,
-      REGION_PATTERNS,
-      limit,
-    ]);
-
+    const result = await pool.query(sql, [streetPrefix, parsed.house, cityPattern, limit]);
     return result.rows;
   }
 
-  // Street-only autocomplete must be fast and non-navigable.
-  // It returns distinct street suggestions only. It intentionally does not return
-  // fallback coordinates and cannot start routing until the user selects a house number.
   const sql = `
     WITH street_candidates AS (
-      SELECT
-        MIN(id) AS id,
+      SELECT DISTINCT ON (${streetNorm}, ${cityNorm})
+        id,
         street,
         city,
-        MAX(
-          CASE WHEN lower(street) = lower($1) THEN 15000 ELSE 0 END +
-          CASE WHEN lower(street) LIKE lower($1) || '%' THEN 12000 ELSE 0 END +
-          CASE WHEN lower(COALESCE(city, '')) LIKE ANY($2::text[]) THEN 120000 ELSE 0 END +
-          CASE WHEN EXISTS (
-            SELECT 1 FROM public.addresses a2
-            WHERE a2.street = public.addresses.street
-              AND a2.city = public.addresses.city
-              AND a2.lat IS NOT NULL AND a2.lon IS NOT NULL
-              AND a2.lat <> 0 AND a2.lon <> 0
-            LIMIT 1
-          ) THEN 5000 ELSE 0 END
+        postcode,
+        lat,
+        lon,
+        (
+          CASE WHEN ${cityNorm} LIKE $2 THEN 160000 ELSE 0 END +
+          CASE WHEN ${streetNorm} = $1 THEN 30000 ELSE 0 END +
+          CASE WHEN ${streetNorm} LIKE $1 || '%' THEN 20000 ELSE 0 END +
+          CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 8000 ELSE 0 END
         ) AS rank_score
       FROM public.addresses
-      WHERE lower(COALESCE(city, '')) LIKE ANY($3::text[])
-        AND lower(street) LIKE lower($1) || '%'
-      GROUP BY street, city
-      ORDER BY rank_score DESC, city ASC, street ASC
-      LIMIT $4
+      WHERE ${streetNorm} LIKE $1 || '%'
+        AND ${cityNorm} LIKE $2
+        AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0
+      ORDER BY ${streetNorm}, ${cityNorm}, rank_score DESC, id ASC
+      LIMIT $3
     )
-    SELECT
-      sc.id,
-      sc.street AS name,
-      sc.street,
-      NULL::text AS house_number,
-      sc.city,
-      NULL::text AS postcode,
-      NULL::double precision AS lat,
-      NULL::double precision AS lon,
-      'street'::text AS suggestion_type,
-      sc.rank_score
-    FROM street_candidates sc
-    ORDER BY sc.rank_score DESC, sc.city ASC, sc.street ASC
+    SELECT id, street AS name, street, NULL::text AS house_number, city, postcode, lat, lon,
+      'street'::text AS suggestion_type, rank_score
+    FROM street_candidates
+    ORDER BY rank_score DESC, city ASC, street ASC
   `;
 
-  const result = await pool.query(sql, [
-    street,
-    cityPreferredPatterns,
-    REGION_PATTERNS,
-    Math.min(Math.max(limit, 8), 20),
-  ]);
-
+  const result = await pool.query(sql, [streetPrefix, cityPattern, Math.min(Math.max(limit, 8), 20)]);
   return result.rows;
-}
-
-function sortAddressResults(items) {
-  return [...items].sort((a, b) => {
-    const aScore = Number(a.score || 0);
-    const bScore = Number(b.score || 0);
-    if (bScore !== aScore) return bScore - aScore;
-
-    const aDistance = Number.isFinite(Number(a.distanceMeters))
-      ? Number(a.distanceMeters)
-      : Number.MAX_SAFE_INTEGER;
-    const bDistance = Number.isFinite(Number(b.distanceMeters))
-      ? Number(b.distanceMeters)
-      : Number.MAX_SAFE_INTEGER;
-
-    if (aDistance !== bDistance) return aDistance - bDistance;
-    return String(a.title || "").localeCompare(String(b.title || ""), "lt");
-  });
-}
-
-async function searchPostgresAddresses(query, options = {}) {
-  const q = String(query || "").trim();
-  const nq = compactQuery(q);
-  if (nq.length < 2) return [];
-
-  const limit = Math.min(Math.max(Number(options.limit || 8), 1), 20);
-  const house = extractHouseNumber(q);
-  const targetCity = detectCity(q, options);
-  const qWithoutCity = removeCityWordsFromStreet(q);
-  const streetPartRaw = qWithoutCity.replace(/\b\d+[a-z]?\b/gi, " ").trim();
-  const streetPart = normalizeSearchText(streetPartRaw || nq);
-
-  const rows = await queryAddressRows({
-    nq,
-    streetPart,
-    house: house || null,
-    targetCity,
-    limit: house ? Math.max(limit, 14) : 20,
-  });
-
-  return sortAddressResults(
-    rows.map((row) => rowToAddressResult(row, q, options)),
-  ).slice(0, limit);
 }
 
 async function searchLocalAddresses(query, options = {}) {
   try {
-    const dbResults = await searchPostgresAddresses(query, options);
+    const limit = Math.min(Math.max(Number(options.limit || 8), 1), 20);
+    const rows = await queryAddressRows({ query, limit: Math.max(limit, 12) });
     lastDbError = null;
-    return dbResults;
+    return rows.map((row) => rowToAddressResult(row, query)).filter(Boolean).slice(0, limit);
   } catch (error) {
     lastDbError = error?.message || String(error);
     return [];
   }
 }
 
-async function getLocalAddressDetails(placeId, options = {}) {
-  const rawId = String(placeId || "")
-    .replace(/^address-/, "")
-    .trim();
+async function getLocalAddressDetails(placeId) {
+  const rawId = String(placeId || "").replace(/^address-/, "").trim();
   if (!rawId) return null;
 
   try {
     const result = await getPool().query(
-      `
-      SELECT id, name, street, house_number, city, postcode, lat, lon
-      FROM public.addresses
-      WHERE id::text = $1
-      LIMIT 1
-      `,
+      `SELECT id, name, street, house_number, city, postcode, lat, lon
+       FROM public.addresses
+       WHERE id::text = $1
+       LIMIT 1`,
       [rawId],
     );
-
     const row = result.rows?.[0];
     if (!row) return null;
-
     lastDbError = null;
-    return mapAddressDetail(row, buildTitle(row), options);
+    return rowToAddressResult({ ...row, suggestion_type: "address" }, row.name || "");
   } catch (error) {
     lastDbError = error?.message || String(error);
     return null;
@@ -616,9 +227,7 @@ async function refreshDbCount() {
   lastDbHealthCheck = Date.now();
 
   try {
-    const result = await getPool().query(
-      "SELECT COUNT(*)::int AS count FROM public.addresses",
-    );
+    const result = await getPool().query("SELECT COUNT(*)::int AS count FROM public.addresses");
     lastDbCount = Number(result.rows?.[0]?.count || 0);
     lastDbError = null;
   } catch (error) {
@@ -630,7 +239,6 @@ async function refreshDbCount() {
 
 function localAddressHealth() {
   refreshDbCount().catch(() => undefined);
-
   return {
     postgresAddressProvider: true,
     postgresAddressCount: lastDbCount,
