@@ -28,6 +28,7 @@ const {
   localAddressHealth,
 } = require("./providers/localAddress.provider");
 const { searchMeili, meiliHealth } = require("./providers/meili.provider");
+const { getPool } = require("../../db/pool");
 
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 30;
@@ -92,7 +93,7 @@ function searchCacheKey(q, type, limit, query = {}) {
       ? `${lat.toFixed(2)},${lon.toFixed(2)}`
       : "no-gps";
 
-  return `v14:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(
+  return `v15:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(
     limit || DEFAULT_LIMIT,
   )}:${locationBucket}`;
 }
@@ -204,6 +205,295 @@ function compactProviderMeta(providers) {
   }));
 }
 
+let lastRcAddressError = null;
+let lastRcAddressCount = null;
+let lastRcAddressHealthCheck = 0;
+
+function parseQueryParts(value = "") {
+  const raw = String(value || "").trim();
+  const normalized = normalizeText(raw)
+    .replace(/\./g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const houseMatch = normalized.match(/\b(\d+[a-zA-Z]?)\b/);
+  const house = houseMatch ? houseMatch[1].toUpperCase() : null;
+
+  const streetText = normalized
+    .replace(/\b\d+[a-zA-Z]?\b/g, " ")
+    .replace(
+      /\b(g|gatve|gatvė|pr|prospektas|pl|plentas|al|aleja|kelias)\b/gi,
+      " ",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const tokens = normalized
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 2)
+    .slice(0, 6);
+
+  return { raw, normalized, house, streetText, tokens };
+}
+
+function lks94ToWgs84(x, y) {
+  const easting = Number(x);
+  const northing = Number(y);
+
+  if (!Number.isFinite(easting) || !Number.isFinite(northing)) return null;
+
+  // Already WGS84.
+  if (
+    northing >= 53 &&
+    northing <= 57 &&
+    easting >= 20 &&
+    easting <= 27
+  ) {
+    return { latitude: northing, longitude: easting };
+  }
+
+  // Lithuanian LKS94 / EPSG:3346 to WGS84.
+  // Formula implemented locally so production search does not depend on proj4.
+  const a = 6378137.0;
+  const f = 1 / 298.257222101;
+  const k0 = 0.9998;
+  const lon0 = (24 * Math.PI) / 180;
+  const falseEasting = 500000.0;
+
+  const e2 = 2 * f - f * f;
+  const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+
+  const xAdj = easting - falseEasting;
+  const m = northing / k0;
+  const mu =
+    m /
+    (a *
+      (1 -
+        e2 / 4 -
+        (3 * e2 * e2) / 64 -
+        (5 * e2 * e2 * e2) / 256));
+
+  const j1 = (3 * e1) / 2 - (27 * Math.pow(e1, 3)) / 32;
+  const j2 = (21 * e1 * e1) / 16 - (55 * Math.pow(e1, 4)) / 32;
+  const j3 = (151 * Math.pow(e1, 3)) / 96;
+  const j4 = (1097 * Math.pow(e1, 4)) / 512;
+
+  const fp =
+    mu +
+    j1 * Math.sin(2 * mu) +
+    j2 * Math.sin(4 * mu) +
+    j3 * Math.sin(6 * mu) +
+    j4 * Math.sin(8 * mu);
+
+  const sinFp = Math.sin(fp);
+  const cosFp = Math.cos(fp);
+  const tanFp = Math.tan(fp);
+
+  const ep2 = e2 / (1 - e2);
+  const c1 = ep2 * cosFp * cosFp;
+  const t1 = tanFp * tanFp;
+  const n1 = a / Math.sqrt(1 - e2 * sinFp * sinFp);
+  const r1 = (a * (1 - e2)) / Math.pow(1 - e2 * sinFp * sinFp, 1.5);
+  const d = xAdj / (n1 * k0);
+
+  const q1 = d * d / 2;
+  const q2 =
+    ((5 + 3 * t1 + 10 * c1 - 4 * c1 * c1 - 9 * ep2) * Math.pow(d, 4)) /
+    24;
+  const q3 =
+    ((61 +
+      90 * t1 +
+      298 * c1 +
+      45 * t1 * t1 -
+      252 * ep2 -
+      3 * c1 * c1) *
+      Math.pow(d, 6)) /
+    720;
+
+  const lat =
+    fp -
+    ((n1 * tanFp) / r1) *
+      (q1 - q2 + q3);
+
+  const q4 = d;
+  const q5 = ((1 + 2 * t1 + c1) * Math.pow(d, 3)) / 6;
+  const q6 =
+    ((5 -
+      2 * c1 +
+      28 * t1 -
+      3 * c1 * c1 +
+      8 * ep2 +
+      24 * t1 * t1) *
+      Math.pow(d, 5)) /
+    120;
+
+  const lon = lon0 + (q4 - q5 + q6) / cosFp;
+
+  const latitude = (lat * 180) / Math.PI;
+  const longitude = (lon * 180) / Math.PI;
+
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    latitude < 53 ||
+    latitude > 57 ||
+    longitude < 20 ||
+    longitude > 27
+  ) {
+    return null;
+  }
+
+  return { latitude, longitude };
+}
+
+function rcAddressToResult(row, query) {
+  const converted = lks94ToWgs84(row.lon, row.lat);
+  if (!converted) return null;
+
+  const title =
+    row.name ||
+    [row.street, row.house_number].filter(Boolean).join(" ") ||
+    "Adresas";
+
+  const exactHouse = hasHouseNumberQuery(query);
+
+  return {
+    id: `address-rc-${row.id}`,
+    placeId: `address-rc-${row.id}`,
+    type: exactHouse ? "address" : "street",
+    title,
+    name: title,
+    subtitle: [row.city, row.postcode].filter(Boolean).join(", ") || "Adresas",
+    latitude: converted.latitude,
+    longitude: converted.longitude,
+    coordinate: converted,
+    source: "postgres_rc_address",
+    category: "Adresas",
+    priority: exactHouse ? 340 : 220,
+    score: Number(row.rank_score || 0),
+    selectable: exactHouse,
+    requiresHouseNumber: !exactHouse,
+    keywords: [
+      row.name,
+      row.street,
+      row.house_number,
+      row.city,
+      row.postcode,
+    ].filter(Boolean),
+  };
+}
+
+async function searchRcAddresses(query, options = {}) {
+  const q = String(query || "").trim();
+  const parsed = parseQueryParts(q);
+  if (parsed.normalized.length < 2) return [];
+
+  const limit = Math.min(Math.max(Number(options.limit || 8), 1), 20);
+  const pool = getPool();
+
+  const tokenClauses = parsed.tokens.map(
+    (_, index) => `lower(name) LIKE '%' || lower($${index + 1}) || '%'`,
+  );
+
+  const params = [...parsed.tokens];
+  const cityParamIndex = params.length + 1;
+  params.push(parsed.normalized.includes("klaip") ? "%klaip%" : "%");
+
+  const houseParamIndex = params.length + 1;
+  params.push(parsed.house || "");
+
+  const limitParamIndex = params.length + 1;
+  params.push(limit);
+
+  const sql = `
+    SELECT
+      id,
+      name,
+      street,
+      house_number,
+      city,
+      postcode,
+      lat,
+      lon,
+      (
+        CASE WHEN lower(city) LIKE lower($${cityParamIndex}) THEN 120000 ELSE 0 END +
+        CASE WHEN $${houseParamIndex} <> '' AND upper(house_number) = upper($${houseParamIndex}) THEN 90000 ELSE 0 END +
+        CASE WHEN $${houseParamIndex} <> '' AND upper(house_number) LIKE upper($${houseParamIndex}) || '%' THEN 30000 ELSE 0 END +
+        CASE WHEN lower(name) LIKE '%' || lower($1) || '%' THEN 12000 ELSE 0 END
+      ) AS rank_score
+    FROM public.addresses_rc_import
+    WHERE ${tokenClauses.length ? tokenClauses.join(" AND ") : "true"}
+    ORDER BY rank_score DESC, city ASC, street ASC, house_number ASC
+    LIMIT $${limitParamIndex}
+  `;
+
+  try {
+    const result = await pool.query(sql, params);
+    lastRcAddressError = null;
+
+    return result.rows
+      .map((row) => rcAddressToResult(row, q))
+      .filter(Boolean);
+  } catch (error) {
+    lastRcAddressError = error?.message || String(error);
+    return [];
+  }
+}
+
+async function getRcAddressDetails(placeId) {
+  const rawId = String(placeId || "").replace(/^address-rc-/, "").trim();
+  if (!rawId) return null;
+
+  try {
+    const result = await getPool().query(
+      `
+      SELECT id, name, street, house_number, city, postcode, lat, lon
+      FROM public.addresses_rc_import
+      WHERE id::text = $1
+      LIMIT 1
+      `,
+      [rawId],
+    );
+
+    const row = result.rows?.[0];
+    if (!row) return null;
+
+    lastRcAddressError = null;
+    return rcAddressToResult(row, row.name || "");
+  } catch (error) {
+    lastRcAddressError = error?.message || String(error);
+    return null;
+  }
+}
+
+async function refreshRcAddressCount() {
+  if (Date.now() - lastRcAddressHealthCheck < 30000) return lastRcAddressCount;
+  lastRcAddressHealthCheck = Date.now();
+
+  try {
+    const result = await getPool().query(
+      "SELECT COUNT(*)::int AS count FROM public.addresses_rc_import",
+    );
+    lastRcAddressCount = Number(result.rows?.[0]?.count || 0);
+    lastRcAddressError = null;
+  } catch (error) {
+    lastRcAddressError = error?.message || String(error);
+  }
+
+  return lastRcAddressCount;
+}
+
+function rcAddressHealth() {
+  refreshRcAddressCount().catch(() => undefined);
+
+  return {
+    rcAddressProvider: true,
+    rcAddressCount: lastRcAddressCount,
+    rcAddressError: lastRcAddressError,
+  };
+}
+
 async function index(query = {}) {
   const startedAt = Date.now();
 
@@ -242,7 +532,7 @@ async function index(query = {}) {
     };
   }
 
-  const [fastIndex, localAddress, meili] = await Promise.all([
+  const [fastIndex, localAddress, rcAddress, meili] = await Promise.all([
     runProvider(
       "fast_local_index",
       () => searchFastIndex(q, { limit: Math.max(18, limit) }),
@@ -259,6 +549,11 @@ async function index(query = {}) {
       LOCAL_ADDRESS_TIMEOUT_MS,
     ),
     runProvider(
+      "rc_address",
+      () => searchRcAddresses(q, { limit: Math.max(8, limit) }),
+      LOCAL_ADDRESS_TIMEOUT_MS,
+    ),
+    runProvider(
       "meilisearch",
       () => searchMeili(q, { limit: Math.max(12, limit) }),
       MEILI_TIMEOUT_MS,
@@ -267,11 +562,12 @@ async function index(query = {}) {
 
   let combined = [
     ...localAddress.results,
+    ...rcAddress.results,
     ...meili.results,
     ...fastIndex.results,
   ];
 
-  const providers = [meili, localAddress, fastIndex];
+  const providers = [meili, localAddress, rcAddress, fastIndex];
 
   const rankedFast = rankResults(dedupeResults(combined), q);
   const hasStrongFastResult = rankedFast.some(
@@ -281,7 +577,7 @@ async function index(query = {}) {
   const addressLike = isAddressLikeQuery(q);
   const streetLike = isLikelyStreetQuery(q);
   const includeExternal = shouldUseExternalSearch(query);
-  const localAddressHasResult = localAddress.results.length > 0;
+  const localAddressHasResult = localAddress.results.length > 0 || rcAddress.results.length > 0;
 
   // FINAL ADDRESS SAFETY RULE:
   // Address / street typing must be resolved ONLY by official local addresses.
@@ -289,8 +585,13 @@ async function index(query = {}) {
   // a destination. This prevents wrong-city results such as Palanga for Klaipėda
   // address searches and blocks routing until a precise address is selected.
   if (addressLike || streetLike) {
+    const officialAddressResults = [
+      ...localAddress.results,
+      ...rcAddress.results,
+    ];
+
     const localOnlyResults = forceExactAddressPriority(
-      dedupeResults(rankResults(localAddress.results, q)),
+      dedupeResults(rankResults(officialAddressResults, q)),
       q,
     ).slice(0, limit);
 
@@ -311,7 +612,7 @@ async function index(query = {}) {
         addressLocalFirst: true,
         strictLocalAddressOnly: true,
         tookMs: Date.now() - startedAt,
-        providers: compactProviderMeta([localAddress, meili, fastIndex]),
+        providers: compactProviderMeta([localAddress, rcAddress, meili, fastIndex]),
       },
     };
 
@@ -321,7 +622,7 @@ async function index(query = {}) {
 
   if ((addressLike || streetLike) && localAddressHasResult) {
     const addressResults = forceExactAddressPriority(
-      dedupeResults(rankResults(localAddress.results, q)),
+      dedupeResults(rankResults([...localAddress.results, ...rcAddress.results], q)),
       q,
     ).slice(0, limit);
 
@@ -383,7 +684,7 @@ async function index(query = {}) {
     combined = combined.filter((item) => item.type === type);
   }
 
-  if ((addressLike || streetLike) && localAddress.results.length) {
+  if ((addressLike || streetLike) && (localAddress.results.length || rcAddress.results.length)) {
     const allowed = new Set(["address", "street", "poi", "station", "ferry"]);
     combined = combined.filter((item) =>
       allowed.has(String(item.type || "").toLowerCase()),
@@ -482,6 +783,7 @@ function healthMeta() {
       SEARCH_LOCAL_ADDRESS_TIMEOUT_MS: String(LOCAL_ADDRESS_TIMEOUT_MS),
     },
     ...localAddressHealth(),
+    ...rcAddressHealth(),
     ...localPoiHealth(),
     ...gtfsHealth(),
     ...searchIndexHealth(),
@@ -590,6 +892,29 @@ async function details(query = {}) {
       result: null,
       place: null,
       meta: healthMeta(),
+    };
+  }
+
+  if (placeId.startsWith("address-rc-")) {
+    const rcAddress = await getRcAddressDetails(placeId);
+
+    return {
+      ok: Boolean(rcAddress),
+      placeId,
+      result: rcAddress,
+      place: rcAddress,
+      results: rcAddress ? [rcAddress] : [],
+      meta: {
+        ...healthMeta(),
+        providers: [
+          {
+            name: "rc_address_details",
+            ok: Boolean(rcAddress),
+            count: rcAddress ? 1 : 0,
+            error: rcAddress ? null : "address not found",
+          },
+        ],
+      },
     };
   }
 
