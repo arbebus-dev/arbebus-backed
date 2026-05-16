@@ -41,6 +41,10 @@ const LOCAL_ADDRESS_TIMEOUT_MS = Number(
   process.env.SEARCH_LOCAL_ADDRESS_TIMEOUT_MS || 12000,
 );
 
+const RC_ADDRESS_TIMEOUT_MS = Number(
+  process.env.SEARCH_RC_ADDRESS_TIMEOUT_MS || 2500,
+);
+
 const MEILI_TIMEOUT_MS = Number(process.env.MEILI_TIMEOUT_MS || 1200);
 
 function limitValue(value) {
@@ -209,32 +213,76 @@ let lastRcAddressError = null;
 let lastRcAddressCount = null;
 let lastRcAddressHealthCheck = 0;
 
-function parseQueryParts(value = "") {
-  const raw = String(value || "").trim();
-  const normalized = normalizeText(raw)
+const CITY_WORDS = [
+  "klaipeda",
+  "vilnius",
+  "kaunas",
+  "palanga",
+  "gargzdai",
+  "gargždai",
+  "kretinga",
+  "neringa",
+  "nida",
+  "priekule",
+  "priekulė",
+  "dreverna",
+  "karkle",
+  "karklė",
+  "slengiai",
+  "dovilai",
+];
+
+function normalizeLoose(value = "") {
+  return normalizeText(value)
     .replace(/\./g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function parseQueryParts(value = "") {
+  const raw = String(value || "").trim();
+  const normalized = normalizeLoose(raw);
 
   const houseMatch = normalized.match(/\b(\d+[a-zA-Z]?)\b/);
   const house = houseMatch ? houseMatch[1].toUpperCase() : null;
 
-  const streetText = normalized
+  const cityHits = CITY_WORDS.filter((city) =>
+    normalized.includes(normalizeLoose(city)),
+  );
+
+  let streetText = normalized
     .replace(/\b\d+[a-zA-Z]?\b/g, " ")
     .replace(
       /\b(g|gatve|gatvė|pr|prospektas|pl|plentas|al|aleja|kelias)\b/gi,
       " ",
-    )
-    .replace(/\s+/g, " ")
-    .trim();
+    );
 
-  const tokens = normalized
+  for (const city of cityHits) {
+    streetText = streetText.replace(
+      new RegExp(`\\b${normalizeLoose(city)}\\b`, "gi"),
+      " ",
+    );
+  }
+
+  streetText = streetText.replace(/\s+/g, " ").trim();
+
+  const streetTokens = streetText
     .split(/\s+/)
     .map((item) => item.trim())
     .filter((item) => item.length >= 2)
-    .slice(0, 6);
+    .slice(0, 3);
 
-  return { raw, normalized, house, streetText, tokens };
+  const primaryStreet = streetTokens[0] || normalized.split(/\s+/)[0] || "";
+
+  return {
+    raw,
+    normalized,
+    house,
+    streetText,
+    primaryStreet,
+    streetTokens,
+    cityHits,
+  };
 }
 
 function lks94ToWgs84(x, y) {
@@ -392,19 +440,40 @@ async function searchRcAddresses(query, options = {}) {
   const limit = Math.min(Math.max(Number(options.limit || 8), 1), 20);
   const pool = getPool();
 
-  const tokenClauses = parsed.tokens.map(
-    (_, index) => `lower(name) LIKE '%' || lower($${index + 1}) || '%'`,
-  );
+  const params = [];
+  const where = ["lat IS NOT NULL", "lon IS NOT NULL"];
 
-  const params = [...parsed.tokens];
-  const cityParamIndex = params.length + 1;
-  params.push(parsed.normalized.includes("klaip") ? "%klaip%" : "%");
+  const streetParam = params.length + 1;
+  params.push(parsed.primaryStreet || parsed.streetText || parsed.normalized);
+  where.push(`lower(street) LIKE lower($${streetParam}) || '%'`);
 
-  const houseParamIndex = params.length + 1;
-  params.push(parsed.house || "");
+  let houseParam = null;
+  if (parsed.house) {
+    houseParam = params.length + 1;
+    params.push(parsed.house);
+    where.push(
+      `(upper(house_number) = upper($${houseParam}) OR upper(house_number) LIKE upper($${houseParam}) || '%')`,
+    );
+  }
 
-  const limitParamIndex = params.length + 1;
+  let cityParam = null;
+  if (parsed.cityHits.length) {
+    cityParam = params.length + 1;
+    params.push(`%${parsed.cityHits[0]}%`);
+    where.push(`lower(city) LIKE lower($${cityParam})`);
+  }
+
+  const limitParam = params.length + 1;
   params.push(limit);
+
+  const exactHouseScore = houseParam
+    ? `CASE WHEN upper(house_number) = upper($${houseParam}) THEN 180000 ELSE 0 END +
+       CASE WHEN upper(house_number) LIKE upper($${houseParam}) || '%' THEN 60000 ELSE 0 END +`
+    : "";
+
+  const cityScore = cityParam
+    ? `CASE WHEN lower(city) LIKE lower($${cityParam}) THEN 120000 ELSE 0 END +`
+    : "";
 
   const sql = `
     SELECT
@@ -417,15 +486,16 @@ async function searchRcAddresses(query, options = {}) {
       lat,
       lon,
       (
-        CASE WHEN lower(city) LIKE lower($${cityParamIndex}) THEN 120000 ELSE 0 END +
-        CASE WHEN $${houseParamIndex} <> '' AND upper(house_number) = upper($${houseParamIndex}) THEN 90000 ELSE 0 END +
-        CASE WHEN $${houseParamIndex} <> '' AND upper(house_number) LIKE upper($${houseParamIndex}) || '%' THEN 30000 ELSE 0 END +
-        CASE WHEN lower(name) LIKE '%' || lower($1) || '%' THEN 12000 ELSE 0 END
+        ${cityScore}
+        ${exactHouseScore}
+        CASE WHEN lower(street) = lower($${streetParam}) THEN 50000 ELSE 0 END +
+        CASE WHEN lower(street) LIKE lower($${streetParam}) || '%' THEN 30000 ELSE 0 END +
+        CASE WHEN lat IS NOT NULL AND lon IS NOT NULL THEN 5000 ELSE 0 END
       ) AS rank_score
     FROM public.addresses_rc_import
-    WHERE ${tokenClauses.length ? tokenClauses.join(" AND ") : "true"}
+    WHERE ${where.join(" AND ")}
     ORDER BY rank_score DESC, city ASC, street ASC, house_number ASC
-    LIMIT $${limitParamIndex}
+    LIMIT $${limitParam}
   `;
 
   try {
@@ -546,12 +616,12 @@ async function index(query = {}) {
           lat: query.lat ?? query.latitude,
           lon: query.lon ?? query.lng ?? query.longitude,
         }),
-      LOCAL_ADDRESS_TIMEOUT_MS,
+      Math.min(LOCAL_ADDRESS_TIMEOUT_MS, 1500),
     ),
     runProvider(
-      "rc_address",
+      "rc_addresses",
       () => searchRcAddresses(q, { limit: Math.max(8, limit) }),
-      LOCAL_ADDRESS_TIMEOUT_MS,
+      RC_ADDRESS_TIMEOUT_MS,
     ),
     runProvider(
       "meilisearch",
@@ -781,6 +851,7 @@ function healthMeta() {
       SEARCH_REGION_RADIUS_METERS:
         process.env.SEARCH_REGION_RADIUS_METERS || "55000",
       SEARCH_LOCAL_ADDRESS_TIMEOUT_MS: String(LOCAL_ADDRESS_TIMEOUT_MS),
+      SEARCH_RC_ADDRESS_TIMEOUT_MS: String(RC_ADDRESS_TIMEOUT_MS),
     },
     ...localAddressHealth(),
     ...rcAddressHealth(),

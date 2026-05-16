@@ -53,3 +53,30 @@ ON public.addresses (lower(city), lower(street), upper(house_number))
 WHERE lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0;
 
 ANALYZE public.addresses;
+
+-- RC OFFICIAL ADDRESS SEARCH / AUTOCOMPLETE INDEXES
+-- Safe: creates indexes only. Required after importing public.addresses_rc_import.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+CREATE INDEX IF NOT EXISTS idx_addresses_rc_import_street_lower_pattern
+ON public.addresses_rc_import (lower(street) text_pattern_ops);
+
+CREATE INDEX IF NOT EXISTS idx_addresses_rc_import_city_lower_pattern
+ON public.addresses_rc_import (lower(city) text_pattern_ops);
+
+CREATE INDEX IF NOT EXISTS idx_addresses_rc_import_house_upper_pattern
+ON public.addresses_rc_import (upper(house_number) text_pattern_ops);
+
+CREATE INDEX IF NOT EXISTS idx_addresses_rc_import_street_house_city_fast
+ON public.addresses_rc_import (lower(street), upper(house_number), lower(city));
+
+CREATE INDEX IF NOT EXISTS idx_addresses_rc_import_name_trgm
+ON public.addresses_rc_import USING gin (lower(name) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_addresses_rc_import_valid_coords
+ON public.addresses_rc_import (lower(street), upper(house_number), lower(city))
+WHERE lat IS NOT NULL AND lon IS NOT NULL;
+
+ANALYZE public.addresses_rc_import;
+
+SELECT COUNT(*) AS addresses_rc_import_count FROM public.addresses_rc_import;

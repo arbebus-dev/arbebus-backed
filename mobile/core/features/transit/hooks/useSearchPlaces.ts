@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PlaceResult, searchPlaces } from "../services/transitApi";
 import type { Coordinate } from "../models/transitTypes";
 
-const SEARCH_DEBOUNCE_MS = 250;
+const SEARCH_DEBOUNCE_MS = 140;
 const MIN_QUERY_LENGTH = 2;
 const MEMORY_TTL_MS = 5 * 60 * 1000;
 const STALE_RESULT_MAX_AGE_MS = 20 * 60 * 1000;
-const MAX_RESULTS = 8;
+const MAX_RESULTS = 10;
 
 type CachedSearch = {
   createdAt: number;
@@ -73,6 +73,10 @@ export function useSearchPlaces(query: string, userLocation?: Coordinate | null)
     const timer = setTimeout(async () => {
       try {
         const data = (await searchPlaces(cleanQuery, userLocation ?? undefined)).slice(0, MAX_RESULTS);
+
+        // Do not flash an empty/no-address state while the user is typing.
+        // Keep stale cached/local results until backend returns a real final result.
+        if (!data.length && cached?.results?.length) return;
 
         if (!cancelled && requestId === requestIdRef.current) {
           setCachedResults(cleanQuery, data, userLocation);
