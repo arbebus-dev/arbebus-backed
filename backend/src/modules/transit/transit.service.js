@@ -7,6 +7,7 @@ const orsClient = require("../routing/ors.client");
 const vehiclePositionsRealtime = require("./realtime/vehiclePositions");
 const ETAEngine = require("./ETA.engine");
 const otpService = require("../otp/otp.service");
+const { formatJourney } = require("./routing/journeyFormatter");
 
 const KLAIPEDA_BOUNDS = {
   // Expanded Klaipėda region bounds. The live stops.lt feed also contains
@@ -988,6 +989,98 @@ function attachChildGuide(route) {
   };
 }
 
+
+const FINAL_ROUTING_VERSION = "apple-maps-polish-v3";
+
+function routeDuration(route) {
+  return Number(route?.totalDurationMinutes ?? route?.totalMinutes ?? route?.summary?.totalDurationMinutes ?? 9999);
+}
+
+function routeWalkMinutes(route) {
+  return Number(route?.totalWalkMinutes ?? route?.walkingMinutes ?? route?.summary?.totalWalkMinutes ?? 9999);
+}
+
+function routeTransfers(route) {
+  return Number(route?.transfersCount ?? route?.transfers ?? route?.summary?.transfersCount ?? 99);
+}
+
+function optionSignature(route) {
+  const numbers = Array.isArray(route?.routeNumbers) ? route.routeNumbers.join(">") : String(route?.routeLabel || route?.routeId || "");
+  return [numbers, routeTransfers(route), route?.boardStopName || route?.originStop?.name, route?.alightStopName || route?.destinationStop?.name].join("|");
+}
+
+function decorateRouteOption(route, optionType, optionLabel, rank) {
+  const suffix = optionType ? `-${optionType}` : "";
+  const summary = {
+    ...(route.summary || {}),
+    optionType,
+    optionLabel,
+    rank,
+    totalDurationMinutes: routeDuration(route),
+    totalWalkMinutes: routeWalkMinutes(route),
+    transfersCount: routeTransfers(route),
+  };
+
+  return attachChildGuide({
+    ...route,
+    id: String(route.id || `route-${rank}`) + suffix,
+    optionType,
+    optionLabel,
+    rank,
+    badge: optionLabel,
+    summary,
+  });
+}
+
+function buildPolishedRouteOptions(plans = []) {
+  const valid = (plans || []).filter(Boolean);
+  if (!valid.length) return [];
+
+  const pickers = [
+    {
+      type: "fastest",
+      label: "Greičiausias",
+      sort: (a, b) => routeDuration(a) - routeDuration(b) || routeTransfers(a) - routeTransfers(b) || routeWalkMinutes(a) - routeWalkMinutes(b),
+    },
+    {
+      type: "less_walk",
+      label: "Mažiau ėjimo",
+      sort: (a, b) => routeWalkMinutes(a) - routeWalkMinutes(b) || routeDuration(a) - routeDuration(b) || routeTransfers(a) - routeTransfers(b),
+    },
+    {
+      type: "less_transfer",
+      label: "Mažiau persėdimų",
+      sort: (a, b) => routeTransfers(a) - routeTransfers(b) || routeDuration(a) - routeDuration(b) || routeWalkMinutes(a) - routeWalkMinutes(b),
+    },
+  ];
+
+  const selected = [];
+  const seen = new Set();
+
+  pickers.forEach((picker) => {
+    const route = [...valid].sort(picker.sort)[0];
+    if (!route) return;
+    const sig = optionSignature(route);
+    if (seen.has(sig)) return;
+    seen.add(sig);
+    selected.push(decorateRouteOption(route, picker.type, picker.label, selected.length));
+  });
+
+  for (const route of valid) {
+    if (selected.length >= 4) break;
+    const sig = optionSignature(route);
+    if (seen.has(sig)) continue;
+    seen.add(sig);
+    selected.push(decorateRouteOption(route, "alternative", "Alternatyva", selected.length));
+  }
+
+  return selected;
+}
+
+function stableFormattedRoutes(routes = []) {
+  return routes.map((route) => formatJourney(route));
+}
+
 function fallbackOption(from, to, destinationTitle) {
   const meters = Math.round(distanceMeters(from, to));
   const walkingMinutes = Math.max(1, Math.round(meters / WALK_SPEED_M_PER_MIN));
@@ -1331,181 +1424,12 @@ function planSearchProfiles(from, to) {
     { limit: 6, radius: 2200, label: "nearby" },
     { limit: 10, radius: 3500, label: "expanded" },
     { limit: 14, radius: 5200, label: "wide" },
+    { limit: 20, radius: 8500, label: "max" },
   ].map((profile) => ({
     ...profile,
     originStops: nearestStops(from, profile.limit, profile.radius),
     destinationStops: nearestStops(to, profile.limit, profile.radius),
   }));
-}
-
-
-function normalizeRouteToken(value) {
-  return String(value ?? "")
-    .trim()
-    .toUpperCase()
-    .replace(/^KLAIPEDA[_\s-]*BUS[_\s-]*/i, "")
-    .replace(/^BUS[_\s-]*/i, "")
-    .replace(/^0+/, "");
-}
-
-function routeTokensFromPlan(route = {}) {
-  const tokens = new Set();
-  [
-    route.routeNumber,
-    route.routeLabel,
-    route.routeId,
-    ...(Array.isArray(route.routeNumbers) ? route.routeNumbers : []),
-    ...(Array.isArray(route.routeIds) ? route.routeIds : []),
-  ].forEach((value) => {
-    const token = normalizeRouteToken(value);
-    if (token) tokens.add(token);
-  });
-  return tokens;
-}
-
-function routeTokensFromVehicle(vehicle = {}) {
-  const tokens = new Set();
-  [
-    vehicle.routeNumber,
-    vehicle.routeLabel,
-    vehicle.routeShortName,
-    vehicle.route,
-    vehicle.number,
-    vehicle.routeId,
-  ].forEach((value) => {
-    const token = normalizeRouteToken(value);
-    if (token) tokens.add(token);
-  });
-  return tokens;
-}
-
-function vehicleMatchesRoute(vehicle, routeTokens) {
-  if (!vehicle || !routeTokens || !routeTokens.size) return false;
-  for (const token of routeTokensFromVehicle(vehicle)) {
-    if (routeTokens.has(token)) return true;
-  }
-  return false;
-}
-
-function nearestVehicleForRoute(route, vehicles = []) {
-  const routeTokens = routeTokensFromPlan(route);
-  const boardPoint = route?.originStop?.coordinate || route?.originStop || null;
-  const matching = vehicles
-    .filter((vehicle) => vehicleMatchesRoute(vehicle, routeTokens))
-    .map((vehicle) => {
-      const coordinate = vehicle.coordinate || {
-        latitude: Number(vehicle.latitude),
-        longitude: Number(vehicle.longitude),
-      };
-      const distanceToBoard = boardPoint
-        ? distanceMeters(coordinate, boardPoint)
-        : Number.POSITIVE_INFINITY;
-      return { ...vehicle, coordinate, distanceToBoard };
-    })
-    .filter((vehicle) => Number.isFinite(vehicle.coordinate?.latitude) && Number.isFinite(vehicle.coordinate?.longitude))
-    .sort((a, b) => Number(a.distanceToBoard || Infinity) - Number(b.distanceToBoard || Infinity));
-
-  return matching[0] || null;
-}
-
-function enrichRouteWithLiveGps(route, vehicles = []) {
-  if (!route || route.mode === "walk") return route;
-
-  const liveVehicle = nearestVehicleForRoute(route, vehicles);
-  const hasRealtimeGps = Boolean(liveVehicle);
-  const liveEta = hasRealtimeGps
-    ? ETAEngine.calculateVehicleEtaToStop(liveVehicle, route.originStop)
-    : route.liveEta || null;
-
-  const selectedVehicleIds = hasRealtimeGps
-    ? [liveVehicle.vehicleId || liveVehicle.id || liveVehicle.vehicleLabel].filter(Boolean)
-    : [];
-
-  const nextRoute = {
-    ...route,
-    liveVehicle: hasRealtimeGps ? liveVehicle : route.liveVehicle || null,
-    vehicleIds: selectedVehicleIds,
-    selectedVehicleIds,
-    selectedRouteNumbers: Array.from(routeTokensFromPlan(route)),
-    liveEta: liveEta || route.liveEta || null,
-    etaMinutes: liveEta?.etaMinutes ?? route.etaMinutes ?? route.totalDurationMinutes ?? null,
-    routingQuality: {
-      ...(route.routingQuality || {}),
-      hasRealtimeGps,
-      realtimeSource: hasRealtimeGps ? liveVehicle.source || "stops.lt" : null,
-      realtimeConfidence: liveEta?.confidence || (hasRealtimeGps ? "medium" : "none"),
-    },
-    parentSummary: {
-      ...(route.parentSummary || route.summary || {}),
-      hasRealtimeGps,
-      liveVehicleLabel: hasRealtimeGps ? liveVehicle.vehicleLabel || liveVehicle.vehicleId || null : null,
-      liveEtaMinutes: liveEta?.etaMinutes ?? null,
-    },
-    summary: {
-      ...(route.summary || {}),
-      hasRealtimeGps,
-      liveVehicleLabel: hasRealtimeGps ? liveVehicle.vehicleLabel || liveVehicle.vehicleId || null : null,
-      liveEtaMinutes: liveEta?.etaMinutes ?? null,
-    },
-  };
-
-  if (Array.isArray(nextRoute.journeySteps)) {
-    nextRoute.journeySteps = nextRoute.journeySteps.map((step) => {
-      if (step.type !== "board" || !hasRealtimeGps) return step;
-      const etaText = liveEta?.etaMinutes != null ? ` • Live ETA ${liveEta.etaMinutes} min` : " • Live GPS";
-      return {
-        ...step,
-        liveEta,
-        liveVehicle,
-        subtitle: String(step.subtitle || "") + etaText,
-        safeText: String(step.safeText || step.subtitle || "") + etaText,
-      };
-    });
-    nextRoute.steps = nextRoute.journeySteps;
-  }
-
-  return nextRoute;
-}
-
-async function enrichPlansWithLiveGps(plans = []) {
-  if (!Array.isArray(plans) || !plans.length) return { plans, live: null, error: null };
-  try {
-    const live = await liveBuses();
-    const vehicles = Array.isArray(live?.vehicles) ? live.vehicles : live?.buses || [];
-    const enriched = plans.map((route) => enrichRouteWithLiveGps(route, vehicles));
-    return { plans: enriched, live, error: null };
-  } catch (error) {
-    return { plans, live: null, error: error?.message || String(error) };
-  }
-}
-
-function routeOptionTypeForIndex(index, route) {
-  if (index === 0) return "fastest";
-  if (Number(route?.totalWalkMinutes ?? route?.walkingMinutes ?? 0) <= 4) return "less_walk";
-  if (Number(route?.transfersCount ?? route?.transfers ?? 0) === 0) return "less_transfer";
-  return "alternative";
-}
-
-function polishRouteOptions(plans = []) {
-  return plans.map((route, index) => {
-    const optionType = route.optionType || routeOptionTypeForIndex(index, route);
-    const labelMap = {
-      fastest: "Greičiausias",
-      less_walk: "Mažiau ėjimo",
-      less_transfer: "Mažiau persėdimų",
-      alternative: "Alternatyva",
-    };
-    return {
-      ...route,
-      optionType,
-      optionLabel: labelMap[optionType] || "Alternatyva",
-      rank: index + 1,
-      badge: labelMap[optionType] || "Alternatyva",
-      subtitle:
-        route.subtitle ||
-        `${route.totalDurationMinutes || route.totalMinutes || "?"} min • ${route.totalWalkMinutes || route.walkingMinutes || 0} min pėsčiomis`,
-    };
-  });
 }
 
 async function plan(body = {}) {
@@ -1613,12 +1537,9 @@ async function plan(body = {}) {
     body.includeWalkingGeometry === true ||
     String(process.env.TRANSIT_INCLUDE_WALKING_GEOMETRY || "false").toLowerCase() === "true";
 
-  let plans = shouldEnrichWalkingGeometry
+  const plans = shouldEnrichWalkingGeometry
     ? await Promise.all(basePlans.map((route) => enrichPlanWithWalkingGeometry(route).then(attachChildGuide)))
     : basePlans.map(attachChildGuide);
-
-  const liveEnrichment = await enrichPlansWithLiveGps(plans);
-  plans = polishRouteOptions(liveEnrichment.plans);
 
   if (!plans.length) {
     const fallbackBase = fallbackOption(from, to, destinationTitle);
@@ -1627,12 +1548,13 @@ async function plan(body = {}) {
       : fallbackBase;
     return {
       ok: true,
-      source: "gtfs-no-route-walk-only",
-      plan: fallback,
-      options: [fallback],
-      routes: [fallback],
+      source: "gtfs-walk-fallback",
+      plan: formatJourney(fallback),
+      options: [formatJourney(fallback)],
+      routes: [formatJourney(fallback)],
       meta: {
-        routingVersion: "child-routing-v1",
+        routingVersion: FINAL_ROUTING_VERSION,
+        routeOptionTypes: ["walk_only_fallback"],
         hasRealBusRoute: false,
         walkingGeometryHydrated: shouldEnrichWalkingGeometry,
         originStops: originStops.length,
@@ -1643,26 +1565,24 @@ async function plan(body = {}) {
     };
   }
 
+  const polishedOptions = buildPolishedRouteOptions(plans);
+  const formattedOptions = stableFormattedRoutes(polishedOptions.length ? polishedOptions : plans);
+
   return {
     ok: true,
     source: "gtfs+stops.lt+ors",
-    plan: plans[0],
-    options: plans,
-    routes: plans,
+    plan: formattedOptions[0],
+    options: formattedOptions,
+    routes: formattedOptions,
     meta: {
       originStops: originStops.length,
       destinationStops: destinationStops.length,
       candidates: candidates.length,
       searchProfile: selectedProfile?.label || "nearby",
       searchRadiusMeters: selectedProfile?.radius || 2200,
-      routingVersion: "apple-maps-live-v4",
-      routeOptionTypes: ["fastest", "less_walk", "less_transfer", "alternative"],
-      selectedRouteNumbers: plans[0]?.selectedRouteNumbers || plans[0]?.routeNumbers || [],
-      hasRealtimeGps: Boolean(plans.some((route) => route.routingQuality?.hasRealtimeGps)),
-      liveVehicleCount: Number(liveEnrichment.live?.count || liveEnrichment.live?.vehicles?.length || liveEnrichment.live?.buses?.length || 0),
-      liveGpsSource: liveEnrichment.live?.source || null,
-      liveGpsError: liveEnrichment.error || null,
-      fields: ["journeySteps", "childGuide", "parentSummary", "legs", "stopCount", "transfersCount", "departureText", "arrivalText", "routingQuality", "liveVehicle", "selectedVehicleIds", "optionType", "optionLabel"],
+      routingVersion: FINAL_ROUTING_VERSION,
+      routeOptionTypes: formattedOptions.map((route) => route.summary?.optionType || route.optionType || "route"),
+      fields: ["journeySteps", "childGuide", "parentSummary", "legs", "stopCount", "transfersCount", "departureText", "arrivalText", "routingQuality", "optionType", "optionLabel"],
       walkingGeometryHydrated: shouldEnrichWalkingGeometry,
       timeMode,
       travelAt: body.travelAt || null,
@@ -1942,11 +1862,85 @@ function parseGpsFeed(text) {
   return parseHeuristicGpsFeed(text);
 }
 
-async function liveBuses() {
+
+function normalizeLiveRoute(value) {
+  return String(value ?? "")
+    .trim()
+    .split("•")[0]
+    .split(" ")[0]
+    .replace(/^0+/, "")
+    .toUpperCase();
+}
+
+function requestedLiveRouteNumbers(options = {}) {
+  const raw =
+    options.routeNumber ||
+    options.route ||
+    options.routeId ||
+    options.routeLabel ||
+    options.routes ||
+    options.routeNumbers ||
+    "";
+
+  return String(raw)
+    .split(/[;,|]/)
+    .map(normalizeLiveRoute)
+    .filter(Boolean);
+}
+
+function liveBusMatchesRoutes(bus, routeNumbers = []) {
+  if (!routeNumbers.length) return true;
+
+  const values = [
+    bus.routeNumber,
+    bus.routeShortName,
+    bus.routeLabel,
+    bus.route,
+    bus.number,
+    bus.routeId,
+  ].map(normalizeLiveRoute);
+
+  return values.some((value) => value && routeNumbers.includes(value));
+}
+
+function liveBusMatchesVehicle(bus, vehicleId) {
+  const requested = String(vehicleId || "").trim();
+  if (!requested) return true;
+
+  return [bus.id, bus.vehicleId, bus.vehicleLabel].some(
+    (value) => String(value || "").trim() === requested,
+  );
+}
+
+async function liveBuses(options = {}) {
   const now = Date.now();
 
+  const requestedRoutes = requestedLiveRouteNumbers(options);
+  const requestedVehicleId = options.vehicleId || options.vehicle || options.busId || null;
+
+  const filterLiveResponse = (response) => {
+    const allBuses = Array.isArray(response?.buses) ? response.buses : [];
+    const filteredBuses = allBuses.filter(
+      (bus) =>
+        liveBusMatchesRoutes(bus, requestedRoutes) &&
+        liveBusMatchesVehicle(bus, requestedVehicleId),
+    );
+
+    return {
+      ...response,
+      count: filteredBuses.length,
+      buses: filteredBuses,
+      vehicles: filteredBuses,
+      allVehicleCount: allBuses.length,
+      selectedRouteNumbers: requestedRoutes,
+      selectedVehicleId: requestedVehicleId || null,
+      noInfiniteLoading: true,
+      stableResponse: true,
+    };
+  };
+
   if (liveCache.data && now - liveCache.fetchedAt < LIVE_CACHE_MS) {
-    return liveCache.data;
+    return filterLiveResponse(liveCache.data);
   }
 
   try {
@@ -1999,7 +1993,7 @@ async function liveBuses() {
     };
 
     liveCache = { fetchedAt: now, data: response };
-    return response;
+    return filterLiveResponse(response);
   } catch (error) {
     // Safe fallback, so production app does not die if GTFS-RT protobuf feed is temporarily unavailable.
     try {
@@ -2018,22 +2012,22 @@ async function liveBuses() {
       };
 
       liveCache = { fetchedAt: now, data: response };
-      return response;
+      return filterLiveResponse(response);
     } catch (fallbackError) {
       // Last-resort response: keep API contract stable. Mobile should never lose
       // the whole map layer because an external live feed is temporarily down.
       const stale = liveCache.data;
       if (stale?.buses?.length) {
-        return {
+        return filterLiveResponse({
           ...stale,
           ok: true,
           stale: true,
           source: `${stale.source || "cache"}-stale`,
           fallbackReason: fallbackError.message || error.message,
-        };
+        });
       }
 
-      return {
+      return filterLiveResponse({
         ok: true,
         source: "live-feed-unavailable",
         fallbackReason: fallbackError.message || error.message,
@@ -2041,24 +2035,21 @@ async function liveBuses() {
         buses: [],
         vehicles: [],
         fetchedAt: new Date().toISOString(),
-      };
+        noInfiniteLoading: true,
+        stableResponse: true,
+      });
     }
   }
 }
 async function liveEta(query = {}) {
-  const live = await liveBuses();
-  const routeId = String(query.routeId || query.routeNumber || "").replace(
-    /^0+/,
-    "",
-  );
+  const routeId = normalizeLiveRoute(query.routeId || query.routeNumber || query.route || "");
+  const live = await liveBuses({ ...query, routeNumber: routeId });
   const stopCoordinate = toCoordinate({
     latitude: query.stopLat,
     longitude: query.stopLon,
   });
   const candidates = live.buses
-    .filter(
-      (bus) => !routeId || String(bus.routeId).replace(/^0+/, "") === routeId,
-    )
+    .filter((bus) => !routeId || liveBusMatchesRoutes(bus, [routeId]))
     .map((bus) => {
       const distance = stopCoordinate
         ? distanceMeters(bus.coordinate, stopCoordinate)

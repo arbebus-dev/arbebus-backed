@@ -18,9 +18,9 @@ async function plan(req, res, next) {
   }
 }
 
-async function liveBuses(_req, res, next) {
+async function liveBuses(req, res, next) {
   try {
-    res.json(await service.liveBuses());
+    res.json(await service.liveBuses(req.query || {}));
   } catch (error) {
     next(error);
   }

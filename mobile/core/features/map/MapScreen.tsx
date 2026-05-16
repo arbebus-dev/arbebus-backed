@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useAppPreferences } from "@/core/features/account/context/AppPreferencesContext";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Keyboard, Pressable, StyleSheet, View } from "react-native";
+import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
 import MapView, { Marker, type Region } from "react-native-maps";
 
 import { useLiveBuses } from "../transit/hooks/useLiveBuses";
@@ -133,10 +133,8 @@ export default function MapScreen() {
   const { theme } = useAppPreferences();
   const mapRef = useRef<MapView | null>(null);
   const lastPoiClickAt = useRef(0);
-  const lastFitRouteId = useRef<string | null>(null);
 
   const { userLocation, refreshLocation, isLocating } = useUserLocation();
-  const { buses } = useLiveBuses();
   const planner = useTransitPlanner(userLocation);
 
   const selectedRoute = planner.selectedRoute as AnyRecord | null;
@@ -209,6 +207,11 @@ export default function MapScreen() {
         selectedRoute?.routeLabel,
     );
   }, [selectedRoute]);
+
+  const { buses, loading: liveBusesLoading, error: liveBusesError } = useLiveBuses({
+    refreshMs: selectedRouteNumber ? 5000 : 8000,
+    routeNumber: selectedRouteNumber || null,
+  });
 
   const selectedLiveBus = useMemo(() => {
     if (!selectedRoute) return null;
@@ -347,22 +350,10 @@ export default function MapScreen() {
   }, [selectedDestination, selectedRoute, userLocation]);
 
   useEffect(() => {
-    if (!selectedRoute || focusCoords.length < 2) return;
-
-    const routeId = String(
-      selectedRoute.id || selectedRoute.routeId || selectedRoute.routeLabel || "route",
-    );
-
-    if (lastFitRouteId.current === routeId) return;
-    lastFitRouteId.current = routeId;
-
-    requestAnimationFrame(() => {
-      mapRef.current?.fitToCoordinates(focusCoords, {
-        animated: true,
-        edgePadding: { top: 120, right: 56, bottom: 380, left: 56 },
-      });
-    });
-  }, [focusCoords, selectedRoute]);
+    void focusCoords;
+    // PRO FIX: do not auto zoom out after route selection.
+    // User keeps full manual control over map zoom/pan like Apple Maps.
+  }, [focusCoords, planner.flowState, selectedRoute]);
 
   useEffect(() => {
     void activeCameraTarget;
@@ -591,6 +582,30 @@ export default function MapScreen() {
         />
       </Pressable>
 
+      {selectedRoute && selectedLiveBus ? (
+        <View style={[styles.selectedBusHud, { backgroundColor: theme.surfaceStrong, borderColor: theme.borderStrong, shadowColor: theme.shadow }]}>
+          <View style={[styles.selectedBusBadge, { backgroundColor: theme.accent }]}>
+            <Text style={[styles.selectedBusBadgeText, { color: theme.accentText }]}>
+              {normalizeRouteNumber(selectedLiveBus.routeNumber || selectedLiveBus.number || selectedRouteNumber || "BUS")}
+            </Text>
+          </View>
+          <View style={styles.selectedBusHudTextBlock}>
+            <Text style={[styles.selectedBusHudTitle, { color: theme.text }]} numberOfLines={1}>
+              Live autobusas žemėlapyje
+            </Text>
+            <Text style={[styles.selectedBusHudSubtitle, { color: theme.dim }]} numberOfLines={1}>
+              {selectedRoute?.liveEta?.etaMinutes != null
+                ? `ETA ${Math.round(Number(selectedRoute.liveEta.etaMinutes))} min`
+                : liveBusesLoading
+                  ? "Atnaujinama GPS..."
+                  : liveBusesError
+                    ? "GPS laikinai neprieinamas"
+                    : "GPS aktyvus"}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
       <JourneySheet
         flowState={planner.flowState}
         liveBusCount={buses.length}
@@ -677,6 +692,49 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: 6,
     backgroundColor: "#34F5B3",
+  },
+  selectedBusHud: {
+    position: "absolute",
+    left: 16,
+    right: 84,
+    bottom: 138,
+    minHeight: 54,
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    zIndex: 26,
+    elevation: 26,
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  selectedBusBadge: {
+    minWidth: 38,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+    marginRight: 10,
+  },
+  selectedBusBadgeText: {
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  selectedBusHudTextBlock: {
+    flex: 1,
+  },
+  selectedBusHudTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  selectedBusHudSubtitle: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: "700",
   },
   recenterButton: {
     position: "absolute",

@@ -38,7 +38,7 @@ function apiBase() {
   return API_BASE.replace(/\/$/, "");
 }
 
-const API_TIMEOUT_MS = 8000;
+const API_TIMEOUT_MS = 12000;
 const SEARCH_TIMEOUT_MS = 12000;
 const SEARCH_MEMORY_TTL_MS = 5 * 60 * 1000;
 const API_RETRY_COUNT = 1;
@@ -345,6 +345,28 @@ function toCoordinate(input: any): Coordinate | null {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
 }
+function isUsableCoordinate(coordinate: Coordinate | null): coordinate is Coordinate {
+  if (!coordinate) return false;
+  const { latitude, longitude } = coordinate;
+  return (
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude !== 0 &&
+    longitude !== 0 &&
+    Math.abs(latitude) <= 90 &&
+    Math.abs(longitude) <= 180
+  );
+}
+
+function isAddressOrStreetQuery(query: string) {
+  const q = String(query || "").trim();
+  return (
+    /\d/.test(q) ||
+    /(g|g\.|gatv[eė]|pr|pr\.|prospektas|al|al\.|pl|pl\.|kelias)/i.test(q) ||
+    /^[a-ząčęėįšųūž\s.-]{3,}$/i.test(q)
+  );
+}
+
 
 function normalizeGeometry(raw: any): Coordinate[] {
   const candidates =
@@ -908,14 +930,33 @@ function normalizeBackendPlan(
   } as TransitRouteOption;
 }
 
-export async function getLiveBuses(): Promise<LiveBus[]> {
-  const endpoints = [API_ENDPOINTS.liveBuses, `${API_BASE}/live-buses`];
+export type LiveBusesRequest = {
+  routeNumber?: string | null;
+  routeId?: string | null;
+  vehicleId?: string | null;
+  signal?: AbortSignal;
+};
+
+function liveBusesEndpoint(base: string, options: LiveBusesRequest = {}) {
+  const params = new URLSearchParams();
+  const route = options.routeNumber || options.routeId;
+  if (route) params.set("routeNumber", String(route));
+  if (options.vehicleId) params.set("vehicleId", String(options.vehicleId));
+  const query = params.toString();
+  return query ? `${base}${base.includes("?") ? "&" : "?"}${query}` : base;
+}
+
+export async function getLiveBuses(options: LiveBusesRequest = {}): Promise<LiveBus[]> {
+  const endpoints = [
+    liveBusesEndpoint(API_ENDPOINTS.liveBuses, options),
+    liveBusesEndpoint(`${API_BASE}/live-buses`, options),
+  ];
 
   let lastError: unknown = null;
 
   for (const endpoint of endpoints) {
     try {
-      const response = await fetchWithRetry(endpoint);
+      const response = await fetchWithRetry(endpoint, { signal: options.signal });
 
       if (!response.ok) {
         lastError = new Error(`Live buses failed: ${response.status}`);
@@ -959,7 +1000,11 @@ function normalizePlaceType(item: any): PlaceResult["type"] {
     return "stop" as PlaceResult["type"];
   }
 
-  if (rawType === "address" || rawType === "street" || rawType === "house") {
+  if (rawType === "street") {
+    return "street" as PlaceResult["type"];
+  }
+
+  if (rawType === "address" || rawType === "house") {
     return "address" as PlaceResult["type"];
   }
 
@@ -1080,9 +1125,11 @@ function isAddressLikeSearchQuery(query: string) {
 
 function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
   const coordinate = toCoordinate(item);
-  if (!coordinate) return null;
-
   const type = normalizePlaceType(item);
+  const selectable = item?.selectable !== false && item?.requiresHouseNumber !== true && type !== "street";
+
+  if (!isUsableCoordinate(coordinate) && selectable) return null;
+  if (!coordinate) return null;
   const placeId =
     item?.placeId ??
     item?.googlePlaceId ??
@@ -1120,6 +1167,9 @@ function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
     latitude: coordinate.latitude,
     longitude: coordinate.longitude,
     coordinate,
+    selectable: item?.selectable,
+    requiresHouseNumber: item?.requiresHouseNumber,
+    needsGeocoding: item?.needsGeocoding,
     placeId: placeId != null ? String(placeId) : undefined,
     googlePlaceId:
       item.googlePlaceId != null
@@ -1204,7 +1254,16 @@ async function runSearchRequest(
       )
       .filter(Boolean) as PlaceResult[];
 
-    return dedupePlaceResults(normalized)
+    const safeResults = isAddressOrStreetQuery(q)
+      ? normalized.filter((item: any) => {
+          const type = String(item.type || "").toLowerCase();
+          if (!["address", "street"].includes(type)) return false;
+          if (item.selectable === false || item.requiresHouseNumber === true) return type === "street";
+          return isUsableCoordinate(item.coordinate || null);
+        })
+      : normalized;
+
+    return dedupePlaceResults(safeResults)
       .sort(
         (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
       )
@@ -1354,16 +1413,18 @@ export async function planTransitRoute(params: {
           params.travelAt instanceof Date
             ? params.travelAt.toISOString()
             : params.travelAt || null,
-        includeWalkingGeometry: true,
+        // Important: keep the first plan response fast. Detailed walking geometry is
+        // hydrated lazily later, so route cards never get stuck on "checking stops".
+        includeWalkingGeometry: false,
       }),
     },
-    12000,
+    15000,
   );
 
   const data = await safeJson<any>(response);
 
-  if (!response.ok || data?.ok === false) {
-    throw new Error(data?.error || `Transit plan failed: ${response.status}`);
+  if (!response.ok || data?.ok !== true) {
+    throw new Error(data?.error || data?.message || `Transit plan failed: ${response.status}`);
   }
 
   const rawRoutes = [
