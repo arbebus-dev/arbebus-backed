@@ -2,7 +2,7 @@ import { useAppPreferences } from "@/core/features/account/context/AppPreference
 import { COLORS, T } from "@/core/theme/typography";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { AnimatedRegion, Marker, type Region } from "react-native-maps";
 import { cleanRouteNumber } from "../../transit/models/journeyStateMachine";
 import type { LiveBus } from "../../transit/models/transitTypes";
@@ -18,6 +18,7 @@ type Props = {
   selectedVehicleId?: string | null;
   visibleRegion?: Region | null;
   focusOnSelectedRoute?: boolean;
+  onSelectBus?: (bus: LiveBus) => void;
 };
 
 type BusMarkerProps = {
@@ -29,6 +30,7 @@ type BusMarkerProps = {
   animationMs: number;
   zIndex: number;
   stale: boolean;
+  onPress?: () => void;
 };
 
 type VisibleBus = {
@@ -136,7 +138,13 @@ function BusGlyph({
       style={[
         styles.glyph,
         { backgroundColor: theme.surface, borderColor: theme.accent },
-        active && [styles.glyphActive, { backgroundColor: theme.accent, borderColor: theme.backgroundElevated }],
+        active && [
+          styles.glyphActive,
+          {
+            backgroundColor: theme.accent,
+            borderColor: theme.backgroundElevated,
+          },
+        ],
         vehicle && styles.glyphVehicle,
         { opacity },
       ]}
@@ -158,7 +166,11 @@ function BusGlyph({
       />
 
       <Text
-        style={[styles.label, { color: theme.text }, active && [styles.labelActive, { color: theme.accentText }]]}
+        style={[
+          styles.label,
+          { color: theme.text },
+          active && [styles.labelActive, { color: theme.accentText }],
+        ]}
         numberOfLines={1}
       >
         {label}
@@ -177,6 +189,7 @@ const BusMarker = memo(
     animationMs,
     zIndex,
     stale,
+    onPress,
   }: BusMarkerProps) {
     const { theme } = useAppPreferences();
     const animatedCoordinate = useRef(
@@ -232,8 +245,9 @@ const BusMarker = memo(
         anchor={{ x: 0.5, y: 0.5 }}
         tracksViewChanges={tracksChanges || active}
         zIndex={zIndex}
+        onPress={onPress}
       >
-        <View style={styles.markerWrap}>
+        <Pressable onPress={onPress} style={styles.markerWrap} hitSlop={10}>
           {active && !stale ? <View style={styles.glow} /> : null}
           <BusGlyph
             active={active}
@@ -242,7 +256,7 @@ const BusMarker = memo(
             label={label}
             stale={stale}
           />
-        </View>
+        </Pressable>
       </Marker.Animated>
     );
   },
@@ -252,8 +266,10 @@ const BusMarker = memo(
     prev.vehicle === next.vehicle &&
     prev.zIndex === next.zIndex &&
     prev.stale === next.stale &&
+    prev.onPress === next.onPress &&
     Math.abs(prev.coordinate.latitude - next.coordinate.latitude) < 0.000006 &&
-    Math.abs(prev.coordinate.longitude - next.coordinate.longitude) < 0.000006 &&
+    Math.abs(prev.coordinate.longitude - next.coordinate.longitude) <
+      0.000006 &&
     Math.abs(prev.heading - next.heading) < 3,
 );
 
@@ -263,6 +279,7 @@ export default function LiveBusesLayer({
   selectedVehicleId,
   visibleRegion,
   focusOnSelectedRoute = false,
+  onSelectBus,
 }: Props) {
   const selectedNumber = cleanRouteNumber(selectedRouteLabel);
   const selectedVehicle = normalizeId(selectedVehicleId);
@@ -277,7 +294,10 @@ export default function LiveBusesLayer({
     if (diff > 800 && diff < 25000) {
       // Trafi-like: marker keeps moving almost until the next GPS packet arrives.
       setAnimationMs(
-        Math.max(MIN_ANIMATION_MS, Math.min(Math.round(diff * 1.05), MAX_ANIMATION_MS)),
+        Math.max(
+          MIN_ANIMATION_MS,
+          Math.min(Math.round(diff * 1.05), MAX_ANIMATION_MS),
+        ),
       );
     }
   }, [buses]);
@@ -335,7 +355,9 @@ export default function LiveBusesLayer({
       }
     }
 
-    const routeFocused = Boolean(focusOnSelectedRoute && (selectedNumber || selectedVehicle));
+    const routeFocused = Boolean(
+      focusOnSelectedRoute && (selectedNumber || selectedVehicle),
+    );
 
     const inViewport = [...dedupedByVehicle.values()].filter((item) => {
       if (routeFocused) return item.isImportant;
@@ -363,12 +385,25 @@ export default function LiveBusesLayer({
         );
       })
       .slice(0, max);
-  }, [buses, selectedNumber, selectedVehicle, visibleRegion, focusOnSelectedRoute]);
+  }, [
+    buses,
+    selectedNumber,
+    selectedVehicle,
+    visibleRegion,
+    focusOnSelectedRoute,
+  ]);
 
   return (
     <>
       {visibleBuses.map(
-        ({ bus, coordinate, label, isSelectedRoute, isSelectedVehicle, stale }) => {
+        ({
+          bus,
+          coordinate,
+          label,
+          isSelectedRoute,
+          isSelectedVehicle,
+          stale,
+        }) => {
           const heading = Number(bus.heading ?? bus.bearing ?? 0);
 
           return (
@@ -381,7 +416,16 @@ export default function LiveBusesLayer({
               heading={heading}
               animationMs={animationMs}
               stale={stale}
-              zIndex={isSelectedVehicle ? 5000 : isSelectedRoute ? 2500 : stale ? 50 : 200}
+              zIndex={
+                isSelectedVehicle
+                  ? 5000
+                  : isSelectedRoute
+                    ? 2500
+                    : stale
+                      ? 50
+                      : 200
+              }
+              onPress={() => onSelectBus?.(bus)}
             />
           );
         },

@@ -148,6 +148,11 @@ export default function MapScreen() {
   );
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
   const [visibleRegion, setVisibleRegion] = useState<Region | null>(null);
+  const [manualSelectedVehicleId, setManualSelectedVehicleId] = useState<
+    string | null
+  >(null);
+  const lastRouteFitSignature = useRef<string | null>(null);
+  const lastVehicleCameraSignature = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -208,13 +213,44 @@ export default function MapScreen() {
     );
   }, [selectedRoute]);
 
-  const { buses, loading: liveBusesLoading, error: liveBusesError } = useLiveBuses({
+  const selectedRouteSignature = useMemo(() => {
+    if (!selectedRoute) return null;
+    return String(
+      selectedRoute.id ??
+        selectedRoute.signature ??
+        selectedRoute.routeId ??
+        selectedRoute.routeLabel ??
+        selectedRouteNumber ??
+        "route",
+    );
+  }, [selectedRoute, selectedRouteNumber]);
+
+  useEffect(() => {
+    setManualSelectedVehicleId(null);
+    lastVehicleCameraSignature.current = null;
+  }, [selectedRouteSignature]);
+
+  const {
+    buses,
+    loading: liveBusesLoading,
+    error: liveBusesError,
+  } = useLiveBuses({
     refreshMs: selectedRouteNumber ? 5000 : 8000,
     routeNumber: selectedRouteNumber || null,
   });
 
   const selectedLiveBus = useMemo(() => {
     if (!selectedRoute) return null;
+
+    if (manualSelectedVehicleId) {
+      const manual = buses.find((rawBus) => {
+        const bus = rawBus as AnyRecord;
+        const ids = [bus.vehicleId, bus.id, bus.vehicleLabel].map(normalizeId);
+        return ids.includes(manualSelectedVehicleId);
+      });
+
+      if (manual) return manual as AnyRecord;
+    }
 
     const liveVehicle = selectedRoute.liveVehicle as AnyRecord | null;
     const liveVehicleId = normalizeId(
@@ -280,7 +316,7 @@ export default function MapScreen() {
       .sort((a, b) => a.score - b.score);
 
     return candidates[0]?.bus ?? null;
-  }, [buses, selectedRoute, selectedRouteNumber]);
+  }, [buses, manualSelectedVehicleId, selectedRoute, selectedRouteNumber]);
 
   const selectedVehicleId =
     selectedLiveBus?.vehicleId ||
@@ -350,16 +386,51 @@ export default function MapScreen() {
   }, [selectedDestination, selectedRoute, userLocation]);
 
   useEffect(() => {
-    void focusCoords;
-    // PRO FIX: do not auto zoom out after route selection.
-    // User keeps full manual control over map zoom/pan like Apple Maps.
-  }, [focusCoords, planner.flowState, selectedRoute]);
+    if (!selectedRoute || focusCoords.length < 2 || !selectedRouteSignature)
+      return;
+
+    const lastFocusPoint = focusCoords[focusCoords.length - 1];
+    const signature = `${selectedRouteSignature}:${focusCoords.length}:${focusCoords[0]?.latitude?.toFixed?.(4)}:${lastFocusPoint?.latitude?.toFixed?.(4)}`;
+    if (lastRouteFitSignature.current === signature) return;
+    lastRouteFitSignature.current = signature;
+
+    requestAnimationFrame(() => {
+      mapRef.current?.fitToCoordinates(focusCoords, {
+        animated: true,
+        edgePadding: { top: 92, right: 48, bottom: 310, left: 48 },
+      });
+    });
+  }, [focusCoords, selectedRoute, selectedRouteSignature]);
 
   useEffect(() => {
-    void activeCameraTarget;
-    // PRO FIX: automatic follow camera is disabled by default.
-    // This prevents unwanted zoom-out/zoom-in while the user explores the map.
-  }, [activeCameraTarget, planner.flowState, selectedLiveBus]);
+    if (!activeCameraTarget || !selectedRoute) return;
+
+    const followStates = new Set([
+      "waiting_bus",
+      "onboard",
+      "transfer",
+      "arriving",
+    ]);
+
+    if (!followStates.has(String(planner.flowState))) return;
+
+    const heading = Number(
+      selectedLiveBus?.heading ?? selectedLiveBus?.bearing ?? 0,
+    );
+    const signature = `${planner.flowState}:${activeCameraTarget.latitude.toFixed(5)}:${activeCameraTarget.longitude.toFixed(5)}:${Math.round(heading / 10) * 10}`;
+    if (lastVehicleCameraSignature.current === signature) return;
+    lastVehicleCameraSignature.current = signature;
+
+    mapRef.current?.animateCamera(
+      {
+        center: activeCameraTarget,
+        zoom: planner.flowState === "onboard" ? 16.8 : 16.2,
+        pitch: planner.flowState === "onboard" ? 35 : 0,
+        heading: Number.isFinite(heading) ? heading : 0,
+      },
+      { duration: 720 },
+    );
+  }, [activeCameraTarget, planner.flowState, selectedLiveBus, selectedRoute]);
 
   const showPlacePreview = async (
     rawPlace: AnyRecord,
@@ -388,7 +459,10 @@ export default function MapScreen() {
           const title = String(provisional.title || "").trim();
 
           if (shouldReverse && title && title !== "Pasirinkta vieta") {
-            const nearbyByName = await searchPlaces(title, userLocation ?? undefined);
+            const nearbyByName = await searchPlaces(
+              title,
+              userLocation ?? undefined,
+            );
             const closest = nearbyByName
               .map((item) => ({
                 item,
@@ -553,6 +627,13 @@ export default function MapScreen() {
           selectedVehicleId={selectedVehicleId}
           visibleRegion={visibleRegion}
           focusOnSelectedRoute={Boolean(selectedRoute)}
+          onSelectBus={(bus) => {
+            const item = bus as AnyRecord;
+            const nextId = normalizeId(
+              item.vehicleId || item.id || item.vehicleLabel,
+            );
+            if (nextId) setManualSelectedVehicleId(nextId);
+          }}
         />
 
         {selectedMapPlace?.coordinate ? (
@@ -561,8 +642,22 @@ export default function MapScreen() {
             anchor={{ x: 0.5, y: 1 }}
             tracksViewChanges={false}
           >
-            <View style={[styles.mapTapMarker, { backgroundColor: theme.accentSoft, borderColor: theme.backgroundElevated, shadowColor: theme.accent }]}>
-              <View style={[styles.mapTapMarkerInner, { backgroundColor: theme.accent }]} />
+            <View
+              style={[
+                styles.mapTapMarker,
+                {
+                  backgroundColor: theme.accentSoft,
+                  borderColor: theme.backgroundElevated,
+                  shadowColor: theme.accent,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.mapTapMarkerInner,
+                  { backgroundColor: theme.accent },
+                ]}
+              />
             </View>
           </Marker>
         ) : null}
@@ -571,7 +666,15 @@ export default function MapScreen() {
       </MapCanvas>
 
       <Pressable
-        style={[styles.recenterButton, { backgroundColor: theme.isLight ? "rgba(255,255,255,0.94)" : theme.surfaceStrong, borderColor: theme.borderStrong }]}
+        style={[
+          styles.recenterButton,
+          {
+            backgroundColor: theme.isLight
+              ? "rgba(255,255,255,0.94)"
+              : theme.surfaceStrong,
+            borderColor: theme.borderStrong,
+          },
+        ]}
         onPress={recenterToUser}
         hitSlop={12}
       >
@@ -583,24 +686,48 @@ export default function MapScreen() {
       </Pressable>
 
       {selectedRoute && selectedLiveBus ? (
-        <View style={[styles.selectedBusHud, { backgroundColor: theme.surfaceStrong, borderColor: theme.borderStrong, shadowColor: theme.shadow }]}>
-          <View style={[styles.selectedBusBadge, { backgroundColor: theme.accent }]}>
-            <Text style={[styles.selectedBusBadgeText, { color: theme.accentText }]}>
-              {normalizeRouteNumber(selectedLiveBus.routeNumber || selectedLiveBus.number || selectedRouteNumber || "BUS")}
+        <View
+          style={[
+            styles.selectedBusHud,
+            {
+              backgroundColor: theme.surfaceStrong,
+              borderColor: theme.borderStrong,
+              shadowColor: theme.shadow,
+            },
+          ]}
+        >
+          <View
+            style={[styles.selectedBusBadge, { backgroundColor: theme.accent }]}
+          >
+            <Text
+              style={[styles.selectedBusBadgeText, { color: theme.accentText }]}
+            >
+              {normalizeRouteNumber(
+                selectedLiveBus.routeNumber ||
+                  selectedLiveBus.number ||
+                  selectedRouteNumber ||
+                  "BUS",
+              )}
             </Text>
           </View>
           <View style={styles.selectedBusHudTextBlock}>
-            <Text style={[styles.selectedBusHudTitle, { color: theme.text }]} numberOfLines={1}>
-              Live autobusas žemėlapyje
+            <Text
+              style={[styles.selectedBusHudTitle, { color: theme.text }]}
+              numberOfLines={1}
+            >
+              Pasirinktas autobusas gyvai
             </Text>
-            <Text style={[styles.selectedBusHudSubtitle, { color: theme.dim }]} numberOfLines={1}>
+            <Text
+              style={[styles.selectedBusHudSubtitle, { color: theme.dim }]}
+              numberOfLines={1}
+            >
               {selectedRoute?.liveEta?.etaMinutes != null
-                ? `ETA ${Math.round(Number(selectedRoute.liveEta.etaMinutes))} min`
+                ? `ETA ${Math.round(Number(selectedRoute.liveEta.etaMinutes))} min • ${Math.round(Number(selectedLiveBus.speedKph || 0))} km/h`
                 : liveBusesLoading
                   ? "Atnaujinama GPS..."
                   : liveBusesError
                     ? "GPS laikinai neprieinamas"
-                    : "GPS aktyvus"}
+                    : `GPS aktyvus • ${Math.round(Number(selectedLiveBus.speedKph || 0))} km/h`}
             </Text>
           </View>
         </View>
