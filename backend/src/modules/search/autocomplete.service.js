@@ -27,7 +27,8 @@ function isAddressAutocompleteQuery(value = "") {
   if (q.length < 2) return false;
   if (hasHouseNumberQuery(q)) return true;
   if (/\b(g|g\.|gatv[eė]|pr|pr\.|prospektas|al|al\.|pl|pl\.|kelias)\b/i.test(String(value))) return true;
-  // For short typing like ta/tai/taikos, address prefix must win over POI spam.
+  // Apple Maps behavior: while the user types letters, try address prefix first.
+  // POI fallback is used only when no street/address exists.
   return /^[a-ząčęėįšųūž\s.-]+$/i.test(String(value || ""));
 }
 
@@ -48,70 +49,26 @@ async function safeProvider(name, fn, timeoutMs = 900) {
 
 function addressFirst(items) {
   return [...items].sort((a, b) => {
-    const ap = String(a.type || "") === "address" ? 1 : 0;
-    const bp = String(b.type || "") === "address" ? 1 : 0;
-    if (bp !== ap) return bp - ap;
+    const aType = String(a.type || "").toLowerCase();
+    const bType = String(b.type || "").toLowerCase();
+    const aAddress = aType === "address" ? 1 : 0;
+    const bAddress = bType === "address" ? 1 : 0;
+    if (bAddress !== aAddress) return bAddress - aAddress;
+
+    const aSelectable = a.selectable === true ? 1 : 0;
+    const bSelectable = b.selectable === true ? 1 : 0;
+    if (bSelectable !== aSelectable) return bSelectable - aSelectable;
+
     const as = Number(a.score || 0) + Number(a.priority || 0);
     const bs = Number(b.score || 0) + Number(b.priority || 0);
-    return bs - as;
+    if (bs !== as) return bs - as;
+
+    return String(a.title || "").localeCompare(String(b.title || ""), "lt");
   });
 }
 
-async function autocomplete(query = {}) {
-  const startedAt = Date.now();
-  const q = String(query.q || query.query || query.text || query.search || "").trim();
-  const limit = limitValue(query.limit);
-
-  if (q.length < 2) {
-    return { ok: true, query: q, count: 0, results: [], suggestions: [], places: [], stops: [], addresses: [], meta: { tookMs: Date.now() - startedAt, autocomplete: true } };
-  }
-
-  const cacheKey = `autocomplete-v20:${normalizeText(q)}:${limit}`;
-  const cached = await getCache(cacheKey);
-  if (cached) {
-    return { ...cached, meta: { ...(cached.meta || {}), cached: true, tookMs: Date.now() - startedAt } };
-  }
-
-  const addressAutocomplete = isAddressAutocompleteQuery(q);
-  const addressTimeout = Number(process.env.SEARCH_AUTOCOMPLETE_ADDRESS_TIMEOUT_MS || 3000);
-
-  // Apple Maps rule: while typing street/address text, addresses are the primary source.
-  // POI/stops are allowed only if no address exists at all.
-  const localAddress = await safeProvider(
-    "local_address",
-    () => searchLocalAddresses(q, { limit: Math.max(limit, 10), autocomplete: true }),
-    addressTimeout,
-  );
-
-  let providers = [localAddress];
-  let ranked = addressFirst(dedupeResults(rankResults(localAddress.results, q))).slice(0, limit);
-
-  if (!addressAutocomplete || ranked.length === 0) {
-    const [meili, localPoi, gtfsStops] = await Promise.all([
-      safeProvider("meilisearch", () => searchMeili(q, { limit: limit * 2 }), 900),
-      safeProvider("local_poi", () => searchLocalPoi(q, { limit }), 160),
-      safeProvider("gtfs_stops", () => searchGtfsStops(q, { limit }), 160),
-    ]);
-    providers = [localAddress, meili, localPoi, gtfsStops];
-
-    const combined = [
-      ...localAddress.results,
-      ...meili.results,
-      ...localPoi.results,
-      ...gtfsStops.results,
-    ];
-
-    const hasStrongLocal = combined.some((item) => Number(item.score || 0) >= 450);
-    const shouldUseGoogle = envBool("SEARCH_AUTOCOMPLETE_GOOGLE_FALLBACK", false) && !hasStrongLocal;
-
-    if (shouldUseGoogle) {
-      providers.push(await safeProvider("google_places", () => searchGooglePlaces(q, { limit }), 2200));
-    }
-
-    ranked = addressFirst(dedupeResults(rankResults(providers.flatMap((p) => p.results), q))).slice(0, limit);
-  }
-
-  const payload = {
+function responsePayload({ q, ranked, providers, startedAt, addressAutocomplete, cached = false }) {
+  return {
     ok: true,
     query: q,
     count: ranked.length,
@@ -122,12 +79,74 @@ async function autocomplete(query = {}) {
     addresses: ranked.filter((item) => item.type === "address"),
     meta: {
       tookMs: Date.now() - startedAt,
+      cached,
       autocomplete: true,
       addressAutocompleteOnly: addressAutocomplete,
+      addressFirst: true,
+      poiFallbackOnlyWhenNoAddress: true,
       providers: providers.map((p) => ({ name: p.name, ok: p.ok, count: p.results.length, error: p.error })),
     },
   };
+}
 
+async function autocomplete(query = {}) {
+  const startedAt = Date.now();
+  const q = String(query.q || query.query || query.text || query.search || "").trim();
+  const limit = limitValue(query.limit);
+
+  if (q.length < 2) {
+    return responsePayload({ q, ranked: [], providers: [], startedAt, addressAutocomplete: false });
+  }
+
+  const addressAutocomplete = isAddressAutocompleteQuery(q);
+  const cacheKey = `autocomplete-v100:${normalizeText(q)}:${limit}:${addressAutocomplete ? "addr" : "mixed"}`;
+  const cached = await getCache(cacheKey);
+  if (cached) {
+    return { ...cached, meta: { ...(cached.meta || {}), cached: true, tookMs: Date.now() - startedAt } };
+  }
+
+  const addressTimeout = Number(process.env.SEARCH_AUTOCOMPLETE_ADDRESS_TIMEOUT_MS || 10000);
+  const localAddress = await safeProvider(
+    "local_address",
+    () => searchLocalAddresses(q, { limit: Math.max(limit, 10), autocomplete: true }),
+    addressTimeout,
+  );
+
+  let providers = [localAddress];
+  let rankedAddresses = addressFirst(dedupeResults(rankResults(localAddress.results, q))).slice(0, limit);
+
+  // FINAL APPLE MAPS RULE:
+  // For address-like typing (ta/tai/taikos/taikos 13), never show POI above addresses.
+  // If addresses exist, return only addresses immediately.
+  if (addressAutocomplete && rankedAddresses.length > 0) {
+    const payload = responsePayload({ q, ranked: rankedAddresses, providers, startedAt, addressAutocomplete });
+    await setCache(cacheKey, payload, 120);
+    return payload;
+  }
+
+  const [meili, localPoi, gtfsStops] = await Promise.all([
+    safeProvider("meilisearch", () => searchMeili(q, { limit: limit * 2 }), 900),
+    safeProvider("local_poi", () => searchLocalPoi(q, { limit }), 160),
+    safeProvider("gtfs_stops", () => searchGtfsStops(q, { limit }), 160),
+  ]);
+
+  providers = [localAddress, meili, localPoi, gtfsStops];
+  const combined = [
+    ...localAddress.results,
+    ...meili.results,
+    ...localPoi.results,
+    ...gtfsStops.results,
+  ];
+
+  const hasStrongLocal = combined.some((item) => Number(item.score || 0) >= 450);
+  const shouldUseGoogle = envBool("SEARCH_AUTOCOMPLETE_GOOGLE_FALLBACK", false) && !hasStrongLocal;
+
+  if (shouldUseGoogle) {
+    providers.push(await safeProvider("google_places", () => searchGooglePlaces(q, { limit }), 2200));
+  }
+
+  const ranked = addressFirst(dedupeResults(rankResults(providers.flatMap((p) => p.results), q))).slice(0, limit);
+  const payload = responsePayload({ q, ranked, providers, startedAt, addressAutocomplete });
   await setCache(cacheKey, payload, 120);
   return payload;
 }

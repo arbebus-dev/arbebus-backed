@@ -2,37 +2,31 @@ const { normalizeText } = require("../utils/normalizeText");
 const { getCache, setCache } = require("../cache/searchCache");
 const { toResult } = require("../utils/mapSearchResult");
 const { getPool } = require("../../../db/pool");
-const { searchGooglePlaces } = require("./googlePlaces.provider");
-const { searchNominatim } = require("./nominatim.provider");
 
 const DEFAULT_CENTER = {
   city: "Klaipėda",
   latitude: 55.7033,
   longitude: 21.1443,
-  dbPatterns: ["%klaipėd%", "%klaiped%", "%klaip%"],
+  dbPatterns: ["%klaip%", "%klaipėd%", "%klaiped%"],
 };
 
 const CITY_HINTS = [
-  { keys: ["klaipeda", "klaipėda", "klaipedos", "klaipėdos"], city: "Klaipėda", latitude: 55.7033, longitude: 21.1443, dbPatterns: ["%klaipėd%", "%klaiped%", "%klaip%"] },
+  { keys: ["klaipeda", "klaipėda", "klaipedos", "klaipėdos"], city: "Klaipėda", latitude: 55.7033, longitude: 21.1443, dbPatterns: ["%klaip%", "%klaipėd%", "%klaiped%"] },
   { keys: ["gargzdai", "gargždai"], city: "Gargždai", latitude: 55.7093, longitude: 21.3949, dbPatterns: ["%gargžd%", "%gargzd%"] },
   { keys: ["kretinga"], city: "Kretinga", latitude: 55.8888, longitude: 21.2445, dbPatterns: ["%kreting%"] },
   { keys: ["palanga"], city: "Palanga", latitude: 55.9175, longitude: 21.0686, dbPatterns: ["%palang%"] },
   { keys: ["neringa"], city: "Neringa", latitude: 55.3712, longitude: 21.0646, dbPatterns: ["%nering%"] },
   { keys: ["nida"], city: "Nida", latitude: 55.3039, longitude: 21.0058, dbPatterns: ["%nida%"] },
-  { keys: ["priekule", "priekulė"], city: "Priekulė", latitude: 55.5546, longitude: 21.3185, dbPatterns: ["%priekul%"] },
-  { keys: ["dreverna"], city: "Dreverna", latitude: 55.5184, longitude: 21.2466, dbPatterns: ["%drevern%"] },
-  { keys: ["karkle", "karklė"], city: "Karklė", latitude: 55.8113, longitude: 21.0727, dbPatterns: ["%karkl%"] },
-  { keys: ["slengiai"], city: "Slengiai", latitude: 55.7654, longitude: 21.2315, dbPatterns: ["%sleng%"] },
   { keys: ["vilnius"], city: "Vilnius", latitude: 54.6872, longitude: 25.2797, dbPatterns: ["%viln%"] },
   { keys: ["kaunas"], city: "Kaunas", latitude: 54.8985, longitude: 23.9036, dbPatterns: ["%kaun%"] },
+  { keys: ["siauliai", "šiauliai"], city: "Šiauliai", latitude: 55.9349, longitude: 23.3137, dbPatterns: ["%šiaul%", "%siaul%"] },
+  { keys: ["panevezys", "panevėžys"], city: "Panevėžys", latitude: 55.7348, longitude: 24.3575, dbPatterns: ["%panevėž%", "%panevez%"] },
 ];
 
 const REGION_PATTERNS = [
   "%klaip%", "%klaipėd%", "%klaiped%", "%nering%", "%nida%", "%gargžd%", "%gargzd%",
   "%priekul%", "%drevern%", "%karkl%", "%sleng%", "%sendvar%", "%kretingal%", "%dovil%",
-  "%veivirž%", "%veivirz%", "%judrėn%", "%judren%", "%agluonėn%", "%agluonen%",
-  "%ketverg%", "%lapiai%", "%pliki%", "%endriejav%", "%venck%", "%saug%", "%girul%",
-  "%melnrag%", "%smiltyn%", "%juodkrant%", "%preil%", "%pervalk%",
+  "%viln%", "%kaun%", "%palang%", "%kreting%",
 ];
 
 let lastDbError = null;
@@ -51,7 +45,7 @@ function extractHouseNumber(query) {
 
 function normalizeSearchText(value) {
   return compactQuery(value)
-    .replace(/\b(g|gatve|gatvė|pr|prospektas|pl|plentas|al|aleja|kelias)\b/g, " ")
+    .replace(/\b(g|g\.|gatve|gatvė|pr|pr\.|prospektas|pl|pl\.|plentas|al|al\.|aleja|kelias)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -122,7 +116,9 @@ function cityMatches(rowCity, targetCity) {
 function removeCityWordsFromStreet(query) {
   let value = compactQuery(query);
   for (const city of CITY_HINTS) {
-    for (const key of city.keys) value = value.replace(new RegExp(`\\b${compactQuery(key)}\\b`, "gi"), " ");
+    for (const key of city.keys) {
+      value = value.replace(new RegExp(`\\b${compactQuery(key)}\\b`, "gi"), " ");
+    }
   }
   return value.replace(/\s+/g, " ").trim();
 }
@@ -172,7 +168,7 @@ function rowToAddressResult(row, query, options = {}) {
     coordinate: { latitude: finalLatitude, longitude: finalLongitude },
     source: row.source || "postgres_address",
     category: hasHouse ? "Adresas" : "Gatvė",
-    priority: exactHouse ? 360 : 240,
+    priority: exactHouse ? 360 : 260,
     score,
     selectable: hasHouse,
     requiresHouseNumber: !hasHouse,
@@ -182,102 +178,76 @@ function rowToAddressResult(row, query, options = {}) {
   });
 }
 
-async function queryPublicAddresses({ q, streetPart, house, targetCity, limit, options }) {
+async function queryTable({ table, source, street, house, targetCity, limit, preferHouseRows }) {
   const pool = getPool();
-  const street = normalizeSearchText(streetPart || q);
-  if (!street || street.length < 2) return [];
   const patterns = cityPatterns(targetCity);
   const region = targetCity?.reason === "query" ? patterns : REGION_PATTERNS;
+  const tableName = table === "rc" ? "public.addresses_rc_import" : "public.addresses";
+  const sourceName = source || (table === "rc" ? "rc_address" : "postgres_address");
 
   if (house) {
     const sql = `
-      SELECT id, name, street, house_number, city, postcode, lat, lon, 'postgres_address' AS source,
+      SELECT id, name, street::text AS street, house_number::text AS house_number, city::text AS city, postcode::text AS postcode, lat, lon, '${sourceName}' AS source,
         (
-          CASE WHEN lower(street) = lower($1) THEN 120000 ELSE 0 END +
-          CASE WHEN lower(street) LIKE lower($1) || '%' THEN 80000 ELSE 0 END +
-          CASE WHEN upper(house_number) = upper($2) THEN 120000 ELSE 0 END +
-          CASE WHEN upper(house_number) LIKE upper($2) || '%' THEN 60000 ELSE 0 END +
-          CASE WHEN lower(COALESCE(city, '')) LIKE ANY($3::text[]) THEN 90000 ELSE 0 END +
+          CASE WHEN lower(street::text) = lower($1) THEN 160000 ELSE 0 END +
+          CASE WHEN lower(street::text) LIKE lower($1) || '%' THEN 120000 ELSE 0 END +
+          CASE WHEN upper(COALESCE(house_number::text, '')) = upper($2) THEN 160000 ELSE 0 END +
+          CASE WHEN upper(COALESCE(house_number::text, '')) LIKE upper($2) || '%' THEN 70000 ELSE 0 END +
+          CASE WHEN lower(COALESCE(city::text, '')) LIKE ANY($3::text[]) THEN 120000 ELSE 0 END +
           CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 15000 ELSE 0 END
         ) AS rank_score
-      FROM public.addresses
-      WHERE lower(street) LIKE lower($1) || '%'
-        AND upper(house_number) LIKE upper($2) || '%'
-        AND lower(COALESCE(city, '')) LIKE ANY($4::text[])
-      ORDER BY rank_score DESC, city ASC, street ASC, length(house_number), house_number ASC
+      FROM ${tableName}
+      WHERE lower(street::text) LIKE lower($1) || '%'
+        AND upper(COALESCE(house_number::text, '')) LIKE upper($2) || '%'
+        AND lower(COALESCE(city::text, '')) LIKE ANY($4::text[])
+      ORDER BY rank_score DESC, city::text ASC, street::text ASC, length(house_number::text), house_number::text ASC
       LIMIT $5
     `;
-    const result = await pool.query(sql, [street, house, patterns, region, Math.min(Math.max(limit, 10), 30)]);
+    const result = await pool.query(sql, [street, house, patterns, region, Math.min(Math.max(limit, 8), 30)]);
+    return result.rows;
+  }
+
+  if (preferHouseRows) {
+    const sql = `
+      SELECT id, name, street::text AS street, house_number::text AS house_number, city::text AS city, postcode::text AS postcode, lat, lon, '${sourceName}' AS source,
+        (
+          CASE WHEN lower(street::text) = lower($1) THEN 130000 ELSE 0 END +
+          CASE WHEN lower(street::text) LIKE lower($1) || '%' THEN 100000 ELSE 0 END +
+          CASE WHEN lower(COALESCE(city::text, '')) LIKE ANY($2::text[]) THEN 100000 ELSE 0 END +
+          CASE WHEN COALESCE(house_number::text, '') <> '' THEN 50000 ELSE 0 END +
+          CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 15000 ELSE 0 END
+        ) AS rank_score
+      FROM ${tableName}
+      WHERE lower(street::text) LIKE lower($1) || '%'
+        AND lower(COALESCE(city::text, '')) LIKE ANY($3::text[])
+        AND COALESCE(house_number::text, '') <> ''
+      ORDER BY rank_score DESC, city::text ASC, street::text ASC, length(house_number::text), house_number::text ASC
+      LIMIT $4
+    `;
+    const result = await pool.query(sql, [street, patterns, region, Math.min(Math.max(limit, 8), 20)]);
     return result.rows;
   }
 
   const sql = `
     WITH ranked AS (
-      SELECT DISTINCT ON (lower(street), lower(city))
-        id, name, street, NULL::text AS house_number, city, postcode, lat, lon, 'postgres_address' AS source,
+      SELECT DISTINCT ON (lower(street::text), lower(city::text))
+        id, name, street::text AS street, NULL::text AS house_number, city::text AS city, postcode::text AS postcode, lat, lon, '${sourceName}' AS source,
         (
-          CASE WHEN lower(street) = lower($1) THEN 120000 ELSE 0 END +
-          CASE WHEN lower(street) LIKE lower($1) || '%' THEN 90000 ELSE 0 END +
-          CASE WHEN lower(COALESCE(city, '')) LIKE ANY($2::text[]) THEN 90000 ELSE 0 END +
+          CASE WHEN lower(street::text) = lower($1) THEN 130000 ELSE 0 END +
+          CASE WHEN lower(street::text) LIKE lower($1) || '%' THEN 100000 ELSE 0 END +
+          CASE WHEN lower(COALESCE(city::text, '')) LIKE ANY($2::text[]) THEN 100000 ELSE 0 END +
           CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 10000 ELSE 0 END
         ) AS rank_score
-      FROM public.addresses
-      WHERE lower(street) LIKE lower($1) || '%'
-        AND lower(COALESCE(city, '')) LIKE ANY($3::text[])
-      ORDER BY lower(street), lower(city), rank_score DESC, id ASC
+      FROM ${tableName}
+      WHERE lower(street::text) LIKE lower($1) || '%'
+        AND lower(COALESCE(city::text, '')) LIKE ANY($3::text[])
+      ORDER BY lower(street::text), lower(city::text), rank_score DESC, id ASC
     )
     SELECT * FROM ranked
     ORDER BY rank_score DESC, city ASC, street ASC
     LIMIT $4
   `;
   const result = await pool.query(sql, [street, patterns, region, Math.min(Math.max(limit, 8), 20)]);
-  return result.rows;
-}
-
-async function queryRcAddresses({ q, streetPart, house, targetCity, limit }) {
-  // RC table is optional fallback. It is not allowed to block instant autocomplete.
-  const pool = getPool();
-  const street = normalizeSearchText(streetPart || q);
-  if (!street || street.length < 3) return [];
-  const patterns = cityPatterns(targetCity);
-  const region = targetCity?.reason === "query" ? patterns : REGION_PATTERNS;
-
-  const params = house
-    ? [street, house, patterns, region, Math.min(Math.max(limit, 6), 12)]
-    : [street, patterns, region, Math.min(Math.max(limit, 6), 12)];
-
-  const sql = house
-    ? `
-      SELECT id, name, street, house_number, city, postcode, lat, lon, 'rc_address' AS source,
-        (
-          CASE WHEN lower(street) = lower($1) THEN 80000 ELSE 0 END +
-          CASE WHEN lower(street) LIKE lower($1) || '%' THEN 50000 ELSE 0 END +
-          CASE WHEN upper(house_number) = upper($2) THEN 50000 ELSE 0 END +
-          CASE WHEN lower(COALESCE(city, '')) LIKE ANY($3::text[]) THEN 50000 ELSE 0 END
-        ) AS rank_score
-      FROM public.addresses_rc_import
-      WHERE lower(street) LIKE lower($1) || '%'
-        AND upper(house_number) LIKE upper($2) || '%'
-        AND lower(COALESCE(city, '')) LIKE ANY($4::text[])
-      ORDER BY rank_score DESC
-      LIMIT $5
-    `
-    : `
-      SELECT DISTINCT ON (lower(street), lower(city))
-        id, name, street, NULL::text AS house_number, city, postcode, lat, lon, 'rc_address' AS source,
-        (
-          CASE WHEN lower(street) = lower($1) THEN 70000 ELSE 0 END +
-          CASE WHEN lower(street) LIKE lower($1) || '%' THEN 40000 ELSE 0 END +
-          CASE WHEN lower(COALESCE(city, '')) LIKE ANY($2::text[]) THEN 40000 ELSE 0 END
-        ) AS rank_score
-      FROM public.addresses_rc_import
-      WHERE lower(street) LIKE lower($1) || '%'
-        AND lower(COALESCE(city, '')) LIKE ANY($3::text[])
-      ORDER BY lower(street), lower(city), rank_score DESC, id ASC
-      LIMIT $4
-    `;
-
-  const result = await pool.query(sql, params);
   return result.rows;
 }
 
@@ -316,13 +286,14 @@ async function searchPostgresAddresses(query, options = {}) {
   const qWithoutCity = removeCityWordsFromStreet(q);
   const streetPartRaw = qWithoutCity.replace(/\b\d+[a-z]?\b/gi, " ").trim();
   const streetPart = normalizeSearchText(streetPartRaw || nq);
+  if (!streetPart || streetPart.length < 2) return [];
 
-  let rows = await queryPublicAddresses({ q, streetPart, house, targetCity, limit, options });
+  const preferHouseRows = Boolean(options.autocomplete) && !house && streetPart.length >= 4;
+  let rows = await queryTable({ table: "public", source: "postgres_address", street: streetPart, house, targetCity, limit, preferHouseRows });
 
-  // RC fallback only if public.addresses returned nothing. This avoids RC timeout/slow path in normal typing.
   if (!rows.length && streetPart.length >= 3) {
     try {
-      rows = await queryRcAddresses({ q, streetPart, house, targetCity, limit });
+      rows = await queryTable({ table: "rc", source: "rc_address", street: streetPart, house, targetCity, limit, preferHouseRows });
     } catch (error) {
       lastDbError = error?.message || String(error);
     }
@@ -333,7 +304,7 @@ async function searchPostgresAddresses(query, options = {}) {
 
 async function searchLocalAddresses(query, options = {}) {
   try {
-    const cacheKey = `local-address-v20:${compactQuery(query)}:${Number(options.limit || 8)}:${options.lat || ""}:${options.lon || ""}`;
+    const cacheKey = `local-address-v100:${compactQuery(query)}:${Number(options.limit || 8)}:${options.autocomplete ? "auto" : "search"}:${options.lat || ""}:${options.lon || ""}`;
     const cached = await getCache(cacheKey);
     if (cached) return cached;
     const dbResults = await searchPostgresAddresses(query, options);
@@ -351,7 +322,7 @@ async function getLocalAddressDetails(placeId, options = {}) {
   if (!rawId) return null;
   try {
     let result = await getPool().query(
-      `SELECT id, name, street, house_number, city, postcode, lat, lon, 'postgres_address' AS source
+      `SELECT id, name, street::text AS street, house_number::text AS house_number, city::text AS city, postcode::text AS postcode, lat, lon, 'postgres_address' AS source
        FROM public.addresses
        WHERE id::text = $1
        LIMIT 1`,
@@ -359,7 +330,7 @@ async function getLocalAddressDetails(placeId, options = {}) {
     );
     if (!result.rows?.[0]) {
       result = await getPool().query(
-        `SELECT id, name, street, house_number, city, postcode, lat, lon, 'rc_address' AS source
+        `SELECT id, name, street::text AS street, house_number::text AS house_number, city::text AS city, postcode::text AS postcode, lat, lon, 'rc_address' AS source
          FROM public.addresses_rc_import
          WHERE id::text = $1
          LIMIT 1`,

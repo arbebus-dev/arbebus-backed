@@ -37,7 +37,7 @@ const FAST_INDEX_TIMEOUT_MS = Number(
 );
 
 const LOCAL_ADDRESS_TIMEOUT_MS = Number(
-  process.env.SEARCH_LOCAL_ADDRESS_TIMEOUT_MS || 12000,
+  process.env.SEARCH_LOCAL_ADDRESS_TIMEOUT_MS || 10000,
 );
 
 const MEILI_TIMEOUT_MS = Number(process.env.MEILI_TIMEOUT_MS || 1200);
