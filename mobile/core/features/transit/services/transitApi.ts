@@ -38,7 +38,7 @@ function apiBase() {
   return API_BASE.replace(/\/$/, "");
 }
 
-const API_TIMEOUT_MS = 12000;
+const API_TIMEOUT_MS = 8000;
 const SEARCH_TIMEOUT_MS = 12000;
 const SEARCH_MEMORY_TTL_MS = 5 * 60 * 1000;
 const API_RETRY_COUNT = 1;
@@ -345,28 +345,6 @@ function toCoordinate(input: any): Coordinate | null {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
 }
-function isUsableCoordinate(coordinate: Coordinate | null): coordinate is Coordinate {
-  if (!coordinate) return false;
-  const { latitude, longitude } = coordinate;
-  return (
-    Number.isFinite(latitude) &&
-    Number.isFinite(longitude) &&
-    latitude !== 0 &&
-    longitude !== 0 &&
-    Math.abs(latitude) <= 90 &&
-    Math.abs(longitude) <= 180
-  );
-}
-
-function isAddressOrStreetQuery(query: string) {
-  const q = String(query || "").trim();
-  return (
-    /\d/.test(q) ||
-    /(g|g\.|gatv[eė]|pr|pr\.|prospektas|al|al\.|pl|pl\.|kelias)/i.test(q) ||
-    /^[a-ząčęėįšųūž\s.-]{3,}$/i.test(q)
-  );
-}
-
 
 function normalizeGeometry(raw: any): Coordinate[] {
   const candidates =
@@ -981,11 +959,7 @@ function normalizePlaceType(item: any): PlaceResult["type"] {
     return "stop" as PlaceResult["type"];
   }
 
-  if (rawType === "street") {
-    return "street" as PlaceResult["type"];
-  }
-
-  if (rawType === "address" || rawType === "house") {
+  if (rawType === "address" || rawType === "street" || rawType === "house") {
     return "address" as PlaceResult["type"];
   }
 
@@ -1106,11 +1080,9 @@ function isAddressLikeSearchQuery(query: string) {
 
 function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
   const coordinate = toCoordinate(item);
-  const type = normalizePlaceType(item);
-  const selectable = item?.selectable !== false && item?.requiresHouseNumber !== true && type !== "street";
-
-  if (!isUsableCoordinate(coordinate) && selectable) return null;
   if (!coordinate) return null;
+
+  const type = normalizePlaceType(item);
   const placeId =
     item?.placeId ??
     item?.googlePlaceId ??
@@ -1148,9 +1120,6 @@ function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
     latitude: coordinate.latitude,
     longitude: coordinate.longitude,
     coordinate,
-    selectable: item?.selectable,
-    requiresHouseNumber: item?.requiresHouseNumber,
-    needsGeocoding: item?.needsGeocoding,
     placeId: placeId != null ? String(placeId) : undefined,
     googlePlaceId:
       item.googlePlaceId != null
@@ -1235,16 +1204,7 @@ async function runSearchRequest(
       )
       .filter(Boolean) as PlaceResult[];
 
-    const safeResults = isAddressOrStreetQuery(q)
-      ? normalized.filter((item: any) => {
-          const type = String(item.type || "").toLowerCase();
-          if (!["address", "street"].includes(type)) return false;
-          if (item.selectable === false || item.requiresHouseNumber === true) return type === "street";
-          return isUsableCoordinate(item.coordinate || null);
-        })
-      : normalized;
-
-    return dedupePlaceResults(safeResults)
+    return dedupePlaceResults(normalized)
       .sort(
         (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
       )
@@ -1394,18 +1354,16 @@ export async function planTransitRoute(params: {
           params.travelAt instanceof Date
             ? params.travelAt.toISOString()
             : params.travelAt || null,
-        // Important: keep the first plan response fast. Detailed walking geometry is
-        // hydrated lazily later, so route cards never get stuck on "checking stops".
-        includeWalkingGeometry: false,
+        includeWalkingGeometry: true,
       }),
     },
-    15000,
+    12000,
   );
 
   const data = await safeJson<any>(response);
 
-  if (!response.ok || data?.ok !== true) {
-    throw new Error(data?.error || data?.message || `Transit plan failed: ${response.status}`);
+  if (!response.ok || data?.ok === false) {
+    throw new Error(data?.error || `Transit plan failed: ${response.status}`);
   }
 
   const rawRoutes = [

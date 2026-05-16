@@ -124,12 +124,17 @@ function routeWindow(route: TransitRouteOption) {
 }
 
 function routeReliability(route: TransitRouteOption) {
-  const optionLabel = String((route as any).optionLabel || route.summary?.optionLabel || "").trim();
-  if (optionLabel) return optionLabel;
-  if (route.liveEta?.etaMinutes != null)
-    return `Live ETA ${Math.round(Number(route.liveEta.etaMinutes))} min`;
+  const quality = (route as any).routingQuality || {};
+  const liveEta = (route as any).liveEta || {};
+  const liveMinutes = liveEta?.etaMinutes ?? (route as any).summary?.liveEtaMinutes;
+
+  if (liveMinutes != null) {
+    return `Live GPS • atvyks ~${Math.round(Number(liveMinutes))} min`;
+  }
+
+  if (quality.hasRealtimeGps) return "Live GPS aktyvus";
   if (route.boardingState) return String(route.boardingState);
-  return "GTFS + live GPS";
+  return "GTFS tvarkaraštis";
 }
 
 function stepIcon(step: TransitStep | null | undefined) {
@@ -1046,6 +1051,11 @@ function RoutePills({ route }: { route: TransitRouteOption }) {
             : t.common.direct}
         </Text>
       </View>
+      {((route as any).routingQuality?.hasRealtimeGps || (route as any).liveVehicle) ? (
+        <View style={[styles.liveBadge, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+          <Text style={[styles.liveBadgeText, { color: theme.accent }]}>Live GPS</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1079,6 +1089,9 @@ function RouteCard({
           </Text>
         </View>
         <View style={[styles.routeTimeBox, { backgroundColor: theme.surfaceMuted }]}>
+          <Text style={[styles.routeOptionBadgeText, { color: theme.accent }]} numberOfLines={1}>
+            {String((route as any).optionLabel || (route as any).badge || "Maršrutas")}
+          </Text>
           <Text style={[styles.routeTimeText, { color: theme.text }]}>{s.label}</Text>
           <Ionicons name="chevron-forward" size={14} color={theme.dim} />
         </View>

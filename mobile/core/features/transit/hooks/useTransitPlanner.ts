@@ -114,8 +114,6 @@ function toCoordinate(input: any): Coordinate | null {
       input?.coordinate?.longitude,
   );
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-  if (latitude === 0 || longitude === 0) return null;
-  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
   return { latitude, longitude };
 }
 
@@ -129,17 +127,10 @@ function isStreetSuggestion(place: PlaceSearchResult | null | undefined) {
 }
 
 function canPlanToPlace(place: PlaceSearchResult | null | undefined) {
-  const coordinate = toCoordinate(place);
-  if (!coordinate) return false;
+  if (!place?.coordinate) return false;
   if ((place as any).selectable === false) return false;
   if ((place as any).requiresHouseNumber === true) return false;
-  if ((place as any).needsGeocoding === true) return false;
   if (isStreetSuggestion(place)) return false;
-
-  // Hard safety: never start routing from fallback/invalid coordinates.
-  // This prevents wrong-city routes when autocomplete returns a street suggestion
-  // or an address without official lat/lon.
-  if (coordinate.latitude === 0 || coordinate.longitude === 0) return false;
   return true;
 }
 
@@ -720,15 +711,6 @@ function hasRealBusSegment(route: TransitRouteOption | null) {
     alightName.toLowerCase() !== "undefined" &&
     hasUsableGeometry
   );
-}
-
-
-function hasUsableJourneyRoute(route: TransitRouteOption | null) {
-  if (!route) return false;
-  const steps = safeArray<TransitStep>(route.journeySteps || route.steps);
-  if (!steps.length) return false;
-  if (hasRealBusSegment(route)) return true;
-  return steps.some((step) => step.type === "walk" || step.mode === "walk");
 }
 
 function estimateWalkMinutes(points: Coordinate[]) {
@@ -1412,7 +1394,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           .map((route, index) =>
             normalizeRoute(route, index, routeOrigin, destination),
           )
-          .filter(hasUsableJourneyRoute)
+          .filter(hasRealBusSegment)
           .slice(0, 6);
 
         if (!normalizedOptions.length) {
@@ -1426,7 +1408,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           setSelectedRoute(straightWalk);
           setCurrentStepIndex(0);
           setFlowState("route_options");
-          setError(null);
+          setError("Autobusų maršrutas nerastas – rodomas ėjimas pėsčiomis.");
           return;
         }
 
@@ -1479,25 +1461,17 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           source: "useTransitPlanner.selectDestination",
         });
 
-        // Apple Maps rule: never leave the sheet stuck on loading and never show an
-        // unrelated old route. If the planner is temporarily unavailable, show a safe
-        // walk fallback to the selected destination so the user always gets a usable
-        // journey flow.
-        const fallbackRoute = buildWalkOnlyRoute({
-          origin: routeOrigin,
-          destination,
-          points: [routeOrigin, destination.coordinate],
-        });
-
+        // IMPORTANT: never show an old route for a newly selected destination.
+        // The previous cache fallback caused "Akropolis" or any new address to open
+        // an unrelated old trip from the phone cache.
         setIsOffline(true);
         setOfflineMessage(
-          "Autobusų maršruto serveris laikinai neatsakė. Rodomas saugus pėsčiųjų variantas iki pasirinkto adreso.",
+          "Nepavyko prisijungti prie maršrutų serverio. Senas maršrutas nerodomas, kad nenuvestų į neteisingą vietą.",
         );
-        setError(null);
-        setRouteOptions([fallbackRoute]);
-        setSelectedRoute(fallbackRoute);
-        setCurrentStepIndex(0);
-        setFlowState("route_options");
+        setError(err?.message || "Nepavyko suplanuoti maršruto");
+        setRouteOptions([]);
+        setSelectedRoute(null);
+        setFlowState("destination_selected");
       } finally {
         if (requestId === planRequestId.current) {
           setIsPlanning(false);
@@ -1698,7 +1672,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           .map((route, index) =>
             normalizeRoute(route, index, userLocation, selectedDestination),
           )
-          .filter(hasUsableJourneyRoute);
+          .filter(hasRealBusSegment);
 
         if (!normalizedOptions.length) {
           const walkOnlyRoute = await buildWalkOnlyFallback(
@@ -1711,7 +1685,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
             setSelectedRoute(walkOnlyRoute);
             setCurrentStepIndex(0);
             setFlowState("route_options");
-            setError(null);
+            setError("Autobusų maršrutas nerastas – rodomas ėjimas pėsčiomis.");
             setReroutingMessage(null);
             return;
           }

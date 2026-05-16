@@ -133,6 +133,7 @@ export default function MapScreen() {
   const { theme } = useAppPreferences();
   const mapRef = useRef<MapView | null>(null);
   const lastPoiClickAt = useRef(0);
+  const lastFitRouteId = useRef<string | null>(null);
 
   const { userLocation, refreshLocation, isLocating } = useUserLocation();
   const { buses } = useLiveBuses();
@@ -346,10 +347,22 @@ export default function MapScreen() {
   }, [selectedDestination, selectedRoute, userLocation]);
 
   useEffect(() => {
-    void focusCoords;
-    // PRO FIX: do not auto zoom out after route selection.
-    // User keeps full manual control over map zoom/pan like Apple Maps.
-  }, [focusCoords, planner.flowState, selectedRoute]);
+    if (!selectedRoute || focusCoords.length < 2) return;
+
+    const routeId = String(
+      selectedRoute.id || selectedRoute.routeId || selectedRoute.routeLabel || "route",
+    );
+
+    if (lastFitRouteId.current === routeId) return;
+    lastFitRouteId.current = routeId;
+
+    requestAnimationFrame(() => {
+      mapRef.current?.fitToCoordinates(focusCoords, {
+        animated: true,
+        edgePadding: { top: 120, right: 56, bottom: 380, left: 56 },
+      });
+    });
+  }, [focusCoords, selectedRoute]);
 
   useEffect(() => {
     void activeCameraTarget;
