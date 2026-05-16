@@ -60,7 +60,14 @@ export default function ProfileScreen({ onBack }: Props) {
   const [editingKey, setEditingKey] = useState<EditableKey | null>(null);
   const [draftValue, setDraftValue] = useState("");
 
-  const fields = useMemo(
+  const fields = useMemo<
+    Array<{
+      key: EditableKey;
+      title: string;
+      placeholder: string;
+      keyboardType?: "email-address" | "phone-pad";
+    }>
+  >(
     () => [
       {
         key: "firstName",

@@ -161,7 +161,7 @@ export const translations = {
         contactAlertTitle: "Kontaktai",
         feedbackAlertTitle: "Atsiliepimai",
         missingMessage: "Įrašykite žinutę komandai.",
-        supportEmail: "arbebus@gmail.com",
+        supportEmail: "arbebuss@gmail.com",
       },
       payment: {
         title: "Mokėjimo būdai",
@@ -371,7 +371,7 @@ export const translations = {
         contactAlertTitle: "Contact",
         feedbackAlertTitle: "Feedback",
         missingMessage: "Enter a message for the team.",
-        supportEmail: "arbebus@gmail.com",
+        supportEmail: "arbebuss@gmail.com",
       },
       payment: {
         title: "Payment methods",

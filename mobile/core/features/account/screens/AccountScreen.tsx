@@ -2,12 +2,12 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import { useState } from "react";
 import {
-    Alert,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -24,7 +24,7 @@ import SettingsScreen from "./SettingsScreen";
 
 type Panel = "profile" | "payment" | "settings" | "help" | "legal" | null;
 
-const CONTACT_EMAIL = "arbebus@gmail.com";
+const CONTACT_EMAIL = "arbebuss@gmail.com";
 const PRIVACY_URL = "https://arbebus.com/privacy.html";
 const TERMS_URL = "https://arbebus.com/terms.html";
 

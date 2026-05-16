@@ -2,7 +2,7 @@ import { useAppPreferences } from "@/core/features/account/context/AppPreference
 import { COLORS, T } from "@/core/theme/typography";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, StyleSheet, Text, View } from "react-native";
 import { AnimatedRegion, Marker, type Region } from "react-native-maps";
 import { cleanRouteNumber } from "../../transit/models/journeyStateMachine";
 import type { LiveBus } from "../../transit/models/transitTypes";
@@ -18,7 +18,6 @@ type Props = {
   selectedVehicleId?: string | null;
   visibleRegion?: Region | null;
   focusOnSelectedRoute?: boolean;
-  onSelectBus?: (bus: LiveBus) => void;
 };
 
 type BusMarkerProps = {
@@ -30,7 +29,6 @@ type BusMarkerProps = {
   animationMs: number;
   zIndex: number;
   stale: boolean;
-  onPress?: () => void;
 };
 
 type VisibleBus = {
@@ -48,6 +46,61 @@ const MAX_IDLE_BUSES = 90;
 const MAX_ROUTE_BUSES = 140;
 const MIN_ANIMATION_MS = 6500;
 const MAX_ANIMATION_MS = 12000;
+const MAX_ANIMATED_JUMP_METERS = 450;
+
+function distanceMeters(a: Coordinate, b: Coordinate) {
+  const lat1 = (a.latitude * Math.PI) / 180;
+  const lat2 = (b.latitude * Math.PI) / 180;
+  const dLat = ((b.latitude - a.latitude) * Math.PI) / 180;
+  const dLon = ((b.longitude - a.longitude) * Math.PI) / 180;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+
+  return Math.round(6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)));
+}
+
+function previousCoordinateFromBus(bus: LiveBus): Coordinate | null {
+  const latitude = Number(
+    (bus as any).previousLatitude ?? (bus as any).previousCoordinate?.latitude,
+  );
+  const longitude = Number(
+    (bus as any).previousLongitude ??
+      (bus as any).previousCoordinate?.longitude,
+  );
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return { latitude, longitude };
+}
+
+function animationDurationForBus(bus: LiveBus, fallbackMs: number) {
+  if ((bus as any).stale || (bus as any).filteredJump) return 0;
+
+  const current = coordinateFromBus(bus);
+  const previous = previousCoordinateFromBus(bus);
+  const backendJump = Number((bus as any).jumpMeters);
+  const jumpMeters =
+    Number.isFinite(backendJump) && backendJump > 0
+      ? backendJump
+      : current && previous
+        ? distanceMeters(previous, current)
+        : 0;
+
+  if (jumpMeters > MAX_ANIMATED_JUMP_METERS) return 0;
+
+  const staleSeconds = Number((bus as any).staleSeconds);
+  const predictedSeconds = Number((bus as any).predictedSeconds);
+  const seconds = Number.isFinite(staleSeconds) && staleSeconds > 0
+    ? staleSeconds
+    : Number.isFinite(predictedSeconds) && predictedSeconds > 0
+      ? predictedSeconds + 4
+      : fallbackMs / 1000;
+
+  return Math.max(
+    MIN_ANIMATION_MS,
+    Math.min(Math.round(seconds * 1000), MAX_ANIMATION_MS),
+  );
+}
 
 function normalizeId(value?: string | null) {
   return String(value ?? "").trim();
@@ -138,13 +191,7 @@ function BusGlyph({
       style={[
         styles.glyph,
         { backgroundColor: theme.surface, borderColor: theme.accent },
-        active && [
-          styles.glyphActive,
-          {
-            backgroundColor: theme.accent,
-            borderColor: theme.backgroundElevated,
-          },
-        ],
+        active && [styles.glyphActive, { backgroundColor: theme.accent, borderColor: theme.backgroundElevated }],
         vehicle && styles.glyphVehicle,
         { opacity },
       ]}
@@ -166,11 +213,7 @@ function BusGlyph({
       />
 
       <Text
-        style={[
-          styles.label,
-          { color: theme.text },
-          active && [styles.labelActive, { color: theme.accentText }],
-        ]}
+        style={[styles.label, { color: theme.text }, active && [styles.labelActive, { color: theme.accentText }]]}
         numberOfLines={1}
       >
         {label}
@@ -189,7 +232,6 @@ const BusMarker = memo(
     animationMs,
     zIndex,
     stale,
-    onPress,
   }: BusMarkerProps) {
     const { theme } = useAppPreferences();
     const animatedCoordinate = useRef(
@@ -212,11 +254,11 @@ const BusMarker = memo(
         .timing({
           latitude: coordinate.latitude,
           longitude: coordinate.longitude,
-          duration: animationMs,
+          duration: Math.max(0, animationMs),
           useNativeDriver: false,
         } as any)
         .start(() => {
-          setTimeout(() => setTracksChanges(false), 520);
+          setTimeout(() => setTracksChanges(false), animationMs <= 0 ? 120 : 520);
         });
     }, [
       animatedCoordinate,
@@ -245,9 +287,8 @@ const BusMarker = memo(
         anchor={{ x: 0.5, y: 0.5 }}
         tracksViewChanges={tracksChanges || active}
         zIndex={zIndex}
-        onPress={onPress}
       >
-        <Pressable onPress={onPress} style={styles.markerWrap} hitSlop={10}>
+        <View style={styles.markerWrap}>
           {active && !stale ? <View style={styles.glow} /> : null}
           <BusGlyph
             active={active}
@@ -256,7 +297,7 @@ const BusMarker = memo(
             label={label}
             stale={stale}
           />
-        </Pressable>
+        </View>
       </Marker.Animated>
     );
   },
@@ -266,10 +307,9 @@ const BusMarker = memo(
     prev.vehicle === next.vehicle &&
     prev.zIndex === next.zIndex &&
     prev.stale === next.stale &&
-    prev.onPress === next.onPress &&
+    Math.abs(prev.animationMs - next.animationMs) < 250 &&
     Math.abs(prev.coordinate.latitude - next.coordinate.latitude) < 0.000006 &&
-    Math.abs(prev.coordinate.longitude - next.coordinate.longitude) <
-      0.000006 &&
+    Math.abs(prev.coordinate.longitude - next.coordinate.longitude) < 0.000006 &&
     Math.abs(prev.heading - next.heading) < 3,
 );
 
@@ -279,7 +319,6 @@ export default function LiveBusesLayer({
   selectedVehicleId,
   visibleRegion,
   focusOnSelectedRoute = false,
-  onSelectBus,
 }: Props) {
   const selectedNumber = cleanRouteNumber(selectedRouteLabel);
   const selectedVehicle = normalizeId(selectedVehicleId);
@@ -294,10 +333,7 @@ export default function LiveBusesLayer({
     if (diff > 800 && diff < 25000) {
       // Trafi-like: marker keeps moving almost until the next GPS packet arrives.
       setAnimationMs(
-        Math.max(
-          MIN_ANIMATION_MS,
-          Math.min(Math.round(diff * 1.05), MAX_ANIMATION_MS),
-        ),
+        Math.max(MIN_ANIMATION_MS, Math.min(Math.round(diff * 1.05), MAX_ANIMATION_MS)),
       );
     }
   }, [buses]);
@@ -355,9 +391,7 @@ export default function LiveBusesLayer({
       }
     }
 
-    const routeFocused = Boolean(
-      focusOnSelectedRoute && (selectedNumber || selectedVehicle),
-    );
+    const routeFocused = Boolean(focusOnSelectedRoute && (selectedNumber || selectedVehicle));
 
     const inViewport = [...dedupedByVehicle.values()].filter((item) => {
       if (routeFocused) return item.isImportant;
@@ -385,26 +419,14 @@ export default function LiveBusesLayer({
         );
       })
       .slice(0, max);
-  }, [
-    buses,
-    selectedNumber,
-    selectedVehicle,
-    visibleRegion,
-    focusOnSelectedRoute,
-  ]);
+  }, [buses, selectedNumber, selectedVehicle, visibleRegion, focusOnSelectedRoute]);
 
   return (
     <>
       {visibleBuses.map(
-        ({
-          bus,
-          coordinate,
-          label,
-          isSelectedRoute,
-          isSelectedVehicle,
-          stale,
-        }) => {
+        ({ bus, coordinate, label, isSelectedRoute, isSelectedVehicle, stale }) => {
           const heading = Number(bus.heading ?? bus.bearing ?? 0);
+          const markerAnimationMs = animationDurationForBus(bus, animationMs);
 
           return (
             <BusMarker
@@ -414,18 +436,9 @@ export default function LiveBusesLayer({
               active={isSelectedVehicle || isSelectedRoute}
               vehicle={isSelectedVehicle}
               heading={heading}
-              animationMs={animationMs}
+              animationMs={markerAnimationMs}
               stale={stale}
-              zIndex={
-                isSelectedVehicle
-                  ? 5000
-                  : isSelectedRoute
-                    ? 2500
-                    : stale
-                      ? 50
-                      : 200
-              }
-              onPress={() => onSelectBus?.(bus)}
+              zIndex={isSelectedVehicle ? 5000 : isSelectedRoute ? 2500 : stale ? 50 : 200}
             />
           );
         },

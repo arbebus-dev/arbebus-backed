@@ -1,12 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useAppPreferences } from "@/core/features/account/context/AppPreferencesContext";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
+import { Keyboard, Pressable, StyleSheet, View } from "react-native";
 import MapView, { Marker, type Region } from "react-native-maps";
 
 import { useLiveBuses } from "../transit/hooks/useLiveBuses";
 import { useTransitPlanner } from "../transit/hooks/useTransitPlanner";
 import { useUserLocation } from "../transit/hooks/useUserLocation";
+import FerryScreen from "../ferries/FerryScreen";
+import type { FerryTerminal } from "../ferries/types";
+import type { PlaceSearchResult, TransitRouteOption } from "../transit/models/transitTypes";
 import {
   fetchPlaceDetails,
   fetchStationAccess,
@@ -17,6 +20,7 @@ import {
 
 import JourneySheet from "./JourneySheet";
 import DestinationMarkerLayer from "./layers/DestinationMarkerLayer";
+import FerryMarkersLayer from "./layers/FerryMarkersLayer";
 import LiveBusesLayer from "./layers/LiveBusesLayer";
 import RoutePolylineLayer from "./layers/RoutePolylineLayer";
 import StationAccessLayer from "./layers/StationAccessLayer";
@@ -94,7 +98,7 @@ function averagePoint(points: MapPoint[]): MapPoint | null {
   };
 }
 
-function placeFromMapData(input: AnyRecord | null | undefined) {
+function placeFromMapData(input: AnyRecord | null | undefined): PlaceSearchResult | null {
   const latitude = Number(input?.latitude ?? input?.coordinate?.latitude);
   const longitude = Number(input?.longitude ?? input?.coordinate?.longitude);
 
@@ -135,24 +139,22 @@ export default function MapScreen() {
   const lastPoiClickAt = useRef(0);
 
   const { userLocation, refreshLocation, isLocating } = useUserLocation();
+  const { buses } = useLiveBuses();
   const planner = useTransitPlanner(userLocation);
 
-  const selectedRoute = planner.selectedRoute as AnyRecord | null;
-  const selectedDestination = planner.selectedDestination as AnyRecord | null;
+  const selectedRoute = planner.selectedRoute as TransitRouteOption | null;
+  const selectedDestination = planner.selectedDestination as PlaceSearchResult | null;
 
   const [stationAccessPoints, setStationAccessPoints] = useState<
     StationAccessPoint[]
   >([]);
-  const [selectedMapPlace, setSelectedMapPlace] = useState<AnyRecord | null>(
+  const [selectedMapPlace, setSelectedMapPlace] = useState<PlaceSearchResult | null>(
     null,
   );
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
   const [visibleRegion, setVisibleRegion] = useState<Region | null>(null);
-  const [manualSelectedVehicleId, setManualSelectedVehicleId] = useState<
-    string | null
-  >(null);
-  const lastRouteFitSignature = useRef<string | null>(null);
-  const lastVehicleCameraSignature = useRef<string | null>(null);
+  const [ferryScreenVisible, setFerryScreenVisible] = useState(false);
+  const [selectedFerryTerminalId, setSelectedFerryTerminalId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -213,44 +215,8 @@ export default function MapScreen() {
     );
   }, [selectedRoute]);
 
-  const selectedRouteSignature = useMemo(() => {
-    if (!selectedRoute) return null;
-    return String(
-      selectedRoute.id ??
-        selectedRoute.signature ??
-        selectedRoute.routeId ??
-        selectedRoute.routeLabel ??
-        selectedRouteNumber ??
-        "route",
-    );
-  }, [selectedRoute, selectedRouteNumber]);
-
-  useEffect(() => {
-    setManualSelectedVehicleId(null);
-    lastVehicleCameraSignature.current = null;
-  }, [selectedRouteSignature]);
-
-  const {
-    buses,
-    loading: liveBusesLoading,
-    error: liveBusesError,
-  } = useLiveBuses({
-    refreshMs: selectedRouteNumber ? 5000 : 8000,
-    routeNumber: selectedRouteNumber || null,
-  });
-
   const selectedLiveBus = useMemo(() => {
     if (!selectedRoute) return null;
-
-    if (manualSelectedVehicleId) {
-      const manual = buses.find((rawBus) => {
-        const bus = rawBus as AnyRecord;
-        const ids = [bus.vehicleId, bus.id, bus.vehicleLabel].map(normalizeId);
-        return ids.includes(manualSelectedVehicleId);
-      });
-
-      if (manual) return manual as AnyRecord;
-    }
 
     const liveVehicle = selectedRoute.liveVehicle as AnyRecord | null;
     const liveVehicleId = normalizeId(
@@ -316,7 +282,7 @@ export default function MapScreen() {
       .sort((a, b) => a.score - b.score);
 
     return candidates[0]?.bus ?? null;
-  }, [buses, manualSelectedVehicleId, selectedRoute, selectedRouteNumber]);
+  }, [buses, selectedRoute, selectedRouteNumber]);
 
   const selectedVehicleId =
     selectedLiveBus?.vehicleId ||
@@ -385,52 +351,42 @@ export default function MapScreen() {
     return validPoints(coords);
   }, [selectedDestination, selectedRoute, userLocation]);
 
+  const selectedRouteFocusKey = useMemo(() => {
+    if (!selectedRoute) return null;
+    return String(
+      selectedRoute.id ||
+        (selectedRoute as AnyRecord).signature ||
+        selectedRoute.routeId ||
+        selectedRoute.routeLabel ||
+        selectedRoute.title ||
+        "route",
+    );
+  }, [selectedRoute]);
+
   useEffect(() => {
-    if (!selectedRoute || focusCoords.length < 2 || !selectedRouteSignature)
-      return;
+    if (!selectedRouteFocusKey || focusCoords.length < 2 || !mapRef.current) return;
 
-    const lastFocusPoint = focusCoords[focusCoords.length - 1];
-    const signature = `${selectedRouteSignature}:${focusCoords.length}:${focusCoords[0]?.latitude?.toFixed?.(4)}:${lastFocusPoint?.latitude?.toFixed?.(4)}`;
-    if (lastRouteFitSignature.current === signature) return;
-    lastRouteFitSignature.current = signature;
-
-    requestAnimationFrame(() => {
+    const timer = setTimeout(() => {
       mapRef.current?.fitToCoordinates(focusCoords, {
         animated: true,
-        edgePadding: { top: 92, right: 48, bottom: 310, left: 48 },
+        edgePadding: { top: 110, right: 54, bottom: 360, left: 54 },
       });
-    });
-  }, [focusCoords, selectedRoute, selectedRouteSignature]);
+    }, 420);
+
+    return () => clearTimeout(timer);
+  }, [focusCoords, selectedRouteFocusKey]);
 
   useEffect(() => {
-    if (!activeCameraTarget || !selectedRoute) return;
+    if (!activeCameraTarget || planner.flowState !== "onboard" || !mapRef.current) return;
 
-    const followStates = new Set([
-      "waiting_bus",
-      "onboard",
-      "transfer",
-      "arriving",
-    ]);
-
-    if (!followStates.has(String(planner.flowState))) return;
-
-    const heading = Number(
-      selectedLiveBus?.heading ?? selectedLiveBus?.bearing ?? 0,
-    );
-    const signature = `${planner.flowState}:${activeCameraTarget.latitude.toFixed(5)}:${activeCameraTarget.longitude.toFixed(5)}:${Math.round(heading / 10) * 10}`;
-    if (lastVehicleCameraSignature.current === signature) return;
-    lastVehicleCameraSignature.current = signature;
-
-    mapRef.current?.animateCamera(
+    mapRef.current.animateCamera(
       {
         center: activeCameraTarget,
-        zoom: planner.flowState === "onboard" ? 16.8 : 16.2,
-        pitch: planner.flowState === "onboard" ? 35 : 0,
-        heading: Number.isFinite(heading) ? heading : 0,
+        zoom: 15.8,
       },
-      { duration: 720 },
+      { duration: 900 },
     );
-  }, [activeCameraTarget, planner.flowState, selectedLiveBus, selectedRoute]);
+  }, [activeCameraTarget, planner.flowState]);
 
   const showPlacePreview = async (
     rawPlace: AnyRecord,
@@ -459,10 +415,7 @@ export default function MapScreen() {
           const title = String(provisional.title || "").trim();
 
           if (shouldReverse && title && title !== "Pasirinkta vieta") {
-            const nearbyByName = await searchPlaces(
-              title,
-              userLocation ?? undefined,
-            );
+            const nearbyByName = await searchPlaces(title, userLocation ?? undefined);
             const closest = nearbyByName
               .map((item) => ({
                 item,
@@ -510,10 +463,34 @@ export default function MapScreen() {
     }
   };
 
+
+  const handleSelectFerryTerminal = useCallback((terminal: FerryTerminal) => {
+    const coordinate = { latitude: terminal.latitude, longitude: terminal.longitude };
+
+    setSelectedFerryTerminalId(terminal.id);
+    setSelectedMapPlace({
+      id: terminal.id,
+      title: terminal.name,
+      subtitle: terminal.address || "Keltų terminalas",
+      type: "ferry",
+      latitude: terminal.latitude,
+      longitude: terminal.longitude,
+      coordinate,
+      source: "arbebus_ferries",
+    } as PlaceSearchResult);
+
+    mapRef.current?.animateCamera(
+      { center: coordinate, zoom: 15.4, pitch: 0 },
+      { duration: 520 },
+    );
+  }, []);
+
   const handleMapPress = (event: any) => {
     if (Date.now() - lastPoiClickAt.current < 650) return;
 
     const coordinate = event?.nativeEvent?.coordinate;
+
+    setSelectedFerryTerminalId(null);
 
     void showPlacePreview(
       { coordinate, type: "address", source: "map_tap" },
@@ -621,19 +598,17 @@ export default function MapScreen() {
           selectedStopId={selectedRoute?.originStop?.id || null}
         />
 
+        <FerryMarkersLayer
+          selectedTerminalId={selectedFerryTerminalId}
+          onSelectTerminal={handleSelectFerryTerminal}
+        />
+
         <LiveBusesLayer
           buses={buses}
           selectedRouteLabel={selectedRouteNumber || selectedRouteLabel}
           selectedVehicleId={selectedVehicleId}
           visibleRegion={visibleRegion}
           focusOnSelectedRoute={Boolean(selectedRoute)}
-          onSelectBus={(bus) => {
-            const item = bus as AnyRecord;
-            const nextId = normalizeId(
-              item.vehicleId || item.id || item.vehicleLabel,
-            );
-            if (nextId) setManualSelectedVehicleId(nextId);
-          }}
         />
 
         {selectedMapPlace?.coordinate ? (
@@ -642,22 +617,8 @@ export default function MapScreen() {
             anchor={{ x: 0.5, y: 1 }}
             tracksViewChanges={false}
           >
-            <View
-              style={[
-                styles.mapTapMarker,
-                {
-                  backgroundColor: theme.accentSoft,
-                  borderColor: theme.backgroundElevated,
-                  shadowColor: theme.accent,
-                },
-              ]}
-            >
-              <View
-                style={[
-                  styles.mapTapMarkerInner,
-                  { backgroundColor: theme.accent },
-                ]}
-              />
+            <View style={[styles.mapTapMarker, { backgroundColor: theme.accentSoft, borderColor: theme.backgroundElevated, shadowColor: theme.accent }]}>
+              <View style={[styles.mapTapMarkerInner, { backgroundColor: theme.accent }]} />
             </View>
           </Marker>
         ) : null}
@@ -666,15 +627,7 @@ export default function MapScreen() {
       </MapCanvas>
 
       <Pressable
-        style={[
-          styles.recenterButton,
-          {
-            backgroundColor: theme.isLight
-              ? "rgba(255,255,255,0.94)"
-              : theme.surfaceStrong,
-            borderColor: theme.borderStrong,
-          },
-        ]}
+        style={[styles.recenterButton, { backgroundColor: theme.isLight ? "rgba(255,255,255,0.94)" : theme.surfaceStrong, borderColor: theme.borderStrong }]}
         onPress={recenterToUser}
         hitSlop={12}
       >
@@ -684,54 +637,6 @@ export default function MapScreen() {
           color={theme.isLight ? "#147CFF" : theme.accent}
         />
       </Pressable>
-
-      {selectedRoute && selectedLiveBus ? (
-        <View
-          style={[
-            styles.selectedBusHud,
-            {
-              backgroundColor: theme.surfaceStrong,
-              borderColor: theme.borderStrong,
-              shadowColor: theme.shadow,
-            },
-          ]}
-        >
-          <View
-            style={[styles.selectedBusBadge, { backgroundColor: theme.accent }]}
-          >
-            <Text
-              style={[styles.selectedBusBadgeText, { color: theme.accentText }]}
-            >
-              {normalizeRouteNumber(
-                selectedLiveBus.routeNumber ||
-                  selectedLiveBus.number ||
-                  selectedRouteNumber ||
-                  "BUS",
-              )}
-            </Text>
-          </View>
-          <View style={styles.selectedBusHudTextBlock}>
-            <Text
-              style={[styles.selectedBusHudTitle, { color: theme.text }]}
-              numberOfLines={1}
-            >
-              Pasirinktas autobusas gyvai
-            </Text>
-            <Text
-              style={[styles.selectedBusHudSubtitle, { color: theme.dim }]}
-              numberOfLines={1}
-            >
-              {selectedRoute?.liveEta?.etaMinutes != null
-                ? `ETA ${Math.round(Number(selectedRoute.liveEta.etaMinutes))} min • ${Math.round(Number(selectedLiveBus.speedKph || 0))} km/h`
-                : liveBusesLoading
-                  ? "Atnaujinama GPS..."
-                  : liveBusesError
-                    ? "GPS laikinai neprieinamas"
-                    : `GPS aktyvus • ${Math.round(Number(selectedLiveBus.speedKph || 0))} km/h`}
-            </Text>
-          </View>
-        </View>
-      ) : null}
 
       <JourneySheet
         flowState={planner.flowState}
@@ -790,6 +695,12 @@ export default function MapScreen() {
         onBackToRoutes={planner.backToRoutesList}
         onBackToSearch={planner.backToSearch}
         onReset={planner.resetPlanner}
+        onOpenFerries={() => setFerryScreenVisible(true)}
+      />
+
+      <FerryScreen
+        visible={ferryScreenVisible}
+        onClose={() => setFerryScreenVisible(false)}
       />
     </View>
   );
@@ -819,49 +730,6 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: 6,
     backgroundColor: "#34F5B3",
-  },
-  selectedBusHud: {
-    position: "absolute",
-    left: 16,
-    right: 84,
-    bottom: 138,
-    minHeight: 54,
-    borderRadius: 20,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    flexDirection: "row",
-    alignItems: "center",
-    zIndex: 26,
-    elevation: 26,
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-  },
-  selectedBusBadge: {
-    minWidth: 38,
-    height: 34,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 8,
-    marginRight: 10,
-  },
-  selectedBusBadgeText: {
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  selectedBusHudTextBlock: {
-    flex: 1,
-  },
-  selectedBusHudTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  selectedBusHudSubtitle: {
-    marginTop: 2,
-    fontSize: 11,
-    fontWeight: "700",
   },
   recenterButton: {
     position: "absolute",

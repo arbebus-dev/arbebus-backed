@@ -1,7 +1,7 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { type ComponentProps, useEffect, useMemo, useRef } from "react";
 import {
     ActivityIndicator,
     Animated,
@@ -40,6 +40,9 @@ import type {
     TransitStep,
 } from "../transit/models/transitTypes";
 
+type MaterialCommunityIconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
+type IoniconName = ComponentProps<typeof Ionicons>["name"];
+
 type Props = {
   flowState: TransitFlowState;
   liveBusCount: number;
@@ -77,6 +80,7 @@ type Props = {
   onBackToRoutes: () => void;
   onBackToSearch: () => void;
   onReset: () => void;
+  onOpenFerries?: () => void;
 };
 
 type Stage = "search" | "loading" | "routes" | "details" | "navigation";
@@ -327,7 +331,7 @@ function Header({
 }: {
   title: string;
   subtitle?: string;
-  icon?: unknown;
+  icon?: MaterialCommunityIconName;
   badge?: string;
   onClose: () => void;
   onBack?: () => void;
@@ -342,7 +346,7 @@ function Header({
       ) : null}
       <View style={[styles.headerIcon, { backgroundColor: theme.accentSoft }]}>
         <MaterialCommunityIcons
-          name={icon || "directions-fork"}
+          name={icon ?? "directions-fork"}
           size={17}
           color={theme.accent}
         />
@@ -386,7 +390,7 @@ function QuickMenuRow({
   subtitle,
   onPress,
 }: {
-  icon: unknown;
+  icon: MaterialCommunityIconName;
   title: string;
   subtitle?: string;
   onPress: () => void;
@@ -428,7 +432,7 @@ function TripInputRow({
   value,
   children,
 }: {
-  icon: string;
+  icon: MaterialCommunityIconName;
   label: string;
   value?: string;
   children?: React.ReactNode;
@@ -649,17 +653,23 @@ function PlacePreviewCard({ props }: { props: Props }) {
     props.onUseMapPlaceAsDestination?.(place);
   };
 
+  const rawPhotos = Array.isArray((place as { photos?: unknown[] }).photos)
+    ? ((place as { photos?: unknown[] }).photos ?? [])
+    : [];
+  const rawPhotoUrls = Array.isArray((place as { photoUrls?: unknown[] }).photoUrls)
+    ? ((place as { photoUrls?: unknown[] }).photoUrls ?? [])
+    : [];
   const photos = [
-    ...(Array.isArray((place as { photos?: unknown[] }).photos)
-      ? (place as { photos?: unknown[] }).photos
-          .map((p: unknown) => p?.url || p)
-          .filter(Boolean)
-      : []),
-    ...(Array.isArray((place as any).photoUrls)
-      ? (place as any).photoUrls.filter(Boolean)
-      : []),
+    ...rawPhotos.map((photo) =>
+      typeof photo === "string"
+        ? photo
+        : photo && typeof photo === "object" && "url" in photo
+          ? String((photo as { url?: unknown }).url || "")
+          : "",
+    ),
+    ...rawPhotoUrls.map((url) => (typeof url === "string" ? url : "")),
   ]
-    .filter(Boolean)
+    .filter((url): url is string => Boolean(url))
     .slice(0, 6);
   const rating = Number((place as any).rating);
   const hasRating = Number.isFinite(rating) && rating > 0;
@@ -824,6 +834,12 @@ function AppleMenuContent({
           title={t.sheet.favouritePlaces}
           subtitle={t.sheet.favouritePlacesSubtitle}
           onPress={onOpenFavoritePlaces}
+        />
+        <QuickMenuRow
+          icon="ferry"
+          title="Keltai"
+          subtitle="Tvarkaraščiai: Klaipėda, Smiltynė, Nida"
+          onPress={() => props.onOpenFerries?.()}
         />
       </View>
     </View>
@@ -2365,6 +2381,25 @@ const styles = StyleSheet.create({
     fontSize: T.badge,
     lineHeight: LINE_HEIGHT.badge,
     fontWeight: "800",
+  },
+  liveBadge: {
+    minHeight: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 8,
+  },
+  liveBadgeText: {
+    fontSize: T.badge,
+    lineHeight: LINE_HEIGHT.badge,
+    fontWeight: "900",
+  },
+  routeOptionBadgeText: {
+    fontSize: T.tiny,
+    lineHeight: LINE_HEIGHT.tiny,
+    fontWeight: "900",
+    textTransform: "uppercase",
   },
   detailSummaryCard: {
     borderRadius: 24,

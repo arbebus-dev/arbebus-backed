@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getLiveBuses, type LiveBus as ApiLiveBus, type LiveBusesRequest } from "../services/transitApi";
+import { getLiveBuses, type LiveBus as ApiLiveBus } from "../services/transitApi";
 import type { LiveBus } from "../models/transitTypes";
 
 const STALE_TIMEOUT_MS = 60_000;
@@ -143,27 +143,7 @@ function busesSnapshot(buses: LiveBus[]) {
     .join("|");
 }
 
-type UseLiveBusesOptions = {
-  refreshMs?: number;
-  routeNumber?: string | null;
-  routeId?: string | null;
-  vehicleId?: string | null;
-  enabled?: boolean;
-};
-
-function normalizeOptions(input?: number | UseLiveBusesOptions): Required<Pick<UseLiveBusesOptions, "refreshMs" | "enabled">> & Omit<UseLiveBusesOptions, "refreshMs" | "enabled"> {
-  if (typeof input === "number") return { refreshMs: input, enabled: true };
-  return {
-    refreshMs: input?.refreshMs ?? 7000,
-    routeNumber: input?.routeNumber ?? null,
-    routeId: input?.routeId ?? null,
-    vehicleId: input?.vehicleId ?? null,
-    enabled: input?.enabled ?? true,
-  };
-}
-
-export function useLiveBuses(input?: number | UseLiveBusesOptions) {
-  const options = normalizeOptions(input);
+export function useLiveBuses(refreshMs = 7000) {
   const [buses, setBuses] = useState<LiveBus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -172,25 +152,13 @@ export function useLiveBuses(input?: number | UseLiveBusesOptions) {
   const loadingRef = useRef(false);
   const lastSnapshotRef = useRef("");
   const busesRef = useRef<LiveBus[]>([]);
-  const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
-    if (!options.enabled || loadingRef.current) return;
+    if (loadingRef.current) return;
     loadingRef.current = true;
 
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    const request: LiveBusesRequest = {
-      routeNumber: options.routeNumber,
-      routeId: options.routeId,
-      vehicleId: options.vehicleId,
-      signal: controller.signal,
-    };
-
     try {
-      const result = await getLiveBuses(request);
+      const result = await getLiveBuses();
       const normalized = result.map(normalizeLiveBus).filter(Boolean) as LiveBus[];
       const merged = mergeWithPrevious(busesRef.current, normalized);
       const nextSnapshot = busesSnapshot(merged);
@@ -205,32 +173,26 @@ export function useLiveBuses(input?: number | UseLiveBusesOptions) {
 
       setError(null);
     } catch (err) {
-      if (controller.signal.aborted) return;
       if (mountedRef.current) {
         setError(err instanceof Error ? err.message : "Live buses error");
       }
     } finally {
-      if (abortRef.current === controller) abortRef.current = null;
       loadingRef.current = false;
       if (mountedRef.current) setLoading(false);
     }
-  }, [options.enabled, options.routeId, options.routeNumber, options.vehicleId]);
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
     void load();
 
-    const timer = setInterval(
-      () => void load(),
-      Math.max(5000, Number(options.refreshMs || 7000)),
-    );
+    const timer = setInterval(() => void load(), Math.max(5000, refreshMs));
 
     return () => {
       mountedRef.current = false;
-      abortRef.current?.abort();
       clearInterval(timer);
     };
-  }, [load, options.refreshMs]);
+  }, [load, refreshMs]);
 
   return {
     buses,

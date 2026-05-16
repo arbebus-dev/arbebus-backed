@@ -362,8 +362,8 @@ function isAddressOrStreetQuery(query: string) {
   const q = String(query || "").trim();
   return (
     /\d/.test(q) ||
-    /(g|g\.|gatv[eė]|pr|pr\.|prospektas|al|al\.|pl|pl\.|kelias)/i.test(q) ||
-    /^[a-ząčęėįšųūž\s.-]{3,}$/i.test(q)
+    /\b(g|g\.|gatv[eė]|pr|pr\.|prospektas|al|al\.|pl|pl\.|kelias)\b/i.test(q) ||
+    /^[a-ząčęėįšųūž\s.-]{2,}$/i.test(q)
   );
 }
 
@@ -930,33 +930,14 @@ function normalizeBackendPlan(
   } as TransitRouteOption;
 }
 
-export type LiveBusesRequest = {
-  routeNumber?: string | null;
-  routeId?: string | null;
-  vehicleId?: string | null;
-  signal?: AbortSignal;
-};
-
-function liveBusesEndpoint(base: string, options: LiveBusesRequest = {}) {
-  const params = new URLSearchParams();
-  const route = options.routeNumber || options.routeId;
-  if (route) params.set("routeNumber", String(route));
-  if (options.vehicleId) params.set("vehicleId", String(options.vehicleId));
-  const query = params.toString();
-  return query ? `${base}${base.includes("?") ? "&" : "?"}${query}` : base;
-}
-
-export async function getLiveBuses(options: LiveBusesRequest = {}): Promise<LiveBus[]> {
-  const endpoints = [
-    liveBusesEndpoint(API_ENDPOINTS.liveBuses, options),
-    liveBusesEndpoint(`${API_BASE}/live-buses`, options),
-  ];
+export async function getLiveBuses(): Promise<LiveBus[]> {
+  const endpoints = [API_ENDPOINTS.liveBuses];
 
   let lastError: unknown = null;
 
   for (const endpoint of endpoints) {
     try {
-      const response = await fetchWithRetry(endpoint, { signal: options.signal });
+      const response = await fetchWithRetry(endpoint);
 
       if (!response.ok) {
         lastError = new Error(`Live buses failed: ${response.status}`);
@@ -1002,6 +983,10 @@ function normalizePlaceType(item: any): PlaceResult["type"] {
 
   if (rawType === "street") {
     return "street" as PlaceResult["type"];
+  }
+
+  if (rawType === "settlement" || rawType === "village" || rawType === "hamlet") {
+    return "city" as PlaceResult["type"];
   }
 
   if (rawType === "address" || rawType === "house") {
@@ -1051,23 +1036,21 @@ function rankPlaceResult(
 
   let score = Number((item as any).score ?? (item as any).priority ?? 0);
 
-  // Mobile-side safety ranking. Backend already ranks, but this protects old builds
-  // and aliases that still route through /places/search.
-  if (isAddressLikeSearchQuery(query)) {
-    if (item.type === "address") score += 900;
-    if (item.type === "poi") score += 120;
-    if (item.type === "stop") score -= 180;
-  } else {
-    if (item.type === "poi") score += 500;
-    if (item.type === "address") score += 420;
-  }
-  if (item.type === "city" || item.type === "region") score += 260;
-  if (item.type === "stop") score += 80;
+  // Mobile-side safety ranking. Backend already ranks, but this protects TestFlight
+  // from stale cached JS and keeps address autocomplete above POI/stops.
+  if (item.type === "address") score += 1400;
+  if (item.type === "street") score += 1100;
+  if (item.type === "poi") score += isAddressLikeSearchQuery(query) ? -220 : 80;
+  if (item.type === "stop") score += isAddressLikeSearchQuery(query) ? -320 : 40;
+  if (item.type === "city") score += 900;
+  if (item.type === "region") score += isAddressLikeSearchQuery(query) ? 350 : -80;
 
-  if (source.includes("local_poi")) score += 300;
-  if (source.includes("nominatim")) score += 180;
-  if (source.includes("overpass")) score += 150;
-  if (source.includes("gtfs")) score += 40;
+  if (source.includes("postgres_address")) score += 700;
+  if (source.includes("rc_address")) score += 650;
+  if (source.includes("local_poi")) score -= 60;
+  if (source.includes("nominatim")) score -= 80;
+  if (source.includes("overpass")) score -= 100;
+  if (source.includes("gtfs")) score -= 60;
 
   if (title === q) score += 500;
   if (title.startsWith(q)) score += 250;
@@ -1126,7 +1109,7 @@ function isAddressLikeSearchQuery(query: string) {
 function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
   const coordinate = toCoordinate(item);
   const type = normalizePlaceType(item);
-  const selectable = item?.selectable !== false && item?.requiresHouseNumber !== true && type !== "street";
+  const selectable = item?.selectable !== false && item?.requiresHouseNumber !== true;
 
   if (!isUsableCoordinate(coordinate) && selectable) return null;
   if (!coordinate) return null;
@@ -1201,11 +1184,10 @@ function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
 }
 
 function searchUrls(params: string) {
-  // Production search must call ONE canonical endpoint only.
-  // The old multi-alias fallback called /api/search, /search, /api/places/search,
-  // and /places/search for every keystroke. That overloaded Render/backend and caused HTTP 429.
+  // Production autocomplete must call ONE canonical endpoint only.
+  // This is the endpoint that uses the 1M+ RC/Postgres address table first.
   const base = apiBase();
-  return [`${base}/api/search?${params}`];
+  return [`${base}/api/search/autocomplete?${params}`];
 }
 
 async function runSearchRequest(
@@ -1254,14 +1236,15 @@ async function runSearchRequest(
       )
       .filter(Boolean) as PlaceResult[];
 
-    const safeResults = isAddressOrStreetQuery(q)
-      ? normalized.filter((item: any) => {
-          const type = String(item.type || "").toLowerCase();
-          if (!["address", "street"].includes(type)) return false;
-          if (item.selectable === false || item.requiresHouseNumber === true) return type === "street";
-          return isUsableCoordinate(item.coordinate || null);
-        })
-      : normalized;
+    const addressPreferred = normalized.filter((item: any) => {
+      const type = String(item.type || "").toLowerCase();
+      if (!["address", "street", "city", "region"].includes(type)) return false;
+      if (item.selectable === false || item.requiresHouseNumber === true) return type === "street";
+      return isUsableCoordinate(item.coordinate || null);
+    });
+
+    // For normal typing, addresses win. If backend returns no addresses, keep POI fallback.
+    const safeResults = addressPreferred.length ? addressPreferred : normalized;
 
     return dedupePlaceResults(safeResults)
       .sort(
@@ -1321,7 +1304,7 @@ export async function reverseGeocodePlace(
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return fallback;
 
   const urls = [
-    `${apiBase()}/search/reverse?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`,
+    `${apiBase()}/api/search/reverse?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`,
     `${API_ENDPOINTS.placesSearch}/reverse?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`,
   ];
 
@@ -1353,7 +1336,7 @@ export async function fetchPlaceDetails(
   if (!id) return null;
 
   const urls = [
-    `${apiBase()}/search/details?placeId=${encodeURIComponent(id)}`,
+    `${apiBase()}/api/search/details?placeId=${encodeURIComponent(id)}`,
     `${API_ENDPOINTS.placesSearch}/details?placeId=${encodeURIComponent(id)}`,
   ];
 

@@ -7,6 +7,7 @@ const searchRoutes = require("../../api/routes/search.router");
 const parentRoutes = require("../../modules/parent/parent.router");
 const childRoutes = require("../../modules/child/child.router");
 const tripsRoutes = require("../../modules/trips/trips.router");
+const ferryRoutes = require("../../modules/ferries/ferry.routes");
 const corsMiddleware = require("./middlewares/cors");
 const { notFound, errorHandler } = require("./middlewares/errorHandler");
 
@@ -55,6 +56,7 @@ function createApp() {
   app.use("/api/parent", parentRoutes);
   app.use("/api/child", childRoutes);
   app.use("/api/trips", tripsRoutes);
+  app.use("/api/ferries", ferryRoutes);
 
   // Full API router and legacy aliases.
   app.use("/api", routes);

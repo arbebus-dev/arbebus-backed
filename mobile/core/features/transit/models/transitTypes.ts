@@ -8,6 +8,8 @@ export type LiveBus = {
   number: string;
   route?: string;
   routeId?: string;
+  routeShortName?: string;
+  routeLabel?: string;
   vehicleId?: string;
   vehicleLabel?: string;
   latitude: number;

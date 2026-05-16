@@ -51,6 +51,13 @@ export const API_ENDPOINTS = {
   stationAccess: (stopId: string | number) =>
     apiUrl(`/api/transit/station-access?stopId=${encodeURIComponent(String(stopId))}`),
 
+  // Ferries
+  ferries: apiUrl("/api/ferries"),
+  ferryRoutes: apiUrl("/api/ferries/routes"),
+  ferrySchedule: apiUrl("/api/ferries/schedule"),
+  ferryNext: apiUrl("/api/ferries/next"),
+  ferryHealth: apiUrl("/api/ferries/health"),
+
   // Search / places
   placesSearch: apiUrl("/api/search"),
   stopsSearch: apiUrl("/api/search/stops"),

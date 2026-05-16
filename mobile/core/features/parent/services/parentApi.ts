@@ -22,7 +22,7 @@ interface Trip {
   // add more fields as needed
 }
 
-interface TripEvent {
+export interface TripEvent {
   id: string;
   title?: string;
   event_type?: string;

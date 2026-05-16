@@ -173,7 +173,7 @@ async function geocodeOSM(query) {
 
   const res = await fetch(url, {
     headers: {
-      "User-Agent": "Arbebus/1.0 arbebus@gmail.com",
+      "User-Agent": "Arbebus/1.0 arbebuss@gmail.com",
       Accept: "application/json",
     },
   });

@@ -3,14 +3,14 @@ import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";
 import { useState } from "react";
 import {
-    Alert,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  Alert,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -22,7 +22,7 @@ import { useAccountTheme } from "../context/AppPreferencesContext";
 
 type Props = { onBack: () => void };
 
-const SUPPORT_EMAIL = "arbebus@gmail.com";
+const SUPPORT_EMAIL = "arbebuss@gmail.com";
 
 export default function HelpScreen({ onBack }: Props) {
   const theme = useAccountTheme();
