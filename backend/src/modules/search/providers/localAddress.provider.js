@@ -1,41 +1,39 @@
-const { normalizeText } = require("../utils/normalizeText");
+const { getPool } = require("../../../db/pool");
 const { getCache, setCache } = require("../cache/searchCache");
 const { toResult } = require("../utils/mapSearchResult");
-const { getPool } = require("../../../db/pool");
 
-const DEFAULT_CENTER = {
-  city: "Klaipėda",
-  latitude: 55.7033,
-  longitude: 21.1443,
-  dbPatterns: ["%klaip%", "%klaipėd%", "%klaiped%"],
-};
+// Arbebus FINAL Lithuania geocoder provider.
+// Hard rules:
+// - NO Promise.race, NO provider timeout.
+// - DB first: public.addresses_rc_import.
+// - Simple indexed prefix queries only.
+// - Supports address, selectable street, selectable settlement/city/village.
 
-const CITY_HINTS = [
-  { keys: ["klaipeda", "klaipėda", "klaipedos", "klaipėdos"], city: "Klaipėda", latitude: 55.7033, longitude: 21.1443, dbPatterns: ["%klaip%", "%klaipėd%", "%klaiped%"] },
-  { keys: ["gargzdai", "gargždai"], city: "Gargždai", latitude: 55.7093, longitude: 21.3949, dbPatterns: ["%gargžd%", "%gargzd%"] },
-  { keys: ["kretinga"], city: "Kretinga", latitude: 55.8888, longitude: 21.2445, dbPatterns: ["%kreting%"] },
-  { keys: ["palanga"], city: "Palanga", latitude: 55.9175, longitude: 21.0686, dbPatterns: ["%palang%"] },
-  { keys: ["neringa"], city: "Neringa", latitude: 55.3712, longitude: 21.0646, dbPatterns: ["%nering%"] },
-  { keys: ["nida"], city: "Nida", latitude: 55.3039, longitude: 21.0058, dbPatterns: ["%nida%"] },
-  { keys: ["vilnius"], city: "Vilnius", latitude: 54.6872, longitude: 25.2797, dbPatterns: ["%viln%"] },
-  { keys: ["kaunas"], city: "Kaunas", latitude: 54.8985, longitude: 23.9036, dbPatterns: ["%kaun%"] },
-  { keys: ["siauliai", "šiauliai"], city: "Šiauliai", latitude: 55.9349, longitude: 23.3137, dbPatterns: ["%šiaul%", "%siaul%"] },
-  { keys: ["panevezys", "panevėžys"], city: "Panevėžys", latitude: 55.7348, longitude: 24.3575, dbPatterns: ["%panevėž%", "%panevez%"] },
-];
-
-const REGION_PATTERNS = [
-  "%klaip%", "%klaipėd%", "%klaiped%", "%nering%", "%nida%", "%gargžd%", "%gargzd%",
-  "%priekul%", "%drevern%", "%karkl%", "%sleng%", "%sendvar%", "%kretingal%", "%dovil%",
-  "%viln%", "%kaun%", "%palang%", "%kreting%",
-];
+const LT_FROM = "ąčęėįšųūžĄČĘĖĮŠŲŪŽ";
+const LT_TO = "aceeisuuzACEEISUUZ";
 
 let lastDbError = null;
-let lastDbCount = null;
 let lastRcCount = null;
 let lastDbHealthCheck = 0;
 
-function compactQuery(value) {
-  return normalizeText(value).replace(/\./g, " ").replace(/\s+/g, " ").trim();
+function cleanText(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function normalizeLt(value) {
+  const map = new Map([...LT_FROM].map((char, index) => [char, LT_TO[index] || char]));
+  return cleanText(value)
+    .split("")
+    .map((char) => map.get(char) || char)
+    .join("")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function sqlNorm(column) {
+  // Must match backend/src/db/search_engine_indexes.sql expression exactly.
+  return `btrim(regexp_replace(translate(lower(coalesce(${column}::text, '')), '${LT_FROM}', '${LT_TO}'), '[^a-z0-9]+', ' ', 'g'))`;
 }
 
 function extractHouseNumber(query) {
@@ -43,28 +41,43 @@ function extractHouseNumber(query) {
   return match ? match[1].toUpperCase() : null;
 }
 
-function normalizeSearchText(value) {
-  return compactQuery(value)
-    .replace(/\b(g|g\.|gatve|gatvė|pr|pr\.|prospektas|pl|pl\.|plentas|al|al\.|aleja|kelias)\b/gi, " ")
+function removeHouseNumber(query) {
+  return cleanText(query).replace(/\b\d+[a-zA-Z]?\b/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function normalizeStreetQuery(query) {
+  return normalizeLt(removeHouseNumber(query))
+    .replace(/\b(g|gatve|gatvė|pr|prospektas|pl|plentas|al|aleja|kelias|skg|skersgatvis|aikste|aikštė)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function parseCoordinate(input, keys) {
-  for (const key of keys) {
-    const value = Number(input?.[key]);
-    if (Number.isFinite(value)) return value;
-  }
-  return null;
+function normalizeSettlementQuery(query) {
+  return normalizeLt(query)
+    .replace(/\b(g|gatve|gatvė|pr|prospektas|pl|plentas|al|aleja|kelias|skg|skersgatvis|aikste|aikštė)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function validCoordinate(latitude, longitude) {
-  return Number.isFinite(latitude) && Number.isFinite(longitude) && latitude !== 0 && longitude !== 0 && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
+  return (
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude !== 0 &&
+    longitude !== 0 &&
+    Math.abs(latitude) <= 90 &&
+    Math.abs(longitude) <= 180
+  );
+}
+
+function numberValue(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 function normalizeInputLocation(options = {}) {
-  const latitude = parseCoordinate(options, ["lat", "latitude"]);
-  const longitude = parseCoordinate(options, ["lon", "lng", "longitude"]);
+  const latitude = numberValue(options.lat ?? options.latitude);
+  const longitude = numberValue(options.lon ?? options.lng ?? options.longitude);
   if (!validCoordinate(latitude, longitude)) return null;
   return { latitude, longitude };
 }
@@ -74,200 +87,95 @@ function distanceMeters(a, b) {
   const lon1 = Number(a.longitude ?? a.lon ?? a.lng);
   const lat2 = Number(b.latitude ?? b.lat);
   const lon2 = Number(b.longitude ?? b.lon ?? b.lng);
-  if (!validCoordinate(lat1, lon1) || !validCoordinate(lat2, lon2)) return Number.POSITIVE_INFINITY;
+  if (!validCoordinate(lat1, lon1) || !validCoordinate(lat2, lon2)) return null;
+
   const R = 6371000;
   const toRad = (value) => (value * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
   const p1 = toRad(lat1);
   const p2 = toRad(lat2);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dLon / 2) ** 2;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(p1) * Math.cos(p2) * Math.sin(dLon / 2) ** 2;
   return Math.round(2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)));
 }
 
-function detectCity(query, options = {}) {
-  const nq = compactQuery(query);
-  const explicit = CITY_HINTS.find((item) => item.keys.some((key) => nq.includes(compactQuery(key))));
-  if (explicit) return { ...explicit, reason: "query" };
-
-  const location = normalizeInputLocation(options);
-  if (location) {
-    const nearest = [...CITY_HINTS]
-      .map((item) => ({ ...item, distanceMeters: distanceMeters(location, item) }))
-      .sort((a, b) => a.distanceMeters - b.distanceMeters)[0];
-    return { ...(nearest || DEFAULT_CENTER), reason: "gps" };
-  }
-
-  return { ...DEFAULT_CENTER, reason: "default" };
+function titleFor(row) {
+  const type = String(row.result_type || row.type || "address").toLowerCase();
+  if (type === "settlement") return cleanText(row.city || row.name || "Vietovė");
+  if (type === "street") return cleanText(row.street || row.name || "Gatvė");
+  const street = cleanText(row.street || "");
+  const house = cleanText(row.house_number || "");
+  return cleanText(row.name || [street, house].filter(Boolean).join(" "));
 }
 
-function cityPatterns(cityHint) {
-  const source = cityHint || DEFAULT_CENTER;
-  const patterns = Array.isArray(source.dbPatterns) && source.dbPatterns.length ? source.dbPatterns : [source.city];
-  return patterns.map((item) => String(item).includes("%") ? String(item).toLowerCase() : `%${String(item).toLowerCase()}%`).filter(Boolean);
+function subtitleFor(row) {
+  const type = String(row.result_type || row.type || "address").toLowerCase();
+  const city = cleanText(row.city || "");
+  if (type === "settlement") return [city, "Gyvenvietė"].filter(Boolean).join(" · ");
+  if (type === "street") return [city, "Gatvė"].filter(Boolean).join(" · ");
+  return [city, row.postcode].filter(Boolean).join(", ") || "Adresas";
 }
 
-function cityMatches(rowCity, targetCity) {
-  if (!rowCity || !targetCity) return false;
-  const cityText = String(rowCity).toLowerCase();
-  return cityPatterns(targetCity).some((pattern) => cityText.includes(pattern.replace(/%/g, "")));
-}
-
-function removeCityWordsFromStreet(query) {
-  let value = compactQuery(query);
-  for (const city of CITY_HINTS) {
-    for (const key of city.keys) {
-      value = value.replace(new RegExp(`\\b${compactQuery(key)}\\b`, "gi"), " ");
-    }
-  }
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function buildTitle(row) {
-  const street = String(row.street || "").trim();
-  const house = String(row.house_number || "").trim();
-  if (house) return row.name || [street, house].filter(Boolean).join(" ");
-  return street || row.name || "Adresas";
-}
-
-function buildSubtitle(row) {
-  return [row.city, row.postcode].filter(Boolean).join(", ") || "Adresas";
-}
-
-function rowToAddressResult(row, query, options = {}) {
-  const targetCity = detectCity(query, options);
-  const userLocation = normalizeInputLocation(options);
+function rowToResult(row, query, options = {}) {
+  const resultType = String(row.result_type || "address").toLowerCase();
   const latitude = Number(row.lat);
   const longitude = Number(row.lon);
-  const hasRealCoordinate = validCoordinate(latitude, longitude);
-  const fallbackCoordinate = userLocation || targetCity || DEFAULT_CENTER;
-  const finalLatitude = hasRealCoordinate ? latitude : fallbackCoordinate.latitude;
-  const finalLongitude = hasRealCoordinate ? longitude : fallbackCoordinate.longitude;
-  const userDistance = userLocation && hasRealCoordinate ? distanceMeters(userLocation, { latitude, longitude }) : null;
-  const rowMatchesTargetCity = cityMatches(row.city, targetCity);
-  const exactHouse = extractHouseNumber(query);
-  const hasHouse = Boolean(String(row.house_number || "").trim());
+  const location = normalizeInputLocation(options);
+  const finalLatitude = validCoordinate(latitude, longitude) ? latitude : 55.7033;
+  const finalLongitude = validCoordinate(latitude, longitude) ? longitude : 21.1443;
+  const userDistance = location
+    ? distanceMeters(location, { latitude: finalLatitude, longitude: finalLongitude })
+    : null;
 
-  let score = Number(row.rank_score || 0);
-  if (rowMatchesTargetCity) score += 300000;
-  if (targetCity?.reason === "query" && rowMatchesTargetCity) score += 150000;
-  if (!rowMatchesTargetCity) score -= 200000;
-  if (hasHouse) score += 25000;
-  if (hasRealCoordinate) score += 6000;
-  if (userDistance != null) score += Math.max(0, 50000 - Math.min(userDistance, 50000));
+  let priority = 360;
+  let category = "Adresas";
+  if (resultType === "street") {
+    priority = 340;
+    category = "Gatvė";
+  }
+  if (resultType === "settlement") {
+    priority = 330;
+    category = "Gyvenvietė";
+  }
+
+  const score =
+    Number(row.rank_score || 0) +
+    priority +
+    (userDistance == null ? 0 : Math.max(0, 25000 - Math.min(userDistance, 25000)));
+
+  const title = titleFor(row);
+  const subtitle = subtitleFor(row);
 
   return toResult({
-    id: `address-${row.id}`,
-    placeId: `address-${row.id}`,
-    type: "address",
-    title: buildTitle(row),
-    name: buildTitle(row),
-    subtitle: hasHouse ? buildSubtitle(row) : `${buildSubtitle(row)} · pasirinkite namo numerį`,
+    id: `${resultType}-${row.id}`,
+    placeId: `${resultType}-${row.id}`,
+    type: resultType,
+    title,
+    name: title,
+    subtitle,
     latitude: finalLatitude,
     longitude: finalLongitude,
     coordinate: { latitude: finalLatitude, longitude: finalLongitude },
-    source: row.source || "postgres_address",
-    category: hasHouse ? "Adresas" : "Gatvė",
-    priority: exactHouse ? 360 : 260,
+    source: "postgres_address",
+    category,
+    priority,
     score,
-    selectable: hasHouse,
-    requiresHouseNumber: !hasHouse,
-    needsGeocoding: !hasRealCoordinate,
+    selectable: true,
+    requiresHouseNumber: false,
+    needsGeocoding: false,
     distanceMeters: userDistance ?? undefined,
-    keywords: [row.name, row.street, row.house_number, row.city, row.postcode].filter(Boolean),
+    keywords: [row.name, row.street, row.house_number, row.city, row.postcode, resultType].filter(Boolean),
+    addressCount: row.address_count,
   });
 }
 
-async function queryTable({ table, source, street, house, targetCity, limit, preferHouseRows }) {
-  const pool = getPool();
-  const patterns = cityPatterns(targetCity);
-  const region = targetCity?.reason === "query" ? patterns : REGION_PATTERNS;
-  const tableName = table === "rc" ? "public.addresses_rc_import" : "public.addresses";
-  const sourceName = source || (table === "rc" ? "rc_address" : "postgres_address");
-
-  if (house) {
-    const sql = `
-      SELECT id, name, street::text AS street, house_number::text AS house_number, city::text AS city, postcode::text AS postcode, lat, lon, '${sourceName}' AS source,
-        (
-          CASE WHEN lower(street::text) = lower($1) THEN 160000 ELSE 0 END +
-          CASE WHEN lower(street::text) LIKE lower($1) || '%' THEN 120000 ELSE 0 END +
-          CASE WHEN upper(COALESCE(house_number::text, '')) = upper($2) THEN 160000 ELSE 0 END +
-          CASE WHEN upper(COALESCE(house_number::text, '')) LIKE upper($2) || '%' THEN 70000 ELSE 0 END +
-          CASE WHEN lower(COALESCE(city::text, '')) LIKE ANY($3::text[]) THEN 120000 ELSE 0 END +
-          CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 15000 ELSE 0 END
-        ) AS rank_score
-      FROM ${tableName}
-      WHERE lower(street::text) LIKE lower($1) || '%'
-        AND upper(COALESCE(house_number::text, '')) LIKE upper($2) || '%'
-        AND lower(COALESCE(city::text, '')) LIKE ANY($4::text[])
-      ORDER BY rank_score DESC, city::text ASC, street::text ASC, length(house_number::text), house_number::text ASC
-      LIMIT $5
-    `;
-    const result = await pool.query(sql, [street, house, patterns, region, Math.min(Math.max(limit, 8), 30)]);
-    return result.rows;
-  }
-
-  if (preferHouseRows) {
-    const sql = `
-      SELECT id, name, street::text AS street, house_number::text AS house_number, city::text AS city, postcode::text AS postcode, lat, lon, '${sourceName}' AS source,
-        (
-          CASE WHEN lower(street::text) = lower($1) THEN 130000 ELSE 0 END +
-          CASE WHEN lower(street::text) LIKE lower($1) || '%' THEN 100000 ELSE 0 END +
-          CASE WHEN lower(COALESCE(city::text, '')) LIKE ANY($2::text[]) THEN 100000 ELSE 0 END +
-          CASE WHEN COALESCE(house_number::text, '') <> '' THEN 50000 ELSE 0 END +
-          CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 15000 ELSE 0 END
-        ) AS rank_score
-      FROM ${tableName}
-      WHERE lower(street::text) LIKE lower($1) || '%'
-        AND lower(COALESCE(city::text, '')) LIKE ANY($3::text[])
-        AND COALESCE(house_number::text, '') <> ''
-      ORDER BY rank_score DESC, city::text ASC, street::text ASC, length(house_number::text), house_number::text ASC
-      LIMIT $4
-    `;
-    const result = await pool.query(sql, [street, patterns, region, Math.min(Math.max(limit, 8), 20)]);
-    return result.rows;
-  }
-
-  const sql = `
-    WITH ranked AS (
-      SELECT DISTINCT ON (lower(street::text), lower(city::text))
-        id, name, street::text AS street, NULL::text AS house_number, city::text AS city, postcode::text AS postcode, lat, lon, '${sourceName}' AS source,
-        (
-          CASE WHEN lower(street::text) = lower($1) THEN 130000 ELSE 0 END +
-          CASE WHEN lower(street::text) LIKE lower($1) || '%' THEN 100000 ELSE 0 END +
-          CASE WHEN lower(COALESCE(city::text, '')) LIKE ANY($2::text[]) THEN 100000 ELSE 0 END +
-          CASE WHEN lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0 THEN 10000 ELSE 0 END
-        ) AS rank_score
-      FROM ${tableName}
-      WHERE lower(street::text) LIKE lower($1) || '%'
-        AND lower(COALESCE(city::text, '')) LIKE ANY($3::text[])
-      ORDER BY lower(street::text), lower(city::text), rank_score DESC, id ASC
-    )
-    SELECT * FROM ranked
-    ORDER BY rank_score DESC, city ASC, street ASC
-    LIMIT $4
-  `;
-  const result = await pool.query(sql, [street, patterns, region, Math.min(Math.max(limit, 8), 20)]);
-  return result.rows;
-}
-
-function sortAddressResults(items) {
-  return [...items].sort((a, b) => {
-    const aScore = Number(a.score || 0);
-    const bScore = Number(b.score || 0);
-    if (bScore !== aScore) return bScore - aScore;
-    const aDistance = Number.isFinite(Number(a.distanceMeters)) ? Number(a.distanceMeters) : Number.MAX_SAFE_INTEGER;
-    const bDistance = Number.isFinite(Number(b.distanceMeters)) ? Number(b.distanceMeters) : Number.MAX_SAFE_INTEGER;
-    if (aDistance !== bDistance) return aDistance - bDistance;
-    return String(a.title || "").localeCompare(String(b.title || ""), "lt");
-  });
-}
-
-function dedupeAddressResults(items) {
+function dedupe(items) {
   const seen = new Set();
   const out = [];
   for (const item of items) {
-    const key = `${String(item.title || "").toLowerCase()}|${String(item.subtitle || "").toLowerCase()}`;
+    const key = `${String(item.type || "").toLowerCase()}|${normalizeLt(item.title)}|${normalizeLt(item.subtitle)}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(item);
@@ -275,72 +183,193 @@ function dedupeAddressResults(items) {
   return out;
 }
 
+function sortResults(items) {
+  return [...items].sort((a, b) => {
+    const aScore = Number(a.score || 0);
+    const bScore = Number(b.score || 0);
+    if (bScore !== aScore) return bScore - aScore;
+    const weight = { address: 3, settlement: 2, street: 1 };
+    const typeDiff = (weight[String(b.type || "").toLowerCase()] || 0) - (weight[String(a.type || "").toLowerCase()] || 0);
+    if (typeDiff !== 0) return typeDiff;
+    return String(a.title || "").localeCompare(String(b.title || ""), "lt");
+  });
+}
+
+async function runSql(label, sql, params) {
+  console.log("QUERY:", label, params);
+  const res = await getPool().query(sql, params);
+  console.log("ROWS:", label, res.rowCount);
+  return res.rows || [];
+}
+
+async function queryAddresses({ qNorm, house, limit }) {
+  if (!qNorm || qNorm.length < 2 || !house) return [];
+  const streetNorm = sqlNorm("street");
+  const rows = await runSql(
+    "address",
+    `
+    SELECT
+      id::text AS id,
+      name::text AS name,
+      street::text AS street,
+      house_number::text AS house_number,
+      city::text AS city,
+      postcode::text AS postcode,
+      lat,
+      lon,
+      'address' AS result_type,
+      (
+        CASE WHEN ${streetNorm} = $1 THEN 600000 ELSE 0 END +
+        CASE WHEN ${streetNorm} LIKE $1 || '%' THEN 450000 ELSE 0 END +
+        CASE WHEN upper(coalesce(house_number::text, '')) = upper($2) THEN 600000 ELSE 0 END +
+        CASE WHEN upper(coalesce(house_number::text, '')) LIKE upper($2) || '%' THEN 300000 ELSE 0 END
+      ) AS rank_score
+    FROM public.addresses_rc_import
+    WHERE ${streetNorm} LIKE $1 || '%'
+      AND upper(coalesce(house_number::text, '')) LIKE upper($2) || '%'
+      AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0
+    ORDER BY rank_score DESC, length(house_number::text), house_number::text, city::text
+    LIMIT $3
+    `,
+    [qNorm, house, limit],
+  );
+  return rows;
+}
+
+async function queryStreets({ qNorm, limit }) {
+  if (!qNorm || qNorm.length < 2) return [];
+  const streetNorm = sqlNorm("street");
+  return runSql(
+    "street",
+    `
+    SELECT DISTINCT ON (${streetNorm}, city::text)
+      id::text AS id,
+      name::text AS name,
+      street::text AS street,
+      NULL::text AS house_number,
+      city::text AS city,
+      postcode::text AS postcode,
+      lat,
+      lon,
+      'street' AS result_type,
+      1::int AS address_count,
+      (
+        CASE WHEN ${streetNorm} = $1 THEN 560000 ELSE 0 END +
+        CASE WHEN ${streetNorm} LIKE $1 || '%' THEN 420000 ELSE 0 END
+      ) AS rank_score
+    FROM public.addresses_rc_import
+    WHERE ${streetNorm} LIKE $1 || '%'
+      AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0
+    ORDER BY ${streetNorm}, city::text, rank_score DESC, id::bigint
+    LIMIT $2
+    `,
+    [qNorm, limit],
+  );
+}
+
+async function querySettlements({ qNorm, limit }) {
+  if (!qNorm || qNorm.length < 2) return [];
+  const cityNorm = sqlNorm("city");
+  return runSql(
+    "settlement",
+    `
+    SELECT DISTINCT ON (${cityNorm})
+      id::text AS id,
+      city::text AS city,
+      city::text AS name,
+      NULL::text AS street,
+      NULL::text AS house_number,
+      NULL::text AS postcode,
+      lat,
+      lon,
+      'settlement' AS result_type,
+      1::int AS address_count,
+      (
+        CASE WHEN ${cityNorm} = $1 THEN 580000 ELSE 0 END +
+        CASE WHEN ${cityNorm} LIKE $1 || '%' THEN 460000 ELSE 0 END
+      ) AS rank_score
+    FROM public.addresses_rc_import
+    WHERE ${cityNorm} LIKE $1 || '%'
+      AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 0 AND lon <> 0
+    ORDER BY ${cityNorm}, rank_score DESC, id::bigint
+    LIMIT $2
+    `,
+    [qNorm, limit],
+  );
+}
+
 async function searchPostgresAddresses(query, options = {}) {
-  const q = String(query || "").trim();
-  const nq = compactQuery(q);
-  if (nq.length < 2) return [];
+  const q = cleanText(query);
+  if (q.length < 2) return [];
 
   const limit = Math.min(Math.max(Number(options.limit || 8), 1), 30);
   const house = extractHouseNumber(q);
-  const targetCity = detectCity(q, options);
-  const qWithoutCity = removeCityWordsFromStreet(q);
-  const streetPartRaw = qWithoutCity.replace(/\b\d+[a-z]?\b/gi, " ").trim();
-  const streetPart = normalizeSearchText(streetPartRaw || nq);
-  if (!streetPart || streetPart.length < 2) return [];
+  const streetNorm = normalizeStreetQuery(q);
+  const settlementNorm = normalizeSettlementQuery(q);
+  const rows = [];
 
-  const preferHouseRows = Boolean(options.autocomplete) && !house && streetPart.length >= 4;
-  let rows = await queryTable({ table: "public", source: "postgres_address", street: streetPart, house, targetCity, limit, preferHouseRows });
-
-  if (!rows.length && streetPart.length >= 3) {
-    try {
-      rows = await queryTable({ table: "rc", source: "rc_address", street: streetPart, house, targetCity, limit, preferHouseRows });
-    } catch (error) {
-      lastDbError = error?.message || String(error);
-    }
+  if (house && streetNorm.length >= 2) {
+    rows.push(...(await queryAddresses({ qNorm: streetNorm, house, limit })));
   }
 
-  return dedupeAddressResults(sortAddressResults(rows.map((row) => rowToAddressResult(row, q, options)))).slice(0, limit);
+  if (rows.length < limit && settlementNorm.length >= 2 && !house) {
+    rows.push(...(await querySettlements({ qNorm: settlementNorm, limit: limit - rows.length })));
+  }
+
+  if (rows.length < limit && streetNorm.length >= 2) {
+    rows.push(...(await queryStreets({ qNorm: streetNorm, limit: limit - rows.length })));
+  }
+
+  if (rows.length < limit && settlementNorm.length >= 2 && house) {
+    rows.push(...(await querySettlements({ qNorm: settlementNorm, limit: limit - rows.length })));
+  }
+
+  return dedupe(sortResults(rows.map((row) => rowToResult(row, q, options)))).slice(0, limit);
 }
 
 async function searchLocalAddresses(query, options = {}) {
   try {
-    const cacheKey = `local-address-v100:${compactQuery(query)}:${Number(options.limit || 8)}:${options.autocomplete ? "auto" : "search"}:${options.lat || ""}:${options.lon || ""}`;
+    const q = cleanText(query);
+    const cacheKey = `local-address-final-no-timeout-v130:${normalizeLt(q)}:${Number(options.limit || 8)}:${options.autocomplete ? "auto" : "search"}:${options.lat || ""}:${options.lon || ""}`;
     const cached = await getCache(cacheKey);
     if (cached) return cached;
-    const dbResults = await searchPostgresAddresses(query, options);
-    await setCache(cacheKey, dbResults, Number(process.env.SEARCH_CACHE_TTL_SECONDS || 86400));
+
+    const results = await searchPostgresAddresses(q, options);
+    await setCache(cacheKey, results, Number(process.env.SEARCH_CACHE_TTL_SECONDS || 86400));
     lastDbError = null;
-    return dbResults;
+    return results;
   } catch (error) {
     lastDbError = error?.message || String(error);
+    console.error("localAddress.provider error:", lastDbError);
     return [];
   }
 }
 
 async function getLocalAddressDetails(placeId, options = {}) {
-  const rawId = String(placeId || "").replace(/^address-/, "").trim();
+  const rawId = String(placeId || "").replace(/^(address|street|settlement)-/, "").trim();
   if (!rawId) return null;
+
   try {
-    let result = await getPool().query(
-      `SELECT id, name, street::text AS street, house_number::text AS house_number, city::text AS city, postcode::text AS postcode, lat, lon, 'postgres_address' AS source
-       FROM public.addresses
-       WHERE id::text = $1
-       LIMIT 1`,
+    const result = await getPool().query(
+      `
+      SELECT
+        id::text AS id,
+        name::text AS name,
+        street::text AS street,
+        house_number::text AS house_number,
+        city::text AS city,
+        postcode::text AS postcode,
+        lat,
+        lon,
+        'address' AS result_type
+      FROM public.addresses_rc_import
+      WHERE id::text = $1
+      LIMIT 1
+      `,
       [rawId],
     );
-    if (!result.rows?.[0]) {
-      result = await getPool().query(
-        `SELECT id, name, street::text AS street, house_number::text AS house_number, city::text AS city, postcode::text AS postcode, lat, lon, 'rc_address' AS source
-         FROM public.addresses_rc_import
-         WHERE id::text = $1
-         LIMIT 1`,
-        [rawId],
-      );
-    }
     const row = result.rows?.[0];
-    if (!row) return null;
-    lastDbError = null;
-    return rowToAddressResult(row, buildTitle(row), options);
+    return row ? rowToResult(row, titleFor(row), options) : null;
   } catch (error) {
     lastDbError = error?.message || String(error);
     return null;
@@ -348,34 +377,36 @@ async function getLocalAddressDetails(placeId, options = {}) {
 }
 
 async function refreshDbCount() {
-  if (Date.now() - lastDbHealthCheck < 30000) return lastDbCount;
+  if (Date.now() - lastDbHealthCheck < 30000) return lastRcCount;
   lastDbHealthCheck = Date.now();
   try {
-    const result = await getPool().query("SELECT COUNT(*)::int AS count FROM public.addresses");
-    lastDbCount = Number(result.rows?.[0]?.count || 0);
-    try {
-      const rc = await getPool().query("SELECT COUNT(*)::int AS count FROM public.addresses_rc_import");
-      lastRcCount = Number(rc.rows?.[0]?.count || 0);
-    } catch {
-      lastRcCount = null;
-    }
+    const result = await getPool().query("SELECT COUNT(*)::int AS count FROM public.addresses_rc_import");
+    lastRcCount = Number(result.rows?.[0]?.count || 0);
     lastDbError = null;
   } catch (error) {
     lastDbError = error?.message || String(error);
   }
-  return lastDbCount;
+  return lastRcCount;
 }
 
 function localAddressHealth() {
   refreshDbCount().catch(() => undefined);
   return {
     postgresAddressProvider: true,
-    postgresAddressCount: lastDbCount,
+    postgresAddressCount: lastRcCount,
     postgresAddressError: lastDbError,
     rcAddressProvider: true,
     rcAddressCount: lastRcCount,
     rcAddressError: null,
+    noTimeout: true,
+    streetFallback: true,
+    settlementFallback: true,
+    providerVersion: "final-no-timeout-v130",
   };
 }
 
-module.exports = { searchLocalAddresses, getLocalAddressDetails, localAddressHealth };
+module.exports = {
+  searchLocalAddresses,
+  getLocalAddressDetails,
+  localAddressHealth,
+};
