@@ -345,7 +345,9 @@ function toCoordinate(input: any): Coordinate | null {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
 }
-function isUsableCoordinate(coordinate: Coordinate | null): coordinate is Coordinate {
+function isUsableCoordinate(
+  coordinate: Coordinate | null,
+): coordinate is Coordinate {
   if (!coordinate) return false;
   const { latitude, longitude } = coordinate;
   return (
@@ -366,7 +368,6 @@ function isAddressOrStreetQuery(query: string) {
     /^[a-ząčęėįšųūž\s.-]{2,}$/i.test(q)
   );
 }
-
 
 function normalizeGeometry(raw: any): Coordinate[] {
   const candidates =
@@ -500,9 +501,11 @@ function normalizeStop(raw: any) {
     distanceMeters:
       raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
     arrivalTime: raw?.arrivalTime ?? raw?.arrival_time ?? raw?.arrivalText,
-    departureTime: raw?.departureTime ?? raw?.departure_time ?? raw?.departureText,
+    departureTime:
+      raw?.departureTime ?? raw?.departure_time ?? raw?.departureText,
     arrivalText: raw?.arrivalText ?? raw?.arrivalTime ?? raw?.arrival_time,
-    departureText: raw?.departureText ?? raw?.departureTime ?? raw?.departure_time,
+    departureText:
+      raw?.departureText ?? raw?.departureTime ?? raw?.departure_time,
     displayTime:
       raw?.displayTime ??
       raw?.departureText ??
@@ -985,7 +988,11 @@ function normalizePlaceType(item: any): PlaceResult["type"] {
     return "street" as PlaceResult["type"];
   }
 
-  if (rawType === "settlement" || rawType === "village" || rawType === "hamlet") {
+  if (
+    rawType === "settlement" ||
+    rawType === "village" ||
+    rawType === "hamlet"
+  ) {
     return "city" as PlaceResult["type"];
   }
 
@@ -1041,9 +1048,11 @@ function rankPlaceResult(
   if (item.type === "address") score += 1400;
   if (item.type === "street") score += 1100;
   if (item.type === "poi") score += isAddressLikeSearchQuery(query) ? -220 : 80;
-  if (item.type === "stop") score += isAddressLikeSearchQuery(query) ? -320 : 40;
+  if (item.type === "stop")
+    score += isAddressLikeSearchQuery(query) ? -320 : 40;
   if (item.type === "city") score += 900;
-  if (item.type === "region") score += isAddressLikeSearchQuery(query) ? 350 : -80;
+  if (item.type === "region")
+    score += isAddressLikeSearchQuery(query) ? 350 : -80;
 
   if (source.includes("postgres_address")) score += 700;
   if (source.includes("rc_address")) score += 650;
@@ -1109,7 +1118,8 @@ function isAddressLikeSearchQuery(query: string) {
 function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
   const coordinate = toCoordinate(item);
   const type = normalizePlaceType(item);
-  const selectable = item?.selectable !== false && item?.requiresHouseNumber !== true;
+  const selectable =
+    item?.selectable !== false && item?.requiresHouseNumber !== true;
 
   if (!isUsableCoordinate(coordinate) && selectable) return null;
   if (!coordinate) return null;
@@ -1239,7 +1249,8 @@ async function runSearchRequest(
     const addressPreferred = normalized.filter((item: any) => {
       const type = String(item.type || "").toLowerCase();
       if (!["address", "street", "city", "region"].includes(type)) return false;
-      if (item.selectable === false || item.requiresHouseNumber === true) return type === "street";
+      if (item.selectable === false || item.requiresHouseNumber === true)
+        return type === "street";
       return isUsableCoordinate(item.coordinate || null);
     });
 
@@ -1394,7 +1405,11 @@ export async function planTransitRoute(params: {
         timeMode: params.timeMode || "now",
         travelAt:
           params.travelAt instanceof Date
-            ? params.travelAt.toISOString()
+            ? new Date(
+                params.travelAt.toLocaleString("en-US", {
+                  timeZone: "Europe/Vilnius",
+                }),
+              ).toISOString()
             : params.travelAt || null,
         // Important: keep the first plan response fast. Detailed walking geometry is
         // hydrated lazily later, so route cards never get stuck on "checking stops".
@@ -1407,7 +1422,9 @@ export async function planTransitRoute(params: {
   const data = await safeJson<any>(response);
 
   if (!response.ok || data?.ok !== true) {
-    throw new Error(data?.error || data?.message || `Transit plan failed: ${response.status}`);
+    throw new Error(
+      data?.error || data?.message || `Transit plan failed: ${response.status}`,
+    );
   }
 
   const rawRoutes = [

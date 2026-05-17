@@ -13,9 +13,9 @@ const KLAIPEDA_BOUNDS = {
   // Expanded Klaipėda region bounds. The live stops.lt feed also contains
   // regional routes to Palanga, Gargždai, Ditūva, etc. Tight city-only bounds
   // make vehicles appear/disappear at the edge of the map.
-  minLat: 55.50,
+  minLat: 55.5,
   maxLat: 56.08,
-  minLon: 20.70,
+  minLon: 20.7,
   maxLon: 21.65,
 };
 
@@ -152,10 +152,16 @@ function gtfsTimeFromSeconds(value) {
   return [h, m, s].map((n) => String(n).padStart(2, "0")).join(":");
 }
 
-function nextTripTimeWindow(rawDepartureSeconds, rawArrivalSeconds, afterSeconds) {
+function nextTripTimeWindow(
+  rawDepartureSeconds,
+  rawArrivalSeconds,
+  afterSeconds,
+) {
   let departureSeconds = Number(rawDepartureSeconds);
   let arrivalSeconds = Number(rawArrivalSeconds);
-  const after = Number.isFinite(Number(afterSeconds)) ? Number(afterSeconds) : nowSeconds() - 120;
+  const after = Number.isFinite(Number(afterSeconds))
+    ? Number(afterSeconds)
+    : nowSeconds() - 120;
 
   if (!Number.isFinite(departureSeconds) || !Number.isFinite(arrivalSeconds)) {
     return null;
@@ -165,7 +171,10 @@ function nextTripTimeWindow(rawDepartureSeconds, rawArrivalSeconds, afterSeconds
   // If user searches late evening/early morning, do not return walk-only just
   // because today's matching trip already passed. Shift the trip to the next
   // service day and keep the same HH:mm display through humanGtfsTime().
-  while (departureSeconds < after && departureSeconds + 86400 <= after + 86400) {
+  while (
+    departureSeconds < after &&
+    departureSeconds + 86400 <= after + 86400
+  ) {
     departureSeconds += 86400;
   }
 
@@ -178,9 +187,10 @@ function nextTripTimeWindow(rawDepartureSeconds, rawArrivalSeconds, afterSeconds
   return { departureSeconds, arrivalSeconds };
 }
 
+const { getVilniusSeconds } = require("../../utils/timezone");
+
 function nowSeconds() {
-  const now = new Date();
-  return now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+  return getVilniusSeconds();
 }
 
 function secondsFromRequestedTime(value, fallback = nowSeconds()) {
@@ -871,7 +881,6 @@ function candidateTransferRoutes(originStops, destinationStops, options = {}) {
   return rankAndDedupeCandidates(candidates, 4);
 }
 
-
 function candidateSignature(candidate) {
   const routes = (candidate.segments || [])
     .map((segment) => String(segment.routeLabel || segment.routeId || ""))
@@ -886,10 +895,16 @@ function candidateSignature(candidate) {
 }
 
 function scoreCandidate(candidate) {
-  const transfersPenalty = Math.max(0, (candidate.segments || []).length - 1) * 7;
+  const transfersPenalty =
+    Math.max(0, (candidate.segments || []).length - 1) * 7;
   const walkPenalty = Math.round(Number(candidate.walkingMinutes || 0) * 0.8);
   const waitPenalty = Math.round(Number(candidate.waitMinutes || 0) * 0.35);
-  return Math.round(Number(candidate.totalMinutes || 999) + transfersPenalty + walkPenalty + waitPenalty);
+  return Math.round(
+    Number(candidate.totalMinutes || 999) +
+      transfersPenalty +
+      walkPenalty +
+      waitPenalty,
+  );
 }
 
 function rankAndDedupeCandidates(candidates = [], limit = 4) {
@@ -902,8 +917,12 @@ function rankAndDedupeCandidates(candidates = [], limit = 4) {
     }))
     .sort((a, b) => {
       if (a.score !== b.score) return a.score - b.score;
-      if (a.totalMinutes !== b.totalMinutes) return a.totalMinutes - b.totalMinutes;
-      return Math.max(0, (a.segments || []).length - 1) - Math.max(0, (b.segments || []).length - 1);
+      if (a.totalMinutes !== b.totalMinutes)
+        return a.totalMinutes - b.totalMinutes;
+      return (
+        Math.max(0, (a.segments || []).length - 1) -
+        Math.max(0, (b.segments || []).length - 1)
+      );
     })
     .filter((candidate) => {
       if (seen.has(candidate.signature)) return false;
@@ -922,33 +941,33 @@ function humanGtfsTime(value) {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-
 function buildChildGuide(route) {
   const steps = Array.isArray(route?.journeySteps) ? route.journeySteps : [];
   return steps.map((step, index) => {
-    const type = String(step.type || step.mode || 'step');
-    let icon = '➡️';
-    let action = step.title || 'Kitas žingsnis';
+    const type = String(step.type || step.mode || "step");
+    let icon = "➡️";
+    let action = step.title || "Kitas žingsnis";
 
-    if (type === 'walk') {
-      icon = index === steps.length - 1 ? '🏁' : '🚶';
-      action = step.title || 'Eik iki stotelės';
-    } else if (type === 'board') {
-      icon = '🚌';
-      action = step.routeNumber || step.routeLabel
-        ? `Lipk į ${step.routeNumber || step.routeLabel} autobusą`
-        : 'Lipk į autobusą';
-    } else if (type === 'ride' || type === 'bus') {
-      icon = '🚌';
+    if (type === "walk") {
+      icon = index === steps.length - 1 ? "🏁" : "🚶";
+      action = step.title || "Eik iki stotelės";
+    } else if (type === "board") {
+      icon = "🚌";
+      action =
+        step.routeNumber || step.routeLabel
+          ? `Lipk į ${step.routeNumber || step.routeLabel} autobusą`
+          : "Lipk į autobusą";
+    } else if (type === "ride" || type === "bus") {
+      icon = "🚌";
       action = step.stopCount
         ? `Važiuok ${step.stopCount} stot.`
-        : (step.title || 'Važiuok autobusu');
-    } else if (type === 'transfer') {
-      icon = '🔁';
-      action = step.title || 'Persėsk į kitą autobusą';
-    } else if (type === 'arrive') {
-      icon = '🏁';
-      action = step.title || 'Atvykai';
+        : step.title || "Važiuok autobusu";
+    } else if (type === "transfer") {
+      icon = "🔁";
+      action = step.title || "Persėsk į kitą autobusą";
+    } else if (type === "arrive") {
+      icon = "🏁";
+      action = step.title || "Atvykai";
     }
 
     return {
@@ -963,7 +982,7 @@ function buildChildGuide(route) {
       routeNumber: step.routeNumber || step.routeLabel || null,
       minutes: Number(step.durationMinutes || step.minutes || 0) || null,
       stopCount: Number(step.stopCount || 0) || null,
-      safeText: [action, step.subtitle].filter(Boolean).join(' • '),
+      safeText: [action, step.subtitle].filter(Boolean).join(" • "),
     };
   });
 }
@@ -975,11 +994,13 @@ function attachChildGuide(route) {
     childGuide,
     parentSummary: {
       routeNumbers: route.routeNumbers || [],
-      totalDurationMinutes: route.totalDurationMinutes || route.totalMinutes || null,
+      totalDurationMinutes:
+        route.totalDurationMinutes || route.totalMinutes || null,
       transfersCount: route.transfersCount || 0,
       stopCount: route.stopCount || 0,
       boardStopName: route.boardStopName || route.originStop?.name || null,
-      alightStopName: route.alightStopName || route.destinationStop?.name || null,
+      alightStopName:
+        route.alightStopName || route.destinationStop?.name || null,
       childGuideCount: childGuide.length,
     },
     summary: {
@@ -989,24 +1010,45 @@ function attachChildGuide(route) {
   };
 }
 
-
 const FINAL_ROUTING_VERSION = "apple-maps-polish-v3";
 
 function routeDuration(route) {
-  return Number(route?.totalDurationMinutes ?? route?.totalMinutes ?? route?.summary?.totalDurationMinutes ?? 9999);
+  return Number(
+    route?.totalDurationMinutes ??
+      route?.totalMinutes ??
+      route?.summary?.totalDurationMinutes ??
+      9999,
+  );
 }
 
 function routeWalkMinutes(route) {
-  return Number(route?.totalWalkMinutes ?? route?.walkingMinutes ?? route?.summary?.totalWalkMinutes ?? 9999);
+  return Number(
+    route?.totalWalkMinutes ??
+      route?.walkingMinutes ??
+      route?.summary?.totalWalkMinutes ??
+      9999,
+  );
 }
 
 function routeTransfers(route) {
-  return Number(route?.transfersCount ?? route?.transfers ?? route?.summary?.transfersCount ?? 99);
+  return Number(
+    route?.transfersCount ??
+      route?.transfers ??
+      route?.summary?.transfersCount ??
+      99,
+  );
 }
 
 function optionSignature(route) {
-  const numbers = Array.isArray(route?.routeNumbers) ? route.routeNumbers.join(">") : String(route?.routeLabel || route?.routeId || "");
-  return [numbers, routeTransfers(route), route?.boardStopName || route?.originStop?.name, route?.alightStopName || route?.destinationStop?.name].join("|");
+  const numbers = Array.isArray(route?.routeNumbers)
+    ? route.routeNumbers.join(">")
+    : String(route?.routeLabel || route?.routeId || "");
+  return [
+    numbers,
+    routeTransfers(route),
+    route?.boardStopName || route?.originStop?.name,
+    route?.alightStopName || route?.destinationStop?.name,
+  ].join("|");
 }
 
 function decorateRouteOption(route, optionType, optionLabel, rank) {
@@ -1040,17 +1082,26 @@ function buildPolishedRouteOptions(plans = []) {
     {
       type: "fastest",
       label: "Greičiausias",
-      sort: (a, b) => routeDuration(a) - routeDuration(b) || routeTransfers(a) - routeTransfers(b) || routeWalkMinutes(a) - routeWalkMinutes(b),
+      sort: (a, b) =>
+        routeDuration(a) - routeDuration(b) ||
+        routeTransfers(a) - routeTransfers(b) ||
+        routeWalkMinutes(a) - routeWalkMinutes(b),
     },
     {
       type: "less_walk",
       label: "Mažiau ėjimo",
-      sort: (a, b) => routeWalkMinutes(a) - routeWalkMinutes(b) || routeDuration(a) - routeDuration(b) || routeTransfers(a) - routeTransfers(b),
+      sort: (a, b) =>
+        routeWalkMinutes(a) - routeWalkMinutes(b) ||
+        routeDuration(a) - routeDuration(b) ||
+        routeTransfers(a) - routeTransfers(b),
     },
     {
       type: "less_transfer",
       label: "Mažiau persėdimų",
-      sort: (a, b) => routeTransfers(a) - routeTransfers(b) || routeDuration(a) - routeDuration(b) || routeWalkMinutes(a) - routeWalkMinutes(b),
+      sort: (a, b) =>
+        routeTransfers(a) - routeTransfers(b) ||
+        routeDuration(a) - routeDuration(b) ||
+        routeWalkMinutes(a) - routeWalkMinutes(b),
     },
   ];
 
@@ -1063,7 +1114,9 @@ function buildPolishedRouteOptions(plans = []) {
     const sig = optionSignature(route);
     if (seen.has(sig)) return;
     seen.add(sig);
-    selected.push(decorateRouteOption(route, picker.type, picker.label, selected.length));
+    selected.push(
+      decorateRouteOption(route, picker.type, picker.label, selected.length),
+    );
   });
 
   for (const route of valid) {
@@ -1071,7 +1124,9 @@ function buildPolishedRouteOptions(plans = []) {
     const sig = optionSignature(route);
     if (seen.has(sig)) continue;
     seen.add(sig);
-    selected.push(decorateRouteOption(route, "alternative", "Alternatyva", selected.length));
+    selected.push(
+      decorateRouteOption(route, "alternative", "Alternatyva", selected.length),
+    );
   }
 
   return selected;
@@ -1087,11 +1142,11 @@ function fallbackOption(from, to, destinationTitle) {
   const polyline = makeWalkPolyline(from, to);
   const route = {
     id: `walk-only-${Math.round(from.latitude * 10000)}-${Math.round(to.latitude * 10000)}`,
-    title: 'Eiti pėsčiomis',
-    subtitle: 'Autobusų maršrutas pagal GTFS šiuo metu nerastas',
-    mode: 'walk',
-    routeId: 'walk',
-    routeLabel: 'Pėsčiomis',
+    title: "Eiti pėsčiomis",
+    subtitle: "Autobusų maršrutas pagal GTFS šiuo metu nerastas",
+    mode: "walk",
+    routeId: "walk",
+    routeLabel: "Pėsčiomis",
     routeNumbers: [],
     totalDurationMinutes: walkingMinutes,
     totalMinutes: walkingMinutes,
@@ -1101,18 +1156,18 @@ function fallbackOption(from, to, destinationTitle) {
     transfers: 0,
     transfersCount: 0,
     stopCount: 0,
-    boardStopName: 'Pradžia',
+    boardStopName: "Pradžia",
     alightStopName: destinationTitle,
     originStop: {
-      id: 'origin-walk',
-      name: 'Pradžia',
-      title: 'Pradžia',
+      id: "origin-walk",
+      name: "Pradžia",
+      title: "Pradžia",
       ...from,
       coordinate: from,
       distanceMeters: 0,
     },
     destinationStop: {
-      id: 'destination-walk',
+      id: "destination-walk",
       name: destinationTitle,
       title: destinationTitle,
       ...to,
@@ -1124,9 +1179,9 @@ function fallbackOption(from, to, destinationTitle) {
     steps: [],
     journeySteps: [
       {
-        id: 'walk-only-step',
-        type: 'walk',
-        mode: 'walk',
+        id: "walk-only-step",
+        type: "walk",
+        mode: "walk",
         title: `Eik iki „${destinationTitle}“`,
         subtitle: `${meters} m • ${walkingMinutes} min`,
         durationMinutes: walkingMinutes,
@@ -1140,26 +1195,26 @@ function fallbackOption(from, to, destinationTitle) {
       hasRealtimeGps: false,
       hasGtfsSchedule: false,
       hasWalkingGeometry: false,
-      candidateType: 'walk_only_fallback',
+      candidateType: "walk_only_fallback",
     },
     summary: {
-      routeLabel: 'Pėsčiomis',
+      routeLabel: "Pėsčiomis",
       routeNumbers: [],
       totalDurationMinutes: walkingMinutes,
       totalWalkMinutes: walkingMinutes,
       totalBusMinutes: 0,
       transfersCount: 0,
       stopCount: 0,
-      boardStopName: 'Pradžia',
+      boardStopName: "Pradžia",
       alightStopName: destinationTitle,
       etaMinutes: null,
-      journeyMessage: 'Autobusų maršrutas nerastas – rodomas ėjimas pėsčiomis.',
+      journeyMessage: "Autobusų maršrutas nerastas – rodomas ėjimas pėsčiomis.",
     },
     legs: [
       {
-        id: 'walk-only-leg',
-        type: 'walk',
-        mode: 'walk',
+        id: "walk-only-leg",
+        type: "walk",
+        mode: "walk",
         durationMinutes: walkingMinutes,
         distanceMeters: meters,
         polyline,
@@ -1188,9 +1243,12 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
       Number(destinationStop.distanceMeters || 0) / WALK_SPEED_M_PER_MIN,
     ),
   );
-  const firstDeparture = humanGtfsTime(candidate.segments[0]?.departureTime) || null;
+  const firstDeparture =
+    humanGtfsTime(candidate.segments[0]?.departureTime) || null;
   const lastArrival =
-    humanGtfsTime(candidate.segments[candidate.segments.length - 1]?.arrivalTime) || null;
+    humanGtfsTime(
+      candidate.segments[candidate.segments.length - 1]?.arrivalTime,
+    ) || null;
   const busMinutes = candidate.segments.reduce(
     (sum, segment) => sum + segment.durationMinutes,
     0,
@@ -1409,11 +1467,20 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
   return attachChildGuide(route);
 }
 
-function buildTransitCandidatesForStops(originStops, destinationStops, planTimeOptions, limit = 8) {
+function buildTransitCandidatesForStops(
+  originStops,
+  destinationStops,
+  planTimeOptions,
+  limit = 8,
+) {
   return rankAndDedupeCandidates(
     [
       ...candidateDirectRoutes(originStops, destinationStops, planTimeOptions),
-      ...candidateTransferRoutes(originStops, destinationStops, planTimeOptions),
+      ...candidateTransferRoutes(
+        originStops,
+        destinationStops,
+        planTimeOptions,
+      ),
     ],
     limit,
   );
@@ -1440,22 +1507,34 @@ async function plan(body = {}) {
   const from = coordinateFromPlanInput(body, "from") || defaultOrigin;
   const to = coordinateFromPlanInput(body, "to") || defaultDestination;
 
-  const engine = String(body.engine || process.env.TRANSIT_ENGINE || "legacy").toLowerCase();
+  const engine = String(
+    body.engine || process.env.TRANSIT_ENGINE || "legacy",
+  ).toLowerCase();
   if ((engine === "otp" || engine === "otp2") && otpService.enabled()) {
-    const timeModeForOtp = ["now", "depart", "arrive"].includes(String(body.timeMode))
+    const timeModeForOtp = ["now", "depart", "arrive"].includes(
+      String(body.timeMode),
+    )
       ? String(body.timeMode)
       : "now";
     const travelDate = body.travelAt ? new Date(body.travelAt) : new Date();
     const otpResult = await otpService.plan({
       from,
       to,
-      date: Number.isNaN(travelDate.getTime()) ? null : travelDate.toISOString().slice(0, 10),
-      time: Number.isNaN(travelDate.getTime()) ? null : travelDate.toTimeString().slice(0, 5),
+      date: Number.isNaN(travelDate.getTime())
+        ? null
+        : travelDate.toISOString().slice(0, 10),
+      time: Number.isNaN(travelDate.getTime())
+        ? null
+        : travelDate.toTimeString().slice(0, 5),
       arriveBy: timeModeForOtp === "arrive",
       timeoutMs: Number(process.env.OTP_TIMEOUT_MS || 9000),
     });
 
-    if (otpResult?.ok && Array.isArray(otpResult.routes) && otpResult.routes.length) {
+    if (
+      otpResult?.ok &&
+      Array.isArray(otpResult.routes) &&
+      otpResult.routes.length
+    ) {
       return {
         ...otpResult,
         meta: {
@@ -1468,7 +1547,9 @@ async function plan(body = {}) {
       };
     }
 
-    if (String(process.env.TRANSIT_OTP_STRICT || "false").toLowerCase() === "true") {
+    if (
+      String(process.env.TRANSIT_OTP_STRICT || "false").toLowerCase() === "true"
+    ) {
       return {
         ok: false,
         source: "otp2",
@@ -1532,14 +1613,22 @@ async function plan(body = {}) {
 
   const basePlans = candidates
     .slice(0, 4)
-    .map((candidate, index) => buildPlanFromCandidate(candidate, from, to, index));
+    .map((candidate, index) =>
+      buildPlanFromCandidate(candidate, from, to, index),
+    );
 
   const shouldEnrichWalkingGeometry =
     body.includeWalkingGeometry === true ||
-    String(process.env.TRANSIT_INCLUDE_WALKING_GEOMETRY || "false").toLowerCase() === "true";
+    String(
+      process.env.TRANSIT_INCLUDE_WALKING_GEOMETRY || "false",
+    ).toLowerCase() === "true";
 
   const plans = shouldEnrichWalkingGeometry
-    ? await Promise.all(basePlans.map((route) => enrichPlanWithWalkingGeometry(route).then(attachChildGuide)))
+    ? await Promise.all(
+        basePlans.map((route) =>
+          enrichPlanWithWalkingGeometry(route).then(attachChildGuide),
+        ),
+      )
     : basePlans.map(attachChildGuide);
 
   if (!plans.length) {
@@ -1567,7 +1656,9 @@ async function plan(body = {}) {
   }
 
   const polishedOptions = buildPolishedRouteOptions(plans);
-  const formattedOptions = stableFormattedRoutes(polishedOptions.length ? polishedOptions : plans);
+  const formattedOptions = stableFormattedRoutes(
+    polishedOptions.length ? polishedOptions : plans,
+  );
 
   return {
     ok: true,
@@ -1582,8 +1673,22 @@ async function plan(body = {}) {
       searchProfile: selectedProfile?.label || "nearby",
       searchRadiusMeters: selectedProfile?.radius || 2200,
       routingVersion: FINAL_ROUTING_VERSION,
-      routeOptionTypes: formattedOptions.map((route) => route.summary?.optionType || route.optionType || "route"),
-      fields: ["journeySteps", "childGuide", "parentSummary", "legs", "stopCount", "transfersCount", "departureText", "arrivalText", "routingQuality", "optionType", "optionLabel"],
+      routeOptionTypes: formattedOptions.map(
+        (route) => route.summary?.optionType || route.optionType || "route",
+      ),
+      fields: [
+        "journeySteps",
+        "childGuide",
+        "parentSummary",
+        "legs",
+        "stopCount",
+        "transfersCount",
+        "departureText",
+        "arrivalText",
+        "routingQuality",
+        "optionType",
+        "optionLabel",
+      ],
       walkingGeometryHydrated: shouldEnrichWalkingGeometry,
       timeMode,
       travelAt: body.travelAt || null,
@@ -1745,7 +1850,10 @@ function parseStructuredGpsFeed(text) {
     const routeNumber = String(row.Marsrutas || "bus").trim();
     const tripId = sanitizeVehicleId(row.ReisoID);
     const plate = sanitizeVehicleId(row.MasinosNumeris);
-    const vehicleId = plate || tripId || `${routeNumber}-${latitude.toFixed(5)}-${longitude.toFixed(5)}`;
+    const vehicleId =
+      plate ||
+      tripId ||
+      `${routeNumber}-${latitude.toFixed(5)}-${longitude.toFixed(5)}`;
     const id = `${vehicleId}-${routeNumber}`;
 
     // The same feed sometimes repeats a vehicle inside one response. Keep only
@@ -1834,7 +1942,6 @@ function parseHeuristicGpsFeed(text) {
   return buses;
 }
 
-
 function buildShapePointsByTripId(gtfs) {
   const map = new Map();
 
@@ -1863,7 +1970,6 @@ function parseGpsFeed(text) {
   return parseHeuristicGpsFeed(text);
 }
 
-
 function normalizeLiveRoute(value) {
   return String(value ?? "")
     .trim()
@@ -1883,10 +1989,7 @@ function requestedLiveRouteNumbers(options = {}) {
     options.routeNumbers ||
     "";
 
-  return String(raw)
-    .split(/[;,|]/)
-    .map(normalizeLiveRoute)
-    .filter(Boolean);
+  return String(raw).split(/[;,|]/).map(normalizeLiveRoute).filter(Boolean);
 }
 
 function liveBusMatchesRoutes(bus, routeNumbers = []) {
@@ -1917,7 +2020,8 @@ async function liveBuses(options = {}) {
   const now = Date.now();
 
   const requestedRoutes = requestedLiveRouteNumbers(options);
-  const requestedVehicleId = options.vehicleId || options.vehicle || options.busId || null;
+  const requestedVehicleId =
+    options.vehicleId || options.vehicle || options.busId || null;
 
   const filterLiveResponse = (response) => {
     const allBuses = Array.isArray(response?.buses) ? response.buses : [];
@@ -2043,7 +2147,9 @@ async function liveBuses(options = {}) {
   }
 }
 async function liveEta(query = {}) {
-  const routeId = normalizeLiveRoute(query.routeId || query.routeNumber || query.route || "");
+  const routeId = normalizeLiveRoute(
+    query.routeId || query.routeNumber || query.route || "",
+  );
   const live = await liveBuses({ ...query, routeNumber: routeId });
   const stopCoordinate = toCoordinate({
     latitude: query.stopLat,
