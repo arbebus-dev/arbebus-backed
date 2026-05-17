@@ -57,6 +57,7 @@ export const API_ENDPOINTS = {
   ferrySchedule: apiUrl("/api/ferries/schedule"),
   ferryNext: apiUrl("/api/ferries/next"),
   ferryHealth: apiUrl("/api/ferries/health"),
+  ferryLive: apiUrl("/api/ferries/live"),
 
   // Search / places
   placesSearch: apiUrl("/api/search"),

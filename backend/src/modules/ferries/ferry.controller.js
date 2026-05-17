@@ -1,4 +1,5 @@
 const service = require("./ferry.service");
+const ferryLive = require("./ferryLive.service");
 
 function getRequestOptions(req) {
   return {
@@ -58,4 +59,22 @@ async function nextDepartures(req, res, next) {
   }
 }
 
-module.exports = { overview, health, routes, schedule, nextDepartures };
+async function live(req, res, next) {
+  try {
+    const options = getRequestOptions(req);
+    res.json({
+      ok: true,
+      timeZone: options.timeZone,
+      source: ferryLive.LIVE_SOURCE,
+      ferries: ferryLive.getLiveFerries({
+        routeId: req.query.routeId,
+        now: options.now,
+        timeZone: options.timeZone,
+      }),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+module.exports = { overview, health, routes, schedule, nextDepartures, live };

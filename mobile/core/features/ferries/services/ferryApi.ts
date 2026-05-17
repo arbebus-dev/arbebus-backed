@@ -1,5 +1,5 @@
 import { API_ENDPOINTS, apiUrl } from "@/constants/api";
-import type { FerryDeparture, FerryOverview, FerryRoute, FerryTerminal } from "../types";
+import type { FerryDeparture, FerryOverview, FerryRoute, FerryTerminal, LiveFerry } from "../types";
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
@@ -40,4 +40,13 @@ export async function fetchNextFerryDepartures(routeId?: string): Promise<FerryD
     : API_ENDPOINTS.ferryNext;
   const data = await fetchJson<{ nextDepartures?: FerryDeparture[] }>(url);
   return Array.isArray(data.nextDepartures) ? data.nextDepartures : [];
+}
+
+
+export async function fetchLiveFerries(routeId?: string): Promise<LiveFerry[]> {
+  const url = routeId
+    ? apiUrl(`/api/ferries/live?routeId=${encodeURIComponent(routeId)}`)
+    : API_ENDPOINTS.ferryLive;
+  const data = await fetchJson<{ ferries?: LiveFerry[] }>(url);
+  return Array.isArray(data.ferries) ? data.ferries : [];
 }

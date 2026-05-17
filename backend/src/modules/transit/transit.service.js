@@ -8,6 +8,7 @@ const vehiclePositionsRealtime = require("./realtime/vehiclePositions");
 const ETAEngine = require("./ETA.engine");
 const otpService = require("../otp/otp.service");
 const { formatJourney } = require("./routing/journeyFormatter");
+const ferryService = require("../ferries/ferry.service");
 
 const KLAIPEDA_BOUNDS = {
   // Expanded Klaipėda region bounds. The live stops.lt feed also contains
@@ -1467,6 +1468,212 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
   return attachChildGuide(route);
 }
 
+
+function coordinateForPublicPoint(point) {
+  const latitude = toNumber(point?.latitude ?? point?.coordinate?.latitude);
+  const longitude = toNumber(point?.longitude ?? point?.coordinate?.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return { latitude, longitude };
+}
+
+function ferryTerminalPoint(terminal) {
+  const coordinate = coordinateForPublicPoint(terminal);
+  if (!coordinate) return null;
+  return {
+    id: terminal.id,
+    stopId: terminal.id,
+    name: terminal.name,
+    title: terminal.name,
+    latitude: coordinate.latitude,
+    longitude: coordinate.longitude,
+    coordinate,
+  };
+}
+
+function shouldUseFerryRoute(from, to, route) {
+  const fromTerminal = coordinateForPublicPoint(route.from);
+  const toTerminal = coordinateForPublicPoint(route.to);
+  if (!fromTerminal || !toTerminal) return false;
+
+  const originWalk = distanceMeters(from, fromTerminal);
+  const destinationWalk = distanceMeters(to, toTerminal);
+  const reverseOriginWalk = distanceMeters(from, toTerminal);
+  const reverseDestinationWalk = distanceMeters(to, fromTerminal);
+
+  const maxAccessMeters = route.serviceType === "seasonal_passenger_boat" ? 2800 : 1800;
+  const maxEgressMeters = route.serviceType === "seasonal_passenger_boat" ? 4200 : 1800;
+
+  return (
+    originWalk <= maxAccessMeters && destinationWalk <= maxEgressMeters &&
+    originWalk + destinationWalk <= reverseOriginWalk + reverseDestinationWalk
+  );
+}
+
+function buildFerryRouteOption(route, from, to, index = 0, options = {}) {
+  const fromTerminal = ferryTerminalPoint(route.from);
+  const toTerminal = ferryTerminalPoint(route.to);
+  if (!fromTerminal || !toTerminal) return null;
+
+  const fromPoint = coordinateForPublicPoint(from) || from;
+  const toPoint = coordinateForPublicPoint(to) || to;
+  const accessMeters = Math.max(0, Math.round(distanceMeters(fromPoint, fromTerminal.coordinate)));
+  const egressMeters = Math.max(0, Math.round(distanceMeters(toTerminal.coordinate, toPoint)));
+  const accessWalkMinutes = Math.max(0, Math.round(accessMeters / WALK_SPEED_M_PER_MIN));
+  const egressWalkMinutes = Math.max(0, Math.round(egressMeters / WALK_SPEED_M_PER_MIN));
+  const next = ferryService.getNextDepartures({ routeId: route.id, limit: 1, now: options.now || new Date() })[0] || null;
+  const waitMinutes = Math.max(0, Number(next?.minutesUntil || 0));
+  const ferryMinutes = Math.max(1, Number(route.durationMinutes || 1));
+  const totalDurationMinutes = Math.max(1, accessWalkMinutes + waitMinutes + ferryMinutes + egressWalkMinutes);
+  const ferryPolyline = [fromTerminal.coordinate, toTerminal.coordinate];
+  const polyline = [fromPoint, fromTerminal.coordinate, toTerminal.coordinate, toPoint]
+    .filter((point) => Number.isFinite(Number(point?.latitude)) && Number.isFinite(Number(point?.longitude)));
+
+  const journeySteps = [];
+
+  if (accessWalkMinutes > 0) {
+    journeySteps.push({
+      id: `${route.id}-walk-access`,
+      type: "walk",
+      mode: "walk",
+      title: `Eik iki ${route.from.name}`,
+      subtitle: `${accessWalkMinutes} min pėsčiomis`,
+      minutes: accessWalkMinutes,
+      durationMinutes: accessWalkMinutes,
+      distanceMeters: accessMeters,
+      polyline: [fromPoint, fromTerminal.coordinate],
+      toStopName: route.from.name,
+      toStop: fromTerminal,
+    });
+  }
+
+  journeySteps.push({
+    id: `${route.id}-ferry`,
+    type: "ferry",
+    mode: "ferry",
+    routeId: route.id,
+    routeNumber: route.routeCode,
+    routeLabel: route.ferryLine || route.title,
+    title: route.title,
+    subtitle: next ? `${route.ferryLine || "Keltas"} • išvyksta ${next.departureTime}` : (route.ferryLine || "Keltas"),
+    minutes: ferryMinutes,
+    durationMinutes: ferryMinutes,
+    departureTime: next?.departureTime || null,
+    arrivalTime: next?.arrivalAt || null,
+    fromStopName: route.from.name,
+    toStopName: route.to.name,
+    fromStop: fromTerminal,
+    toStop: toTerminal,
+    stops: [fromTerminal, toTerminal],
+    stopCount: 2,
+    polyline: ferryPolyline,
+  });
+
+  if (egressWalkMinutes > 0) {
+    journeySteps.push({
+      id: `${route.id}-walk-egress`,
+      type: "walk",
+      mode: "walk",
+      title: `Eik iki tikslo`,
+      subtitle: `${egressWalkMinutes} min pėsčiomis`,
+      minutes: egressWalkMinutes,
+      durationMinutes: egressWalkMinutes,
+      distanceMeters: egressMeters,
+      polyline: [toTerminal.coordinate, toPoint],
+      fromStopName: route.to.name,
+      fromStop: toTerminal,
+    });
+  }
+
+  const routeLabelText = route.ferryLine || route.title;
+
+  return attachChildGuide({
+    id: `ferry-${route.id}-${index}`,
+    title: route.title,
+    subtitle: `${routeLabelText} • ${totalDurationMinutes} min`,
+    mode: "ferry",
+    routeId: route.id,
+    ferryRouteId: route.id,
+    ferryLine: route.ferryLine || null,
+    pierType: String(route.ferryLine || route.id).toLowerCase().includes("naujoji") ? "new" : String(route.ferryLine || route.id).toLowerCase().includes("senoji") ? "old" : "nida",
+    routeLabel: routeLabelText,
+    routeNumbers: [],
+    totalMinutes: totalDurationMinutes,
+    totalDurationMinutes,
+    walkingMinutes: accessWalkMinutes + egressWalkMinutes,
+    totalWalkMinutes: accessWalkMinutes + egressWalkMinutes,
+    totalBusMinutes: 0,
+    etaMinutes: totalDurationMinutes,
+    transfers: 0,
+    transfersCount: 0,
+    stopCount: 2,
+    boardStopName: route.from.name,
+    alightStopName: route.to.name,
+    originStop: fromTerminal,
+    destinationStop: toTerminal,
+    transferStops: [],
+    transferMessages: [],
+    previewPoints: polyline,
+    polyline,
+    steps: journeySteps,
+    journeySteps,
+    departureText: next?.departureTime || null,
+    arrivalText: next?.arrivalAt || null,
+    journeyMessage: `Plauk ${routeLabelText} maršrutu iki „${route.to.name}“`,
+    summary: {
+      routeLabel: routeLabelText,
+      routeNumbers: [],
+      totalDurationMinutes,
+      totalWalkMinutes: accessWalkMinutes + egressWalkMinutes,
+      totalBusMinutes: 0,
+      transfersCount: 0,
+      stopCount: 2,
+      boardStopName: route.from.name,
+      alightStopName: route.to.name,
+      etaMinutes: totalDurationMinutes,
+      departureTime: next?.departureTime || null,
+      arrivalTime: next?.arrivalAt || null,
+      journeyMessage: `Plauk ${routeLabelText} maršrutu iki „${route.to.name}“`,
+      optionType: "ferry",
+      optionLabel: routeLabelText,
+      routingQuality: {
+        score: totalDurationMinutes,
+        candidateType: "ferry_schedule",
+        hasGtfsSchedule: false,
+        hasFerrySchedule: true,
+        hasWalkingGeometry: true,
+      },
+    },
+    legs: [
+      {
+        id: route.id,
+        type: "ferry",
+        mode: "ferry",
+        routeId: route.id,
+        routeNumber: route.routeCode,
+        routeLabel: routeLabelText,
+        fromStopName: route.from.name,
+        toStopName: route.to.name,
+        fromStop: fromTerminal,
+        toStop: toTerminal,
+        stops: [fromTerminal, toTerminal],
+        durationMinutes: ferryMinutes,
+        stopCount: 2,
+        polyline: ferryPolyline,
+      },
+    ],
+  });
+}
+
+function buildFerryPlans(from, to, options = {}) {
+  return ferryService
+    .getRoutes()
+    .filter((route) => shouldUseFerryRoute(from, to, route))
+    .map((route, index) => buildFerryRouteOption(route, from, to, index, options))
+    .filter(Boolean)
+    .sort((a, b) => Number(a.totalDurationMinutes || 999) - Number(b.totalDurationMinutes || 999))
+    .slice(0, 3);
+}
+
 function buildTransitCandidatesForStops(
   originStops,
   destinationStops,
@@ -1589,6 +1796,8 @@ async function plan(body = {}) {
             timeMode === "depart" ? requestedSeconds : nowSeconds() - 120,
         };
 
+  const ferryPlans = buildFerryPlans(from, to, { now: body.travelAt ? new Date(body.travelAt) : new Date() });
+
   const profiles = planSearchProfiles(from, to);
   let selectedProfile = profiles[0];
   let candidates = [];
@@ -1631,6 +1840,31 @@ async function plan(body = {}) {
       )
     : basePlans.map(attachChildGuide);
 
+  if (!plans.length && ferryPlans.length) {
+    return {
+      ok: true,
+      source: "ferries+schedule",
+      plan: ferryPlans[0],
+      options: ferryPlans,
+      routes: ferryPlans,
+      meta: {
+        routingVersion: FINAL_ROUTING_VERSION,
+        routeOptionTypes: ferryPlans.map((route) => route.summary?.optionType || "ferry"),
+        hasRealBusRoute: false,
+        hasFerryRoute: true,
+        walkingGeometryHydrated: false,
+        originStops: originStops.length,
+        destinationStops: destinationStops.length,
+        searchProfile: selectedProfile?.label || "none",
+        searchRadiusMeters: selectedProfile?.radius || null,
+        timeMode,
+        travelAt: body.travelAt || null,
+        from,
+        to,
+      },
+    };
+  }
+
   if (!plans.length) {
     // Do not return absurd long walking-only plans such as 2474 min.
     // Apple/Google-style UX should either return real transit options or a clear
@@ -1655,9 +1889,13 @@ async function plan(body = {}) {
     };
   }
 
-  const polishedOptions = buildPolishedRouteOptions(plans);
+  const candidatePlans = [...plans, ...ferryPlans]
+    .sort((a, b) => Number(a.totalDurationMinutes || 999) - Number(b.totalDurationMinutes || 999))
+    .slice(0, 6);
+
+  const polishedOptions = buildPolishedRouteOptions(candidatePlans);
   const formattedOptions = stableFormattedRoutes(
-    polishedOptions.length ? polishedOptions : plans,
+    polishedOptions.length ? polishedOptions : candidatePlans,
   );
 
   return {

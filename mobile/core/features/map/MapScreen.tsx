@@ -8,7 +8,8 @@ import { useLiveBuses } from "../transit/hooks/useLiveBuses";
 import { useTransitPlanner } from "../transit/hooks/useTransitPlanner";
 import { useUserLocation } from "../transit/hooks/useUserLocation";
 import FerryScreen from "../ferries/FerryScreen";
-import type { FerryTerminal } from "../ferries/types";
+import type { FerryTerminal, LiveFerry } from "../ferries/types";
+import { fetchLiveFerries } from "../ferries/services/ferryApi";
 import type { PlaceSearchResult, TransitRouteOption } from "../transit/models/transitTypes";
 import {
   fetchPlaceDetails,
@@ -155,6 +156,29 @@ export default function MapScreen() {
   const [visibleRegion, setVisibleRegion] = useState<Region | null>(null);
   const [ferryScreenVisible, setFerryScreenVisible] = useState(false);
   const [selectedFerryTerminalId, setSelectedFerryTerminalId] = useState<string | null>(null);
+  const [liveFerries, setLiveFerries] = useState<LiveFerry[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = () => {
+      fetchLiveFerries()
+        .then((items) => {
+          if (!cancelled) setLiveFerries(items);
+        })
+        .catch(() => {
+          if (!cancelled) setLiveFerries([]);
+        });
+    };
+
+    load();
+    const timer = setInterval(load, 20000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -485,6 +509,34 @@ export default function MapScreen() {
     );
   }, []);
 
+  const handleSelectLiveFerry = useCallback((ferry: LiveFerry) => {
+    const coordinate = {
+      latitude: Number(ferry.latitude ?? ferry.coordinate?.latitude),
+      longitude: Number(ferry.longitude ?? ferry.coordinate?.longitude),
+    };
+
+    if (!Number.isFinite(coordinate.latitude) || !Number.isFinite(coordinate.longitude)) {
+      return;
+    }
+
+    setSelectedFerryTerminalId(null);
+    setSelectedMapPlace({
+      id: ferry.id,
+      title: ferry.title || ferry.pierName || "Keltas",
+      subtitle: `${ferry.pierName || ferry.ferryLine || "Keltas"} • ${ferry.status === "sailing" ? "plaukia" : "laukia reiso"}`,
+      type: "ferry",
+      latitude: coordinate.latitude,
+      longitude: coordinate.longitude,
+      coordinate,
+      source: "arbebus_ferry_live",
+    } as PlaceSearchResult);
+
+    mapRef.current?.animateCamera(
+      { center: coordinate, zoom: ferry.status === "sailing" ? 14.2 : 15.4, pitch: 0 },
+      { duration: 520 },
+    );
+  }, []);
+
   const handleMapPress = (event: any) => {
     if (Date.now() - lastPoiClickAt.current < 650) return;
 
@@ -600,7 +652,10 @@ export default function MapScreen() {
 
         <FerryMarkersLayer
           selectedTerminalId={selectedFerryTerminalId}
+          selectedRoute={selectedRoute}
+          liveFerries={liveFerries}
           onSelectTerminal={handleSelectFerryTerminal}
+          onSelectLiveFerry={handleSelectLiveFerry}
         />
 
         <LiveBusesLayer
