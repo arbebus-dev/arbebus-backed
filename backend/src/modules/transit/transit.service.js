@@ -1421,11 +1421,11 @@ function buildTransitCandidatesForStops(originStops, destinationStops, planTimeO
 
 function planSearchProfiles(from, to) {
   return [
-    { limit: 8, radius: 2500, label: "nearby" },
-    { limit: 14, radius: 5000, label: "expanded" },
-    { limit: 22, radius: 9000, label: "regional" },
-    { limit: 32, radius: 16000, label: "wide-regional" },
-    { limit: 48, radius: 26000, label: "max-regional" },
+    { limit: 8, radius: 2200, label: "nearby" },
+    { limit: 12, radius: 3500, label: "expanded" },
+    { limit: 16, radius: 5200, label: "wide" },
+    { limit: 24, radius: 10000, label: "regional" },
+    { limit: 32, radius: 25000, label: "regional-max" },
   ].map((profile) => ({
     ...profile,
     originStops: nearestStops(from, profile.limit, profile.radius),
@@ -1543,9 +1543,12 @@ async function plan(body = {}) {
     : basePlans.map(attachChildGuide);
 
   if (!plans.length) {
+    // Do not return absurd long walking-only plans such as 2474 min.
+    // Apple/Google-style UX should either return real transit options or a clear
+    // no-route state, while the UI may still offer walking separately later.
     return {
       ok: true,
-      source: "gtfs-no-route",
+      source: "gtfs-no-transit-route",
       plan: null,
       options: [],
       routes: [],
@@ -1559,8 +1562,6 @@ async function plan(body = {}) {
         destinationStops: destinationStops.length,
         searchProfile: selectedProfile?.label || "none",
         searchRadiusMeters: selectedProfile?.radius || null,
-        from,
-        to,
       },
     };
   }

@@ -129,8 +129,17 @@ function isStreetSuggestion(place: PlaceSearchResult | null | undefined) {
 function canPlanToPlace(place: PlaceSearchResult | null | undefined) {
   if (!place?.coordinate) return false;
   if ((place as any).selectable === false) return false;
-  if ((place as any).requiresHouseNumber === true) return false;
-  if (isStreetSuggestion(place)) return false;
+
+  // Apple/Google Maps allow planning to a street/settlement centroid when the
+  // backend already returned real WGS84 coordinates. Do not block Radailiai,
+  // Laivų g., Slengiai, Nida or other local_address results just because the
+  // type is "street" or because the result is not a house-number address.
+  if ((place as any).requiresHouseNumber === true) {
+    const hasCoords = Number.isFinite(Number(place.coordinate.latitude)) &&
+      Number.isFinite(Number(place.coordinate.longitude));
+    return hasCoords;
+  }
+
   return true;
 }
 
@@ -1317,7 +1326,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         }
       }
     },
-    [query],
+    [query, userLocation],
   );
 
   const selectOrigin = useCallback((rawOrigin: PlaceSearchResult) => {
@@ -1398,17 +1407,13 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           .slice(0, 6);
 
         if (!normalizedOptions.length) {
-          const straightWalk = buildWalkOnlyRoute({
-            origin: routeOrigin,
-            destination,
-            points: [routeOrigin, destination.coordinate],
-          });
-
-          setRouteOptions([straightWalk]);
-          setSelectedRoute(straightWalk);
+          setRouteOptions([]);
+          setSelectedRoute(null);
           setCurrentStepIndex(0);
-          setFlowState("route_options");
-          setError("Autobusų maršrutas nerastas – rodomas ėjimas pėsčiomis.");
+          setFlowState("destination_selected");
+          setError(
+            "Kol kas neradau tinkamo autobuso maršruto šiai krypčiai. Patikrink laiką arba pasirink artimesnę stotelę.",
+          );
           return;
         }
 
