@@ -917,16 +917,21 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
                     setActiveField("to");
                     return;
                   }
-                  const isStreetOnly =
-                    (String(place.type || "").toLowerCase() === "street" ||
-                      Boolean((place as any).requiresHouseNumber)) &&
-                    !/\b\d+[a-z]?\b/i.test(String(place.title || ""));
-                  if (isStreetOnly) {
-                    props.onChangeQuery(`${place.title} `);
+                  const latitude = Number(place.latitude ?? place.coordinate?.latitude);
+                  const longitude = Number(place.longitude ?? place.coordinate?.longitude);
+
+                  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+                    props.onChangeQuery(`${place.title || ""} `);
                     return;
                   }
+
                   props.onChangeQuery("");
-                  props.onSelectDestination(place);
+                  props.onSelectDestination({
+                    ...place,
+                    latitude,
+                    longitude,
+                    coordinate: { latitude, longitude },
+                  });
                 }}
               >
                 <View style={[styles.resultIcon, { backgroundColor: theme.accentSoft }]}>

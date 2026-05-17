@@ -1421,10 +1421,11 @@ function buildTransitCandidatesForStops(originStops, destinationStops, planTimeO
 
 function planSearchProfiles(from, to) {
   return [
-    { limit: 6, radius: 2200, label: "nearby" },
-    { limit: 10, radius: 3500, label: "expanded" },
-    { limit: 14, radius: 5200, label: "wide" },
-    { limit: 20, radius: 8500, label: "max" },
+    { limit: 8, radius: 2500, label: "nearby" },
+    { limit: 14, radius: 5000, label: "expanded" },
+    { limit: 22, radius: 9000, label: "regional" },
+    { limit: 32, radius: 16000, label: "wide-regional" },
+    { limit: 48, radius: 26000, label: "max-regional" },
   ].map((profile) => ({
     ...profile,
     originStops: nearestStops(from, profile.limit, profile.radius),
@@ -1542,25 +1543,24 @@ async function plan(body = {}) {
     : basePlans.map(attachChildGuide);
 
   if (!plans.length) {
-    const fallbackBase = fallbackOption(from, to, destinationTitle);
-    const fallback = shouldEnrichWalkingGeometry
-      ? attachChildGuide(await enrichPlanWithWalkingGeometry(fallbackBase))
-      : fallbackBase;
     return {
       ok: true,
-      source: "gtfs-walk-fallback",
-      plan: formatJourney(fallback),
-      options: [formatJourney(fallback)],
-      routes: [formatJourney(fallback)],
+      source: "gtfs-no-route",
+      plan: null,
+      options: [],
+      routes: [],
+      message: "NO_TRANSIT_ROUTE_FOUND",
       meta: {
         routingVersion: FINAL_ROUTING_VERSION,
-        routeOptionTypes: ["walk_only_fallback"],
+        routeOptionTypes: [],
         hasRealBusRoute: false,
-        walkingGeometryHydrated: shouldEnrichWalkingGeometry,
+        walkingGeometryHydrated: false,
         originStops: originStops.length,
         destinationStops: destinationStops.length,
         searchProfile: selectedProfile?.label || "none",
         searchRadiusMeters: selectedProfile?.radius || null,
+        from,
+        to,
       },
     };
   }
