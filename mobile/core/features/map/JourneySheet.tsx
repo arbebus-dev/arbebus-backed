@@ -33,6 +33,7 @@ import {
   getSteps,
   routeNumbersFromRoute,
 } from "../transit/models/journeyStateMachine";
+import { fetchTransitRoutes, type TransitScheduleRoute } from "../transit/services/transitApi";
 import type {
   PlaceSearchResult,
   TransitFlowState,
@@ -83,6 +84,7 @@ type Props = {
   onBackToSearch: () => void;
   onReset: () => void;
   onOpenFerries?: () => void;
+  onOpenBusRoute?: (route: TransitScheduleRoute) => void;
 };
 
 type Stage = "search" | "loading" | "routes" | "details" | "navigation";
@@ -248,6 +250,7 @@ function stageFor(
   flowState: TransitFlowState,
   selectedRoute: TransitRouteOption | null,
 ): Stage {
+  if ((selectedRoute as any)?.summary?.scheduleOnly) return "details";
   if (flowState === "routes_loading" || flowState === "destination_selected")
     return "loading";
   if (flowState === "idle" || flowState === "searching") return "search";
@@ -946,6 +949,29 @@ function AppleMenuContent({
 }) {
   const { t } = useLanguage();
   const { theme } = useAppPreferences();
+  const [routes, setRoutes] = React.useState<TransitScheduleRoute[]>([]);
+  const [loadingRoutes, setLoadingRoutes] = React.useState(false);
+  const [showAllRoutes, setShowAllRoutes] = React.useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingRoutes(true);
+    fetchTransitRoutes()
+      .then((items) => {
+        if (!cancelled) setRoutes(items);
+      })
+      .catch(() => {
+        if (!cancelled) setRoutes([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingRoutes(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const visibleRoutes = showAllRoutes ? routes : routes.slice(0, 10);
 
   return (
     <View style={styles.appleMenuRoot}>
@@ -955,20 +981,59 @@ function AppleMenuContent({
           { backgroundColor: theme.surface, borderColor: theme.border },
         ]}
       >
-        <Text style={[styles.menuSectionTitleInside, { color: theme.muted }]}>
-          {t.sheet.favourites}
-        </Text>
-        <QuickMenuRow
-          icon="heart"
-          title={t.sheet.favouritePlaces}
-          subtitle={t.sheet.favouritePlacesSubtitle}
-          onPress={onOpenFavoritePlaces}
-        />
+        <Text style={[styles.menuSectionTitleInside, { color: theme.muted }]}>AUTOBUSAI</Text>
+        {loadingRoutes ? (
+          <View style={styles.quickMenuLoadingRow}>
+            <ActivityIndicator color={theme.accent} size="small" />
+            <Text style={[styles.quickMenuSubtitle, { color: theme.muted }]}>Kraunami autobusų maršrutai...</Text>
+          </View>
+        ) : null}
+        {visibleRoutes.map((route) => (
+          <QuickMenuRow
+            key={`bus-route-${route.routeId}`}
+            icon="bus"
+            title={`${route.shortName} Autobusas`}
+            subtitle={route.subtitle || route.longName || "Stotelės ir pilna linija žemėlapyje"}
+            onPress={() => props.onOpenBusRoute?.(route)}
+          />
+        ))}
+        {routes.length > 10 ? (
+          <QuickMenuRow
+            icon={showAllRoutes ? "chevron-up" : "dots-horizontal-circle"}
+            title={showAllRoutes ? "Rodyti mažiau" : `Rodyti visus autobusus (${routes.length})`}
+            subtitle="Visi Klaipėdos GTFS maršrutai"
+            onPress={() => setShowAllRoutes((value) => !value)}
+          />
+        ) : null}
+      </View>
+
+      <View
+        style={[
+          styles.menuCard,
+          { backgroundColor: theme.surface, borderColor: theme.border },
+        ]}
+      >
+        <Text style={[styles.menuSectionTitleInside, { color: theme.muted }]}>KELTAI</Text>
         <QuickMenuRow
           icon="ferry"
           title="Keltai"
           subtitle="Tvarkaraščiai: Klaipėda, Smiltynė, Nida"
           onPress={() => props.onOpenFerries?.()}
+        />
+      </View>
+
+      <View
+        style={[
+          styles.menuCard,
+          { backgroundColor: theme.surface, borderColor: theme.border },
+        ]}
+      >
+        <Text style={[styles.menuSectionTitleInside, { color: theme.muted }]}>MĖGSTAMOS VIETOS</Text>
+        <QuickMenuRow
+          icon="heart"
+          title={t.sheet.favouritePlaces}
+          subtitle={t.sheet.favouritePlacesSubtitle}
+          onPress={onOpenFavoritePlaces}
         />
       </View>
     </View>
@@ -2506,6 +2571,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(55,245,174,0.18)",
     marginBottom: 12,
   },
+  quickMenuLoadingRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
   quickMenuRow: {
     minHeight: 54,
     borderRadius: 16,

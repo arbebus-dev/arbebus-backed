@@ -14,6 +14,8 @@ import type { PlaceSearchResult, TransitRouteOption } from "../transit/models/tr
 import {
   fetchPlaceDetails,
   fetchStationAccess,
+  fetchTransitRouteShape,
+  type TransitScheduleRoute,
   reverseGeocodePlace,
   searchPlaces,
   type StationAccessPoint,
@@ -157,6 +159,7 @@ export default function MapScreen() {
   const [ferryScreenVisible, setFerryScreenVisible] = useState(false);
   const [selectedFerryTerminalId, setSelectedFerryTerminalId] = useState<string | null>(null);
   const [liveFerries, setLiveFerries] = useState<LiveFerry[]>([]);
+  const [focusedScheduleRoute, setFocusedScheduleRoute] = useState<TransitRouteOption | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -622,6 +625,106 @@ export default function MapScreen() {
     );
   };
 
+
+  const handleOpenBusRoute = useCallback(async (route: TransitScheduleRoute) => {
+    Keyboard.dismiss();
+    setSelectedMapPlace(null);
+
+    try {
+      const payload = await fetchTransitRouteShape(route.routeId);
+      const stops = (payload.stops || []).map((stop: AnyRecord, index: number) => ({
+        ...stop,
+        id: String(stop.id ?? stop.stopId ?? `${route.routeId}-${index}`),
+        stopId: String(stop.stopId ?? stop.id ?? `${route.routeId}-${index}`),
+        title: String(stop.title ?? stop.name ?? stop.stopName ?? "Stotelė"),
+        name: String(stop.name ?? stop.title ?? stop.stopName ?? "Stotelė"),
+        latitude: Number(stop.latitude ?? stop.coordinate?.latitude),
+        longitude: Number(stop.longitude ?? stop.coordinate?.longitude),
+        coordinate: {
+          latitude: Number(stop.latitude ?? stop.coordinate?.latitude),
+          longitude: Number(stop.longitude ?? stop.coordinate?.longitude),
+        },
+      })).filter((stop: AnyRecord) => Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude));
+
+      const firstStop = stops[0] || null;
+      const lastStop = stops[stops.length - 1] || null;
+      const line = validPoints(payload.polyline || payload.points || []);
+
+      const routeOption = {
+        id: `schedule-${route.routeId}`,
+        title: `${route.shortName} Autobusas`,
+        subtitle: route.subtitle || route.longName || "Visas maršrutas",
+        mode: "bus_schedule",
+        routeId: String(route.routeId),
+        shapeId: payload.shapeId || null,
+        routeLabel: route.shortName || String(route.routeId),
+        routeNumbers: [route.shortName || String(route.routeId)],
+        totalMinutes: 0,
+        totalDurationMinutes: 0,
+        walkingMinutes: 0,
+        totalWalkMinutes: 0,
+        transfers: 0,
+        transfersCount: 0,
+        stopCount: stops.length,
+        boardStopName: firstStop?.title || route.from || "Pradžia",
+        alightStopName: lastStop?.title || route.to || "Pabaiga",
+        originStop: firstStop,
+        destinationStop: lastStop,
+        previewPoints: line,
+        polyline: line,
+        steps: [
+          {
+            id: `schedule-step-${route.routeId}`,
+            type: "bus",
+            mode: "bus",
+            title: `${route.shortName} Autobusas`,
+            subtitle: route.subtitle || route.longName || "Visos stotelės",
+            routeId: String(route.routeId),
+            routeNumber: route.shortName || String(route.routeId),
+            routeLabel: route.shortName || String(route.routeId),
+            stopCount: stops.length,
+            stops,
+            rideStops: stops,
+            routeStops: stops,
+            polyline: line,
+          },
+        ],
+        journeySteps: [
+          {
+            id: `schedule-step-${route.routeId}`,
+            type: "bus",
+            mode: "bus",
+            title: `${route.shortName} Autobusas`,
+            subtitle: route.subtitle || route.longName || "Visos stotelės",
+            routeId: String(route.routeId),
+            routeNumber: route.shortName || String(route.routeId),
+            routeLabel: route.shortName || String(route.routeId),
+            stopCount: stops.length,
+            stops,
+            rideStops: stops,
+            routeStops: stops,
+            polyline: line,
+          },
+        ],
+        headsign: route.to || null,
+        summary: { scheduleOnly: true, route },
+      } as TransitRouteOption;
+
+      setFocusedScheduleRoute(routeOption);
+
+      if (line.length >= 2) {
+        mapRef.current?.fitToCoordinates(line, {
+          animated: true,
+          edgePadding: { top: 100, right: 54, bottom: 360, left: 54 },
+        });
+      }
+    } catch {
+      setFocusedScheduleRoute(null);
+    }
+  }, []);
+
+  const mapRoute = focusedScheduleRoute || selectedRoute;
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <MapCanvas
@@ -633,17 +736,17 @@ export default function MapScreen() {
         <UserLocationLayer coordinate={userLocation} />
 
         <RoutePolylineLayer
-          route={selectedRoute}
+          route={mapRoute}
           flowState={planner.flowState}
           currentStepIndex={planner.currentStepIndex}
         />
 
         <WalkingPolylineLayer
-          route={selectedRoute}
+          route={mapRoute}
           userLocation={userLocation}
         />
 
-        <StopsLayer route={selectedRoute} flowState={planner.flowState} />
+        <StopsLayer route={mapRoute} flowState={planner.flowState} />
 
         <StationAccessLayer
           accessPoints={stationAccessPoints}
@@ -652,7 +755,7 @@ export default function MapScreen() {
 
         <FerryMarkersLayer
           selectedTerminalId={selectedFerryTerminalId}
-          selectedRoute={selectedRoute}
+          selectedRoute={mapRoute}
           liveFerries={liveFerries}
           onSelectTerminal={handleSelectFerryTerminal}
           onSelectLiveFerry={handleSelectLiveFerry}
@@ -663,7 +766,7 @@ export default function MapScreen() {
           selectedRouteLabel={selectedRouteNumber || selectedRouteLabel}
           selectedVehicleId={selectedVehicleId}
           visibleRegion={visibleRegion}
-          focusOnSelectedRoute={Boolean(selectedRoute)}
+          focusOnSelectedRoute={Boolean(mapRoute)}
         />
 
         {selectedMapPlace?.coordinate ? (
@@ -701,7 +804,7 @@ export default function MapScreen() {
         isSearching={planner.isSearching}
         isPlanning={planner.isPlanning}
         routeOptions={planner.routeOptions}
-        selectedRoute={selectedRoute}
+        selectedRoute={mapRoute}
         currentStepIndex={planner.currentStepIndex}
         travelTimeMode={planner.travelTimeMode}
         travelTimeDate={planner.travelTimeDate}
@@ -716,19 +819,23 @@ export default function MapScreen() {
         isRerouting={planner.isRerouting}
         reroutingMessage={planner.reroutingMessage}
         onChangeQuery={(text) => {
+          setFocusedScheduleRoute(null);
           void planner.runSearch(text);
         }}
         onSubmitSearch={() => {
+          setFocusedScheduleRoute(null);
           void planner.runSearch();
         }}
         onSelectDestination={(item) => {
           Keyboard.dismiss();
+          setFocusedScheduleRoute(null);
           setSelectedMapPlace(null);
           void planner.selectDestination(item);
         }}
         onSelectOrigin={(item) => {
           Keyboard.dismiss();
           setSelectedMapPlace(null);
+          setFocusedScheduleRoute(null);
           planner.selectOrigin(item);
         }}
         onClearOrigin={planner.clearOrigin}
@@ -744,13 +851,14 @@ export default function MapScreen() {
           setSelectedMapPlace(null);
           void planner.selectDestination(place);
         }}
-        onChooseRoute={planner.chooseRoute}
+        onChooseRoute={(route) => { setFocusedScheduleRoute(null); planner.chooseRoute(route); }}
         onStartJourney={planner.startJourney}
         onNextStep={planner.nextStep}
-        onBackToRoutes={planner.backToRoutesList}
-        onBackToSearch={planner.backToSearch}
-        onReset={planner.resetPlanner}
+        onBackToRoutes={() => { setFocusedScheduleRoute(null); planner.backToRoutesList(); }}
+        onBackToSearch={() => { setFocusedScheduleRoute(null); planner.backToSearch(); }}
+        onReset={() => { setFocusedScheduleRoute(null); planner.resetPlanner(); }}
         onOpenFerries={() => setFerryScreenVisible(true)}
+        onOpenBusRoute={handleOpenBusRoute}
       />
 
       <FerryScreen

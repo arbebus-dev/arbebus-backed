@@ -44,6 +44,11 @@ export const API_ENDPOINTS = {
   transitPlan: apiUrl("/api/transit/plan"),
   transitShape: (shapeId: string) =>
     apiUrl(`/api/transit/shape/${encodeURIComponent(shapeId)}`),
+  transitRoutes: apiUrl("/api/transit/routes"),
+  transitRouteStops: (routeId: string | number) =>
+    apiUrl(`/api/transit/routes/${encodeURIComponent(String(routeId))}/stops`),
+  transitRouteShape: (routeId: string | number) =>
+    apiUrl(`/api/transit/routes/${encodeURIComponent(String(routeId))}/shape`),
   departures: (stopId: string | number) =>
     apiUrl(`/api/transit/departures?stopId=${encodeURIComponent(String(stopId))}`),
   vehicle: (id: string | number) =>

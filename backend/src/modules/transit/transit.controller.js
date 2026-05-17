@@ -58,6 +58,34 @@ async function tripUpdates(_req, res, next) {
   }
 }
 
+async function routes(req, res, next) {
+  try {
+    res.json(await service.listRoutes(req.query || {}));
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function routeStops(req, res, next) {
+  try {
+    const routeId = req.params.routeId || req.query.routeId;
+    if (!routeId) return res.status(400).json({ ok: false, error: "MISSING_ROUTE_ID" });
+    res.json(await service.routeStops(routeId));
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function routeShape(req, res, next) {
+  try {
+    const routeId = req.params.routeId || req.query.routeId;
+    if (!routeId) return res.status(400).json({ ok: false, error: "MISSING_ROUTE_ID" });
+    res.json(await service.routeShape(routeId));
+  } catch (error) {
+    next(error);
+  }
+}
+
 /**
  * GET /api/transit/departures?stopId=...
  */
@@ -127,6 +155,9 @@ module.exports = {
   liveBuses,
   liveEta,
   shape,
+  routes,
+  routeStops,
+  routeShape,
   alerts,
   tripUpdates,
   departures,

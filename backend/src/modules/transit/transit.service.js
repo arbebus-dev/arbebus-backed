@@ -2508,6 +2508,127 @@ async function vehicle({ id } = {}) {
   };
 }
 
+function splitRouteLongName(longName) {
+  const raw = String(longName || "").trim();
+  if (!raw) return { from: "", to: "" };
+  const parts = raw.split(/\s*(?:-|–|—|→|>)\s*/).filter(Boolean);
+  if (parts.length >= 2) return { from: parts[0].trim(), to: parts.slice(1).join(" - ").trim() };
+  return { from: "", to: raw };
+}
+
+function publicRoute(route) {
+  const shortName = String(route?.route_short_name || route?.route_id || "").trim();
+  const longName = String(route?.route_long_name || "").trim();
+  const names = splitRouteLongName(longName);
+  return {
+    id: String(route?.route_id || shortName),
+    routeId: String(route?.route_id || shortName),
+    shortName,
+    longName: longName || `${shortName} Autobusas`,
+    title: shortName ? `${shortName} Autobusas` : (longName || "Autobusas"),
+    subtitle: names.from && names.to ? `${names.from} → ${names.to}` : (longName || "Visas maršrutas"),
+    from: names.from || null,
+    to: names.to || null,
+    color: route?.route_color ? `#${String(route.route_color).replace(/^#/, "")}` : null,
+    textColor: route?.route_text_color ? `#${String(route.route_text_color).replace(/^#/, "")}` : null,
+  };
+}
+
+function routeSortValue(route) {
+  const label = String(route?.route_short_name || route?.route_id || "").trim();
+  const n = Number(label.replace(/[^0-9]/g, ""));
+  return Number.isFinite(n) && label.match(/\d/) ? n : Number.POSITIVE_INFINITY;
+}
+
+function listRoutes() {
+  const gtfs = loadGtfs();
+  const routes = gtfs.routes
+    .filter((route) => String(route.route_type || "3") === "3" || !route.route_type)
+    .map(publicRoute)
+    .sort((a, b) => {
+      const ra = gtfs.routesById.get(String(a.routeId));
+      const rb = gtfs.routesById.get(String(b.routeId));
+      const na = routeSortValue(ra);
+      const nb = routeSortValue(rb);
+      if (na !== nb) return na - nb;
+      return String(a.shortName || a.routeId).localeCompare(String(b.shortName || b.routeId), "lt", { numeric: true });
+    });
+
+  return { ok: true, source: "gtfs", count: routes.length, routes };
+}
+
+function bestTripForRoute(routeId) {
+  const gtfs = loadGtfs();
+  const trips = gtfs.tripsByRouteId.get(String(routeId)) || [];
+  let best = null;
+  let bestScore = -1;
+
+  for (const trip of trips) {
+    const times = gtfs.stopTimesByTripId.get(String(trip.trip_id)) || [];
+    const shapePoints = trip.shape_id ? gtfs.shapesByShapeId.get(String(trip.shape_id)) || [] : [];
+    const score = times.length * 100000 + shapePoints.length;
+    if (score > bestScore) {
+      best = trip;
+      bestScore = score;
+    }
+  }
+
+  return best;
+}
+
+function routeStops(routeId) {
+  const gtfs = loadGtfs();
+  const id = String(routeId || "").trim();
+  const route = gtfs.routesById.get(id) || gtfs.routes.find((item) => String(item.route_short_name) === id);
+  const resolvedRouteId = route ? String(route.route_id) : id;
+  const trip = bestTripForRoute(resolvedRouteId);
+  const times = trip ? gtfs.stopTimesByTripId.get(String(trip.trip_id)) || [] : [];
+
+  const stops = times
+    .map((stopTime, index) => {
+      const stop = gtfs.stopsById.get(String(stopTime.stop_id));
+      return stopToPublic(stop, {
+        stopSequence: Number(stopTime.stop_sequence || index + 1),
+        arrivalTime: stopTime.arrival_time || null,
+        departureTime: stopTime.departure_time || null,
+      });
+    })
+    .filter(Boolean);
+
+  return {
+    ok: true,
+    source: "gtfs",
+    route: route ? publicRoute(route) : { routeId: resolvedRouteId, shortName: id, title: `${id} Autobusas` },
+    routeId: resolvedRouteId,
+    tripId: trip?.trip_id || null,
+    count: stops.length,
+    stops,
+  };
+}
+
+function routeShape(routeId) {
+  const gtfs = loadGtfs();
+  const stopPayload = routeStops(routeId);
+  const trip = stopPayload.tripId ? gtfs.tripsById.get(String(stopPayload.tripId)) : bestTripForRoute(stopPayload.routeId);
+  const stops = stopPayload.stops || [];
+  const polyline = shapeForTrip(trip, stops).map((point) => ({
+    latitude: Number(point.latitude),
+    longitude: Number(point.longitude),
+  })).filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude));
+
+  return {
+    ok: true,
+    source: "gtfs",
+    route: stopPayload.route,
+    routeId: stopPayload.routeId,
+    tripId: stopPayload.tripId || trip?.trip_id || null,
+    shapeId: trip?.shape_id || null,
+    polyline,
+    points: polyline,
+    stops,
+  };
+}
+
 function shape(shapeId) {
   const gtfs = loadGtfs();
   if (shapeId && gtfs.shapesByShapeId.has(String(shapeId))) {
@@ -2624,6 +2745,9 @@ module.exports = {
   liveBuses,
   liveEta,
   shape,
+  listRoutes,
+  routeStops,
+  routeShape,
   departures,
   vehicle,
   stationAccess,

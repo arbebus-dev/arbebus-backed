@@ -19,6 +19,9 @@ router.post('/plan', controller.plan);
 router.get('/plan', controller.plan);
 
 // GTFS shape/polyline for a route/trip
+router.get('/routes', controller.routes);
+router.get('/routes/:routeId/stops', controller.routeStops);
+router.get('/routes/:routeId/shape', controller.routeShape);
 router.get('/shape', controller.shape);
 router.get('/shape/:shapeId', controller.shape);
 

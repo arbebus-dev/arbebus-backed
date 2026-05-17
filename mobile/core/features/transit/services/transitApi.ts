@@ -34,6 +34,31 @@ export type WalkingRouteResult = {
   distanceMeters: number | null;
 };
 
+
+export type TransitScheduleRoute = {
+  id: string;
+  routeId: string;
+  shortName: string;
+  longName?: string;
+  title: string;
+  subtitle?: string;
+  from?: string | null;
+  to?: string | null;
+  color?: string | null;
+  textColor?: string | null;
+};
+
+export type TransitRouteShapePayload = {
+  ok: boolean;
+  route: TransitScheduleRoute;
+  routeId: string;
+  tripId?: string | null;
+  shapeId?: string | null;
+  polyline: Coordinate[];
+  points: Coordinate[];
+  stops: any[];
+};
+
 function apiBase() {
   return API_BASE.replace(/\/$/, "");
 }
@@ -1639,6 +1664,45 @@ export async function fetchStationAccess(
       };
     })
     .filter(Boolean) as StationAccessPoint[];
+}
+
+
+export async function fetchTransitRoutes(): Promise<TransitScheduleRoute[]> {
+  const response = await fetchWithRetry(API_ENDPOINTS.transitRoutes);
+  if (!response.ok) throw new Error(`Transit routes failed: ${response.status}`);
+  const data = await safeJson<any>(response);
+  const routes = Array.isArray(data?.routes) ? data.routes : [];
+  return routes.map((route: any) => ({
+    id: String(route.id ?? route.routeId ?? route.shortName),
+    routeId: String(route.routeId ?? route.id ?? route.shortName),
+    shortName: String(route.shortName ?? route.routeId ?? route.id ?? ""),
+    longName: route.longName ? String(route.longName) : undefined,
+    title: String(route.title ?? `${route.shortName ?? route.routeId} Autobusas`),
+    subtitle: route.subtitle ? String(route.subtitle) : undefined,
+    from: route.from ?? null,
+    to: route.to ?? null,
+    color: route.color ?? null,
+    textColor: route.textColor ?? null,
+  }));
+}
+
+export async function fetchTransitRouteStops(routeId: string | number): Promise<any[]> {
+  const response = await fetchWithRetry(API_ENDPOINTS.transitRouteStops(routeId));
+  if (!response.ok) throw new Error(`Transit route stops failed: ${response.status}`);
+  const data = await safeJson<any>(response);
+  return Array.isArray(data?.stops) ? data.stops : [];
+}
+
+export async function fetchTransitRouteShape(routeId: string | number): Promise<TransitRouteShapePayload> {
+  const response = await fetchWithRetry(API_ENDPOINTS.transitRouteShape(routeId));
+  if (!response.ok) throw new Error(`Transit route shape failed: ${response.status}`);
+  const data = await safeJson<any>(response);
+  const polyline = (Array.isArray(data?.polyline) ? data.polyline : data?.points || [])
+    .map(toCoordinate)
+    .filter(Boolean) as Coordinate[];
+  const stops = Array.isArray(data?.stops) ? data.stops : [];
+  const route = data?.route || { routeId: String(routeId), shortName: String(routeId), title: `${routeId} Autobusas` };
+  return { ...data, route, routeId: String(data?.routeId ?? routeId), polyline, points: polyline, stops };
 }
 
 export async function fetchVehicle(
