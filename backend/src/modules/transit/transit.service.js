@@ -580,8 +580,12 @@ function tripStopPublic(stopTime) {
   const gtfs = loadGtfs();
   const stop = stopToPublic(gtfs.stopsById.get(String(stopTime.stop_id)), {
     stopSequence: Number(stopTime.stop_sequence || 0),
-    arrivalTime: stopTime.arrival_time,
-    departureTime: stopTime.departure_time,
+    arrivalTime: stopTime.arrival_time || null,
+    departureTime: stopTime.departure_time || null,
+    arrivalText: stopTime.arrival_time || null,
+    departureText: stopTime.departure_time || null,
+    displayTime: stopTime.departure_time || stopTime.arrival_time || null,
+    time: stopTime.departure_time || stopTime.arrival_time || null,
     arrivalSeconds: secondsFromGtfsTime(stopTime.arrival_time),
     departureSeconds: secondsFromGtfsTime(stopTime.departure_time),
   });
@@ -2591,6 +2595,10 @@ function routeStops(routeId) {
         stopSequence: Number(stopTime.stop_sequence || index + 1),
         arrivalTime: stopTime.arrival_time || null,
         departureTime: stopTime.departure_time || null,
+        arrivalText: stopTime.arrival_time || null,
+        departureText: stopTime.departure_time || null,
+        displayTime: stopTime.departure_time || stopTime.arrival_time || null,
+        time: stopTime.departure_time || stopTime.arrival_time || null,
       });
     })
     .filter(Boolean);
