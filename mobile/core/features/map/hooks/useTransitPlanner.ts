@@ -12,7 +12,7 @@ import {
     firstJourneyStepIndex,
     flowStateForStepIndex,
     nextJourneyStepIndex,
-} from "../models/journeyStateMachine";
+} from "../../transit/models/journeyStateMachine";
 import type {
     Coordinate,
     PlaceSearchResult,
@@ -20,7 +20,7 @@ import type {
     TransitRouteOption,
     TransitStep,
     TransitStepType,
-} from "../models/transitTypes";
+} from "../../transit/models/transitTypes";
 import {
     fetchLiveEta,
     fetchPlaceDetails,
@@ -30,7 +30,7 @@ import {
     searchPlaces,
     type PlaceResult as ApiPlaceResult,
     type TransitRouteOption as ApiTransitRouteOption,
-} from "../services/transitApi";
+} from "../../transit/services/transitApi";
 
 // ====== helpers ======
 function safeArray<T>(arr: any): T[] {
@@ -674,10 +674,10 @@ function hasRealBusSegment(route: TransitRouteOption | null) {
 
   const steps = route.journeySteps || route.steps || [];
   const busStep = steps.find(
-    (step) => step.type === "bus" || step.type === "ride",
+    (step: TransitStep) => step.type === "bus" || step.type === "ride",
   );
   const routeNumber =
-    route.routeNumbers?.find((item) => !looksLikeFakeRouteNumber(item)) ??
+    route.routeNumbers?.find((item: string) => !looksLikeFakeRouteNumber(item)) ??
     busStep?.routeNumber ??
     route.routeId ??
     route.routeLabel;
@@ -1152,7 +1152,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         ),
       );
 
-      setSelectedRoute((current) =>
+      setSelectedRoute((current: TransitRouteOption | null) =>
         current?.id === routeId ? mergeRouteUpdate(current, update) : current,
       );
     },
@@ -1433,10 +1433,10 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
             if (requestId !== planRequestId.current) return;
             if (!hydratedOptions.length) return;
             setRouteOptions(hydratedOptions);
-            setSelectedRoute((current) => {
+            setSelectedRoute((current: TransitRouteOption | null) => {
               if (!current) return hydratedOptions[0] || null;
               return (
-                hydratedOptions.find((route) => route.id === current.id) ||
+                hydratedOptions.find((route: TransitRouteOption) => route.id === current.id) ||
                 current
               );
             });
@@ -1828,7 +1828,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
       setFlowState("arriving");
 
       const alightIndex = steps.findIndex(
-        (step) => step.type === "alight" || step.type === "arrive",
+        (step: TransitStep) => step.type === "alight" || step.type === "arrive",
       );
 
       if (alightIndex >= 0) {
