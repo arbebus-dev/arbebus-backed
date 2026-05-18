@@ -1,28 +1,30 @@
 const { getPool } = require("../../../db/pool");
 const { toResult } = require("../utils/mapSearchResult");
 
-// Arbebus FINAL local geocoder provider v170
-// Goal:
-// - one DB query per autocomplete request
-// - reads only public.addresses_search_lookup
-// - supports Lithuanian text without accents: silute -> Šilutė, laivu -> Laivų
-// - supports combined search: slengiai l -> Slengių gatvės, silute lietu -> Lietuvininkų g., Šilutė
-// - no provider timeout, no old addresses_rc_import scan, no POI/Meili/OSM fallback here
+// Arbebus RC address provider - clean public.addresses dataset version
+// Works with the rebuilt public.addresses table:
+// id, name, street, house_number, city, postcode, lat, lon
+// Rules:
+// - never joins addresses_rc_import during search
+// - never uses old match_key
+// - local DB first, one bounded query
+// - accepts house numbers and partial autocomplete
+// - returns only rows with valid WGS84 Lithuanian coordinates
 
-const PROVIDER_VERSION = "ultra-fast-v172-trigram-autocomplete";
+const PROVIDER_VERSION = "rc-addresses-clean-v1";
 const CACHE_TTL_MS = Number(process.env.SEARCH_MEMORY_CACHE_TTL_MS || 300000);
 const MAX_CACHE_SIZE = Number(process.env.SEARCH_MEMORY_CACHE_MAX || 5000);
 
 const memoryCache = new Map();
 let lastDbError = null;
 let lastQueryMs = null;
-let lastLookupCount = null;
+let lastAddressCount = null;
 let lastHealthCheck = 0;
 
 const MANUAL_PLACE_ALIASES = [
   {
     keys: ["nida"],
-    id: "settlement-manual-nida",
+    id: "manual-settlement-nida",
     type: "settlement",
     name: "Nida",
     city: "Nida",
@@ -30,27 +32,23 @@ const MANUAL_PLACE_ALIASES = [
     house_number: null,
     lat: 55.3039,
     lon: 21.0058,
-    q_prefix: "nida",
-    address_count: 1,
     source: "manual_alias",
   },
   {
     keys: ["smiltyne", "smiltynė"],
-    id: "settlement-manual-smiltyne",
+    id: "manual-settlement-smiltyne",
     type: "settlement",
     name: "Smiltynė",
-    city: "Smiltynė",
+    city: "Klaipėda",
     street: null,
     house_number: null,
     lat: 55.7064,
     lon: 21.1056,
-    q_prefix: "smiltyne",
-    address_count: 1,
     source: "manual_alias",
   },
   {
     keys: ["melnrage", "melnragė", "melnrages", "melnragės", "melnrag"],
-    id: "settlement-manual-melnrage",
+    id: "manual-settlement-melnrage",
     type: "settlement",
     name: "Melnragė",
     city: "Klaipėda",
@@ -58,13 +56,11 @@ const MANUAL_PLACE_ALIASES = [
     house_number: null,
     lat: 55.7509,
     lon: 21.0912,
-    q_prefix: "melnrage",
-    address_count: 1,
     source: "manual_alias",
   },
   {
     keys: ["giruliai", "giruliu", "girulių"],
-    id: "settlement-manual-giruliai",
+    id: "manual-settlement-giruliai",
     type: "settlement",
     name: "Giruliai",
     city: "Klaipėda",
@@ -72,8 +68,6 @@ const MANUAL_PLACE_ALIASES = [
     house_number: null,
     lat: 55.7822,
     lon: 21.0786,
-    q_prefix: "giruliai",
-    address_count: 1,
     source: "manual_alias",
   },
 ];
@@ -81,7 +75,7 @@ const MANUAL_PLACE_ALIASES = [
 function cleanText(value) {
   return String(value || "")
     .toLowerCase()
-    .replace(/[.,;:()\[\]{}]/g, " ")
+    .replace(/[.,;:()[\]{}]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -89,12 +83,12 @@ function cleanText(value) {
 function stripLithuanian(value) {
   return cleanText(value)
     .replace(/[ąáàâä]/g, "a")
-    .replace(/[č]/g, "c")
+    .replace(/č/g, "c")
     .replace(/[ęėéèêë]/g, "e")
     .replace(/[įíìîï]/g, "i")
-    .replace(/[š]/g, "s")
+    .replace(/š/g, "s")
     .replace(/[ųūúùûü]/g, "u")
-    .replace(/[ž]/g, "z");
+    .replace(/ž/g, "z");
 }
 
 function uniq(values) {
@@ -105,77 +99,50 @@ function expandLithuanianVariants(value) {
   const base = cleanText(value);
   if (!base) return [];
 
-  // Keep this intentionally small and deterministic. These variants cover the practical cases
-  // the app needs most often: Šilutė/Silute, Klaipėda/Klaipeda, Laivų/Laivu, etc.
   const replacements = [
-    ["silute", "šilutė"],
-    ["silutes", "šilutės"],
     ["klaipeda", "klaipėda"],
     ["klaipedos", "klaipėdos"],
+    ["silute", "šilutė"],
+    ["silutes", "šilutės"],
     ["siauliai", "šiauliai"],
     ["panevezys", "panevėžys"],
     ["gargzdai", "gargždai"],
-    ["kretinga", "kretinga"],
-    ["palanga", "palanga"],
-    ["slengiai", "slengiai"],
-    ["radailiai", "radailiai"],
-    ["nida", "nida"],
-    ["neringa", "neringa"],
     ["melnrage", "melnragė"],
     ["melnrages", "melnragės"],
     ["giruliu", "girulių"],
     ["laivu", "laivų"],
-    ["liuties", "liūties"],
-    ["vesos", "vėsos"],
-    ["sviesos", "šviesos"],
-    ["zaliakelio", "žaliakelio"],
-    ["zvaigzdyno", "žvaigždyno"],
-    ["ezer", "ežer"],
-    ["klipsciu", "klipščių"],
+    ["juru", "jūrų"],
+    ["taikos pr", "taikos prospektas"],
+    ["h manto", "herkaus manto"],
   ];
 
   const variants = new Set([base]);
   for (const [plain, accented] of replacements) {
     for (const current of [...variants]) {
-      if (current.includes(plain))
-        variants.add(current.replaceAll(plain, accented));
-      if (current.includes(accented))
-        variants.add(current.replaceAll(accented, plain));
+      if (current.includes(plain)) variants.add(current.replaceAll(plain, accented));
+      if (current.includes(accented)) variants.add(current.replaceAll(accented, plain));
     }
   }
 
   return [...variants].slice(0, 32);
 }
 
-function buildPrefixSets(query) {
+function buildQueryInfo(query) {
   const q = cleanText(query);
   const tokens = q.split(" ").filter(Boolean);
   const lastToken = tokens[tokens.length - 1] || q;
-
-  const fullVariants = expandLithuanianVariants(q).map((item) => `${item}%`);
-  const lastTokenVariants = expandLithuanianVariants(lastToken).map(
-    (item) => `${item}%`,
-  );
-
-  // Full prefix handles: "slengiai l", "silute lietu".
-  // Last token prefix handles Apple/Google-like fallback: "silute lietu" -> also "lietu%".
-  const allPrefixes = uniq([...fullVariants, ...lastTokenVariants]);
+  const variants = expandLithuanianVariants(q);
+  const lastVariants = expandLithuanianVariants(lastToken);
 
   return {
     q,
     tokens,
-    fullPrefixes: uniq(fullVariants),
-    lastTokenPrefixes: uniq(lastTokenVariants),
-    allPrefixes,
+    variants,
+    prefixPatterns: uniq([...variants, ...lastVariants].map((item) => `${item}%`)),
+    containsPatterns: uniq(variants.map((item) => `%${item}%`)),
+    tokenContainsPatterns: uniq(tokens.flatMap((token) => expandLithuanianVariants(token)).map((item) => `%${item}%`)),
+    hasHouseNumber: /\d+[a-ząčęėįšųūž]?([-/]\d+)?/i.test(q),
   };
-}
-
-function looksLikeHouseNumberQuery(value) {
-  return /\d+[a-ząčęėįšųūž]?([\-/]\d+)?/i.test(String(value || ""));
-}
-
-function tokenLikePatterns(queryInfo) {
-  return queryInfo.tokens.map((token) => `%${stripLithuanian(token)}%`);
 }
 
 function cacheGet(key) {
@@ -207,81 +174,68 @@ function validCoordinate(latitude, longitude) {
   );
 }
 
+function normalizeStreetForTitle(street) {
+  return String(street || "").trim();
+}
+
 function rowTitle(row) {
   if (row.type === "settlement") return row.name || row.city || "Gyvenvietė";
-  const street = row.street || row.name || "Gatvė";
+
+  // Prefer DB full address. It is the canonical value from rebuilt public.addresses.
+  if (row.name) return String(row.name).trim();
+
+  const street = normalizeStreetForTitle(row.street) || "Adresas";
   const house = String(row.house_number || "").trim();
-  if (row.type === "address" || house) return `${street} ${house}`.trim();
-  return street;
+  return `${street} ${house}`.trim();
 }
 
 function rowSubtitle(row) {
   if (row.type === "settlement") return `${row.city || row.name} · Gyvenvietė`;
-  if (row.type === "address" || row.house_number)
-    return `${row.city || "Lietuva"} · Adresas`;
+  if (row.house_number) return `${row.city || "Lietuva"} · Adresas`;
   return `${row.city || "Lietuva"} · Gatvė`;
 }
 
 function scoreRow(row, queryInfo) {
   const qNorm = stripLithuanian(queryInfo.q);
-  const prefixNorm = stripLithuanian(row.q_prefix || "");
   const nameNorm = stripLithuanian(row.name || "");
-  const cityNorm = stripLithuanian(row.city || "");
   const streetNorm = stripLithuanian(row.street || "");
-  const tokenCount = queryInfo.tokens.length;
+  const cityNorm = stripLithuanian(row.city || "");
 
-  let score = Number(row.address_count || 0);
-
-  if (prefixNorm === qNorm) score += 1200000;
-  else if (prefixNorm.startsWith(qNorm)) score += 900000;
-
-  if (tokenCount > 1 && prefixNorm.startsWith(qNorm)) score += 450000;
-  if (tokenCount > 1 && cityNorm && qNorm.startsWith(cityNorm)) score += 250000;
-
-  if (row.type === "settlement") score += 250000;
-  if (row.type === "street") score += 180000;
-
-  if (nameNorm.startsWith(qNorm)) score += 120000;
-  if (streetNorm && streetNorm.startsWith(qNorm)) score += 120000;
-
-  if (row.source === "manual_alias") score += 200000;
-
+  let score = Number(row.rank_score || 0);
+  if (row.type === "settlement") score += 500000;
+  if (row.type === "address") score += 300000;
+  if (nameNorm === qNorm) score += 500000;
+  if (nameNorm.startsWith(qNorm)) score += 250000;
+  if (streetNorm.startsWith(qNorm)) score += 180000;
+  if (cityNorm.startsWith(qNorm)) score += 50000;
+  if (queryInfo.hasHouseNumber && row.house_number) score += 250000;
+  if (row.source === "manual_alias") score += 600000;
   return score;
 }
 
 function rowToResult(row, queryInfo) {
   const latitude = Number(row.lat);
   const longitude = Number(row.lon);
-  const hasCoordinate = validCoordinate(latitude, longitude);
-  const finalLat = hasCoordinate ? latitude : 55.7033;
-  const finalLon = hasCoordinate ? longitude : 21.1443;
-  const type =
-    row.type === "settlement"
-      ? "settlement"
-      : row.house_number
-        ? "address"
-        : "street";
+  if (!validCoordinate(latitude, longitude)) return null;
+
+  const type = row.type || (row.house_number ? "address" : "street");
   const title = rowTitle(row);
+  const id = String(row.id || `${type}-${title}-${row.city || "lt"}`);
 
   return toResult({
-    id: String(row.id || `${type}-${title}-${row.city || "lt"}`),
-    placeId: String(row.id || `${type}-${title}-${row.city || "lt"}`),
+    id,
+    placeId: id,
     type,
     title,
     name: title,
     subtitle: rowSubtitle(row),
-    latitude: finalLat,
-    longitude: finalLon,
-    coordinate: { latitude: finalLat, longitude: finalLon },
+    latitude,
+    longitude,
+    coordinate: { latitude, longitude },
     source: row.source || "postgres_address",
-    category:
-      type === "settlement"
-        ? "Gyvenvietė"
-        : type === "address"
-          ? "Adresas"
-          : "Gatvė",
+    category: type === "settlement" ? "Gyvenvietė" : type === "address" ? "Adresas" : "Gatvė",
     score: scoreRow(row, queryInfo),
-    priority: type === "settlement" ? 330 : type === "address" ? 360 : 340,
+    priority: type === "settlement" ? 330 : type === "address" ? 370 : 340,
     selectable: true,
     requiresHouseNumber: false,
     keywords: [row.name, row.street, row.city, type].filter(Boolean),
@@ -291,7 +245,7 @@ function rowToResult(row, queryInfo) {
 function dedupe(items) {
   const seen = new Set();
   const out = [];
-  for (const item of items) {
+  for (const item of items.filter(Boolean)) {
     const key = `${stripLithuanian(item.title)}|${stripLithuanian(item.subtitle)}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -302,113 +256,100 @@ function dedupe(items) {
 
 function manualAliasRows(queryInfo) {
   const qNorm = stripLithuanian(queryInfo.q);
+  if (!qNorm || qNorm.length < 2) return [];
+
   return MANUAL_PLACE_ALIASES.filter((item) =>
-    item.keys.some(
-      (key) =>
-        stripLithuanian(key).startsWith(qNorm) ||
-        qNorm.startsWith(stripLithuanian(key)),
-    ),
+    item.keys.some((key) => {
+      const k = stripLithuanian(key);
+      return k.startsWith(qNorm) || qNorm.startsWith(k);
+    }),
   );
 }
 
-async function queryLookup(queryInfo, limit) {
+async function queryAddresses(queryInfo, limit) {
   const pool = getPool();
-  const hasHouseNumber = looksLikeHouseNumberQuery(queryInfo.q);
-
-  // PRO autocomplete query:
-  // 1) prefix match: name/street/city ILIKE 'query%' for instant typing
-  // 2) full address prefix: name ILIKE 'taikos 32%'
-  // 3) trigram similarity: name % query / street % query for typo tolerance
-  // No unaccent() here because this DB does not expose the unaccent(text) function.
-  // Lithuanian no-accent input is handled by expandLithuanianVariants() before SQL.
-  const plainQ = stripLithuanian(queryInfo.q);
-  const fullPrefixPatterns = uniq(
-    expandLithuanianVariants(queryInfo.q)
-      .map((item) => cleanText(item))
-      .filter(Boolean)
-      .map((item) => `${item}%`),
-  );
-  const lastToken = queryInfo.tokens[queryInfo.tokens.length - 1] || queryInfo.q;
-  const tokenPrefixPatterns = uniq(
-    expandLithuanianVariants(lastToken)
-      .map((item) => cleanText(item))
-      .filter(Boolean)
-      .map((item) => `${item}%`),
-  );
-  const allPrefixPatterns = uniq([...fullPrefixPatterns, ...tokenPrefixPatterns]);
-
-  const similarityNeedle = cleanText(
-    expandLithuanianVariants(queryInfo.q)[0] || queryInfo.q,
-  );
-  const limitValue = Math.max(limit * 5, 30);
+  const boundedLimit = Math.max(Number(limit || 12) * 4, 24);
 
   const sql = `
-    SELECT
-      id::text AS id,
-      CASE WHEN NULLIF(house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
-      name::text AS name,
-      city::text AS city,
-      street::text AS street,
-      house_number::text AS house_number,
-      lat::double precision AS lat,
-      lon::double precision AS lon,
-      name::text AS q_prefix,
-      1::int AS address_count,
-      'postgres_addresses'::text AS source,
-      GREATEST(
-        similarity(COALESCE(name, ''), $2),
-        similarity(COALESCE(street, ''), $2),
-        similarity(COALESCE(city, ''), $2)
-      ) AS trigram_score
-    FROM public.addresses
-    WHERE
-      name ILIKE ANY($1::text[])
-      OR street ILIKE ANY($1::text[])
-      OR city ILIKE ANY($1::text[])
-      OR name % $2
-      OR street % $2
-      OR city % $2
-    ORDER BY
-      CASE
-        WHEN lower(name) = lower($2) THEN 0
-        WHEN name ILIKE ANY($3::text[]) THEN 1
-        WHEN street ILIKE ANY($3::text[]) THEN 2
-        WHEN $4::boolean AND name ILIKE ANY($3::text[]) THEN 3
-        WHEN name % $2 THEN 4
-        WHEN street % $2 THEN 5
-        ELSE 9
-      END,
-      trigram_score DESC,
-      city NULLS LAST,
-      street NULLS LAST,
-      house_number NULLS LAST
-    LIMIT $5
+    WITH prefix_results AS (
+      SELECT
+        id::text AS id,
+        CASE WHEN NULLIF(house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
+        name::text AS name,
+        street::text AS street,
+        house_number::text AS house_number,
+        city::text AS city,
+        lat::double precision AS lat,
+        lon::double precision AS lon,
+        1000::int AS rank_score,
+        'postgres_address'::text AS source
+      FROM public.addresses
+      WHERE
+        lat BETWEEN 53 AND 57
+        AND lon BETWEEN 20 AND 27
+        AND (
+          name ILIKE ANY($1::text[])
+          OR street ILIKE ANY($1::text[])
+          OR city ILIKE ANY($1::text[])
+        )
+      ORDER BY name
+      LIMIT $4
+    ),
+    contains_results AS (
+      SELECT
+        id::text AS id,
+        CASE WHEN NULLIF(house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
+        name::text AS name,
+        street::text AS street,
+        house_number::text AS house_number,
+        city::text AS city,
+        lat::double precision AS lat,
+        lon::double precision AS lon,
+        650::int AS rank_score,
+        'postgres_address'::text AS source
+      FROM public.addresses
+      WHERE
+        lat BETWEEN 53 AND 57
+        AND lon BETWEEN 20 AND 27
+        AND (
+          name ILIKE ANY($2::text[])
+          OR (
+            cardinality($3::text[]) > 1
+            AND name ILIKE ALL($3::text[])
+          )
+        )
+      ORDER BY name
+      LIMIT $4
+    )
+    SELECT * FROM prefix_results
+    UNION ALL
+    SELECT * FROM contains_results
+    LIMIT $4
   `;
 
   const started = Date.now();
   const result = await pool.query(sql, [
-    allPrefixPatterns,
-    similarityNeedle || plainQ,
-    fullPrefixPatterns.length ? fullPrefixPatterns : allPrefixPatterns,
-    hasHouseNumber,
-    limitValue,
+    queryInfo.prefixPatterns.length ? queryInfo.prefixPatterns : [`${queryInfo.q}%`],
+    queryInfo.containsPatterns.length ? queryInfo.containsPatterns : [`%${queryInfo.q}%`],
+    queryInfo.tokenContainsPatterns,
+    boundedLimit,
   ]);
   lastQueryMs = Date.now() - started;
   return result.rows || [];
 }
 
 async function searchLocalAddresses(query, options = {}) {
-  const queryInfo = buildPrefixSets(query);
+  const queryInfo = buildQueryInfo(query);
   if (!queryInfo.q || queryInfo.q.length < 2) return [];
 
-  const limit = Math.min(Math.max(Number(options.limit || 8), 1), 20);
+  const limit = Math.min(Math.max(Number(options.limit || 8), 1), 30);
   const cacheKey = `local-address:${PROVIDER_VERSION}:${queryInfo.q}:${limit}:${options.autocomplete ? "auto" : "search"}`;
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
 
   try {
-    const dbRows = await queryLookup(queryInfo, limit);
-    const rows = [...dbRows, ...manualAliasRows(queryInfo)];
+    const dbRows = await queryAddresses(queryInfo, limit);
+    const rows = [...manualAliasRows(queryInfo), ...dbRows];
     const results = dedupe(rows.map((row) => rowToResult(row, queryInfo)))
       .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
       .slice(0, limit);
@@ -422,15 +363,13 @@ async function searchLocalAddresses(query, options = {}) {
   }
 }
 
-async function getLocalAddressDetails(placeId, options = {}) {
-  const id = String(placeId || "")
-    .replace(/^address-/, "")
-    .trim();
+async function getLocalAddressDetails(placeId) {
+  const id = String(placeId || "").replace(/^address-/, "").trim();
   if (!id) return null;
 
   const manual = MANUAL_PLACE_ALIASES.find((item) => String(item.id) === id);
   if (manual) {
-    const queryInfo = buildPrefixSets(manual.name || manual.city || id);
+    const queryInfo = buildQueryInfo(manual.name || manual.city || id);
     return rowToResult(manual, queryInfo);
   }
 
@@ -440,26 +379,27 @@ async function getLocalAddressDetails(placeId, options = {}) {
 
   try {
     const result = await getPool().query(
-      `SELECT id::text AS id,
-              CASE WHEN NULLIF(house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
-              name::text AS name,
-              city::text AS city,
-              street::text AS street,
-              house_number::text AS house_number,
-              lat::double precision AS lat,
-              lon::double precision AS lon,
-              name::text AS q_prefix,
-              1::int AS address_count,
-              'postgres_addresses'::text AS source
+      `SELECT
+         id::text AS id,
+         CASE WHEN NULLIF(house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
+         name::text AS name,
+         street::text AS street,
+         house_number::text AS house_number,
+         city::text AS city,
+         lat::double precision AS lat,
+         lon::double precision AS lon,
+         'postgres_address'::text AS source
        FROM public.addresses
        WHERE id::text = $1
+         AND lat BETWEEN 53 AND 57
+         AND lon BETWEEN 20 AND 27
        LIMIT 1`,
       [id],
     );
 
     const row = result.rows?.[0];
     if (!row) return null;
-    const queryInfo = buildPrefixSets(row.name || row.city || row.street || id);
+    const queryInfo = buildQueryInfo(row.name || row.street || row.city || id);
     const mapped = rowToResult(row, queryInfo);
     cacheSet(cacheKey, mapped);
     lastDbError = null;
@@ -470,34 +410,30 @@ async function getLocalAddressDetails(placeId, options = {}) {
   }
 }
 
-async function refreshLookupCount() {
-  if (Date.now() - lastHealthCheck < 30000) return lastLookupCount;
+async function refreshAddressCount() {
+  if (Date.now() - lastHealthCheck < 30000) return lastAddressCount;
   lastHealthCheck = Date.now();
   try {
-    const result = await getPool().query(
-      "SELECT COUNT(*)::int AS count FROM public.addresses",
-    );
-    lastLookupCount = Number(result.rows?.[0]?.count || 0);
+    const result = await getPool().query("SELECT COUNT(*)::int AS count FROM public.addresses");
+    lastAddressCount = Number(result.rows?.[0]?.count || 0);
     lastDbError = null;
   } catch (error) {
     lastDbError = error?.message || String(error);
   }
-  return lastLookupCount;
+  return lastAddressCount;
 }
 
 function localAddressHealth() {
-  refreshLookupCount().catch(() => undefined);
+  refreshAddressCount().catch(() => undefined);
   return {
     postgresAddressProvider: true,
-    postgresAddressCount: lastLookupCount,
+    postgresAddressCount: lastAddressCount,
     postgresAddressError: lastDbError,
-    rcAddressProvider: true,
-    rcAddressCount: lastLookupCount,
-    rcAddressError: null,
-    providerMode: "public.addresses_trigram",
+    providerMode: "public.addresses_clean_rc",
     providerVersion: PROVIDER_VERSION,
     oneQueryPerRequest: true,
-    dualPrefixFallback: true,
+    noAddressRcJoin: true,
+    noMatchKey: true,
     memoryCache: memoryCache.size,
     memoryCacheTtlMs: CACHE_TTL_MS,
     lastQueryMs,

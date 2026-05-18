@@ -38,7 +38,7 @@ const FAST_INDEX_TIMEOUT_MS = Number(
 
 const MEILI_TIMEOUT_MS = Number(process.env.MEILI_TIMEOUT_MS || 1200);
 
-const SEARCH_SERVICE_VERSION = "unified-local-search-v1";
+const SEARCH_SERVICE_VERSION = "clean-rc-address-search-v1";
 const AUTOCOMPLETE_MEMORY_TTL_MS = Number(process.env.SEARCH_AUTOCOMPLETE_MEMORY_CACHE_TTL_MS || 5 * 60 * 1000);
 const autocompleteMemoryCache = new Map();
 
