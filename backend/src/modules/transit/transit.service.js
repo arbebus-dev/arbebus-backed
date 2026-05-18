@@ -591,7 +591,9 @@ function tripStopPublic(stopTime) {
     departure_time: humanGtfsTime(stopTime.departure_time),
     arrivalText: humanGtfsTime(stopTime.arrival_time),
     departureText: humanGtfsTime(stopTime.departure_time),
-    displayTime: humanGtfsTime(stopTime.departure_time || stopTime.arrival_time),
+    displayTime: humanGtfsTime(
+      stopTime.departure_time || stopTime.arrival_time,
+    ),
     time: humanGtfsTime(stopTime.departure_time || stopTime.arrival_time),
     arrivalSeconds: secondsFromGtfsTime(stopTime.arrival_time),
     departureSeconds: secondsFromGtfsTime(stopTime.departure_time),
@@ -1480,7 +1482,6 @@ function buildPlanFromCandidate(candidate, from, to, index = 0) {
   return attachChildGuide(route);
 }
 
-
 function coordinateForPublicPoint(point) {
   const latitude = toNumber(point?.latitude ?? point?.coordinate?.latitude);
   const longitude = toNumber(point?.longitude ?? point?.coordinate?.longitude);
@@ -1512,11 +1513,14 @@ function shouldUseFerryRoute(from, to, route) {
   const reverseOriginWalk = distanceMeters(from, toTerminal);
   const reverseDestinationWalk = distanceMeters(to, fromTerminal);
 
-  const maxAccessMeters = route.serviceType === "seasonal_passenger_boat" ? 2800 : 1800;
-  const maxEgressMeters = route.serviceType === "seasonal_passenger_boat" ? 4200 : 1800;
+  const maxAccessMeters =
+    route.serviceType === "seasonal_passenger_boat" ? 2800 : 1800;
+  const maxEgressMeters =
+    route.serviceType === "seasonal_passenger_boat" ? 4200 : 1800;
 
   return (
-    originWalk <= maxAccessMeters && destinationWalk <= maxEgressMeters &&
+    originWalk <= maxAccessMeters &&
+    destinationWalk <= maxEgressMeters &&
     originWalk + destinationWalk <= reverseOriginWalk + reverseDestinationWalk
   );
 }
@@ -1528,17 +1532,45 @@ function buildFerryRouteOption(route, from, to, index = 0, options = {}) {
 
   const fromPoint = coordinateForPublicPoint(from) || from;
   const toPoint = coordinateForPublicPoint(to) || to;
-  const accessMeters = Math.max(0, Math.round(distanceMeters(fromPoint, fromTerminal.coordinate)));
-  const egressMeters = Math.max(0, Math.round(distanceMeters(toTerminal.coordinate, toPoint)));
-  const accessWalkMinutes = Math.max(0, Math.round(accessMeters / WALK_SPEED_M_PER_MIN));
-  const egressWalkMinutes = Math.max(0, Math.round(egressMeters / WALK_SPEED_M_PER_MIN));
-  const next = ferryService.getNextDepartures({ routeId: route.id, limit: 1, now: options.now || new Date() })[0] || null;
+  const accessMeters = Math.max(
+    0,
+    Math.round(distanceMeters(fromPoint, fromTerminal.coordinate)),
+  );
+  const egressMeters = Math.max(
+    0,
+    Math.round(distanceMeters(toTerminal.coordinate, toPoint)),
+  );
+  const accessWalkMinutes = Math.max(
+    0,
+    Math.round(accessMeters / WALK_SPEED_M_PER_MIN),
+  );
+  const egressWalkMinutes = Math.max(
+    0,
+    Math.round(egressMeters / WALK_SPEED_M_PER_MIN),
+  );
+  const next =
+    ferryService.getNextDepartures({
+      routeId: route.id,
+      limit: 1,
+      now: options.now || new Date(),
+    })[0] || null;
   const waitMinutes = Math.max(0, Number(next?.minutesUntil || 0));
   const ferryMinutes = Math.max(1, Number(route.durationMinutes || 1));
-  const totalDurationMinutes = Math.max(1, accessWalkMinutes + waitMinutes + ferryMinutes + egressWalkMinutes);
+  const totalDurationMinutes = Math.max(
+    1,
+    accessWalkMinutes + waitMinutes + ferryMinutes + egressWalkMinutes,
+  );
   const ferryPolyline = [fromTerminal.coordinate, toTerminal.coordinate];
-  const polyline = [fromPoint, fromTerminal.coordinate, toTerminal.coordinate, toPoint]
-    .filter((point) => Number.isFinite(Number(point?.latitude)) && Number.isFinite(Number(point?.longitude)));
+  const polyline = [
+    fromPoint,
+    fromTerminal.coordinate,
+    toTerminal.coordinate,
+    toPoint,
+  ].filter(
+    (point) =>
+      Number.isFinite(Number(point?.latitude)) &&
+      Number.isFinite(Number(point?.longitude)),
+  );
 
   const journeySteps = [];
 
@@ -1566,7 +1598,9 @@ function buildFerryRouteOption(route, from, to, index = 0, options = {}) {
     routeNumber: route.routeCode,
     routeLabel: route.ferryLine || route.title,
     title: route.title,
-    subtitle: next ? `${route.ferryLine || "Keltas"} • išvyksta ${next.departureTime}` : (route.ferryLine || "Keltas"),
+    subtitle: next
+      ? `${route.ferryLine || "Keltas"} • išvyksta ${next.departureTime}`
+      : route.ferryLine || "Keltas",
     minutes: ferryMinutes,
     durationMinutes: ferryMinutes,
     departureTime: next?.departureTime || null,
@@ -1606,7 +1640,15 @@ function buildFerryRouteOption(route, from, to, index = 0, options = {}) {
     routeId: route.id,
     ferryRouteId: route.id,
     ferryLine: route.ferryLine || null,
-    pierType: String(route.ferryLine || route.id).toLowerCase().includes("naujoji") ? "new" : String(route.ferryLine || route.id).toLowerCase().includes("senoji") ? "old" : "nida",
+    pierType: String(route.ferryLine || route.id)
+      .toLowerCase()
+      .includes("naujoji")
+      ? "new"
+      : String(route.ferryLine || route.id)
+            .toLowerCase()
+            .includes("senoji")
+        ? "old"
+        : "nida",
     routeLabel: routeLabelText,
     routeNumbers: [],
     totalMinutes: totalDurationMinutes,
@@ -1680,12 +1722,17 @@ function buildFerryPlans(from, to, options = {}) {
   return ferryService
     .getRoutes()
     .filter((route) => shouldUseFerryRoute(from, to, route))
-    .map((route, index) => buildFerryRouteOption(route, from, to, index, options))
+    .map((route, index) =>
+      buildFerryRouteOption(route, from, to, index, options),
+    )
     .filter(Boolean)
-    .sort((a, b) => Number(a.totalDurationMinutes || 999) - Number(b.totalDurationMinutes || 999))
+    .sort(
+      (a, b) =>
+        Number(a.totalDurationMinutes || 999) -
+        Number(b.totalDurationMinutes || 999),
+    )
     .slice(0, 3);
 }
-
 
 function bestTransitPlanBetween(from, to, planTimeOptions, idPrefix = "leg") {
   const profiles = planSearchProfiles(from, to);
@@ -1699,10 +1746,12 @@ function bestTransitPlanBetween(from, to, planTimeOptions, idPrefix = "leg") {
     if (!candidates.length) continue;
     const plan = buildPlanFromCandidate(candidates[0], from, to, 0);
     if (!plan) continue;
-    const steps = (plan.journeySteps || plan.steps || []).map((step, index) => ({
-      ...step,
-      id: `${idPrefix}-${step.id || index}`,
-    }));
+    const steps = (plan.journeySteps || plan.steps || []).map(
+      (step, index) => ({
+        ...step,
+        id: `${idPrefix}-${step.id || index}`,
+      }),
+    );
     return {
       ...plan,
       id: `${idPrefix}-${plan.id || "bus"}`,
@@ -1766,16 +1815,21 @@ function currentVilniusMinutes(now = new Date()) {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).formatToParts(now).reduce((acc, part) => {
-    if (part.type !== "literal") acc[part.type] = part.value;
-    return acc;
-  }, {});
+  })
+    .formatToParts(now)
+    .reduce((acc, part) => {
+      if (part.type !== "literal") acc[part.type] = part.value;
+      return acc;
+    }, {});
   return Number(parts.hour || 0) * 60 + Number(parts.minute || 0);
 }
 
 function findNidaBusRoute(from, to, options = {}) {
-  const route = Array.isArray(nidaBusRoutes?.routes) ? nidaBusRoutes.routes[0] : null;
-  if (!route || !Array.isArray(route.stops) || route.stops.length < 2) return null;
+  const route = Array.isArray(nidaBusRoutes?.routes)
+    ? nidaBusRoutes.routes[0]
+    : null;
+  if (!route || !Array.isArray(route.stops) || route.stops.length < 2)
+    return null;
 
   const fromPoint = coordinateForPublicPoint(from) || from;
   const toPoint = coordinateForPublicPoint(to) || to;
@@ -1786,37 +1840,78 @@ function findNidaBusRoute(from, to, options = {}) {
     distanceFromOrigin: distanceMeters(fromPoint, stop),
     distanceFromDestination: distanceMeters(toPoint, stop),
   }));
-  const originStop = [...stops].sort((a, b) => a.distanceFromOrigin - b.distanceFromOrigin)[0];
-  const destinationStop = [...stops].sort((a, b) => a.distanceFromDestination - b.distanceFromDestination)[0];
-  const originIndex = route.stops.findIndex((stop) => stop.id === originStop.id);
-  const destinationIndex = route.stops.findIndex((stop) => stop.id === destinationStop.id);
+  const originStop = [...stops].sort(
+    (a, b) => a.distanceFromOrigin - b.distanceFromOrigin,
+  )[0];
+  const destinationStop = [...stops].sort(
+    (a, b) => a.distanceFromDestination - b.distanceFromDestination,
+  )[0];
+  const originIndex = route.stops.findIndex(
+    (stop) => stop.id === originStop.id,
+  );
+  const destinationIndex = route.stops.findIndex(
+    (stop) => stop.id === destinationStop.id,
+  );
 
-  if (originIndex < 0 || destinationIndex < 0 || originIndex >= destinationIndex) return null;
-  if (originStop.distanceFromOrigin > 4200 || destinationStop.distanceFromDestination > 5200) return null;
+  if (
+    originIndex < 0 ||
+    destinationIndex < 0 ||
+    originIndex >= destinationIndex
+  )
+    return null;
+  if (
+    originStop.distanceFromOrigin > 4200 ||
+    destinationStop.distanceFromDestination > 5200
+  )
+    return null;
 
-  const scheduleRows = Array.isArray(nidaBusSchedules?.departures) ? nidaBusSchedules.departures : [];
+  const scheduleRows = Array.isArray(nidaBusSchedules?.departures)
+    ? nidaBusSchedules.departures
+    : [];
   const nowMinutes = currentVilniusMinutes(options.now || new Date());
   const nextRow = scheduleRows
     .map((row) => ({ row, departMinutes: minutesFromClock(row.time) }))
     .filter((item) => Number.isFinite(item.departMinutes))
-    .map((item) => ({ ...item, wait: item.departMinutes >= nowMinutes ? item.departMinutes - nowMinutes : item.departMinutes + 1440 - nowMinutes }))
+    .map((item) => ({
+      ...item,
+      wait:
+        item.departMinutes >= nowMinutes
+          ? item.departMinutes - nowMinutes
+          : item.departMinutes + 1440 - nowMinutes,
+    }))
     .sort((a, b) => a.wait - b.wait)[0];
 
   const slicedStops = route.stops.slice(originIndex, destinationIndex + 1);
   const totalRouteMinutes = Number(route.durationMinutes || 55);
   const perSegment = totalRouteMinutes / Math.max(1, route.stops.length - 1);
-  const rideMinutes = Math.max(1, Math.round((destinationIndex - originIndex) * perSegment));
+  const rideMinutes = Math.max(
+    1,
+    Math.round((destinationIndex - originIndex) * perSegment),
+  );
   const departureBase = nextRow?.departMinutes ?? nowMinutes;
-  const departureAtOrigin = departureBase + Math.round(originIndex * perSegment);
-  const arrivalAtDestination = departureBase + Math.round(destinationIndex * perSegment);
+  const departureAtOrigin =
+    departureBase + Math.round(originIndex * perSegment);
+  const arrivalAtDestination =
+    departureBase + Math.round(destinationIndex * perSegment);
 
-  const publicStops = slicedStops.map((stop, index) => makeNidaStop(stop, {
-    stopSequence: index + 1,
-    departureTime: clockFromMinutes(departureBase + Math.round((originIndex + index) * perSegment)),
-    arrivalTime: clockFromMinutes(departureBase + Math.round((originIndex + index) * perSegment)),
-    displayTime: clockFromMinutes(departureBase + Math.round((originIndex + index) * perSegment)),
+  const publicStops = slicedStops.map((stop, index) =>
+    makeNidaStop(stop, {
+      stopSequence: index + 1,
+      departureTime: clockFromMinutes(
+        departureBase + Math.round((originIndex + index) * perSegment),
+      ),
+      arrivalTime: clockFromMinutes(
+        departureBase + Math.round((originIndex + index) * perSegment),
+      ),
+      displayTime: clockFromMinutes(
+        departureBase + Math.round((originIndex + index) * perSegment),
+      ),
+    }),
+  );
+  const polyline = slicedStops.map((stop) => ({
+    latitude: stop.latitude,
+    longitude: stop.longitude,
   }));
-  const polyline = slicedStops.map((stop) => ({ latitude: stop.latitude, longitude: stop.longitude }));
 
   return {
     id: `nida-bus-${originStop.id}-${destinationStop.id}`,
@@ -1845,7 +1940,13 @@ function findNidaBusRoute(from, to, options = {}) {
 }
 
 function connectorPlanSteps(from, to, planTimeOptions, idPrefix, options = {}) {
-  const walk = buildWalkConnector(from, to, idPrefix.includes("access") ? "Eik iki perkėlos" : "Eik iki tikslo", `${idPrefix}-walk`, options.maxWalkMeters || 3200);
+  const walk = buildWalkConnector(
+    from,
+    to,
+    idPrefix.includes("access") ? "Eik iki perkėlos" : "Eik iki tikslo",
+    `${idPrefix}-walk`,
+    options.maxWalkMeters || 3200,
+  );
   if (walk) return [walk];
 
   const nidaBus = findNidaBusRoute(from, to, options);
@@ -1874,15 +1975,25 @@ function shouldConsiderCombinedFerryRoute(from, to, route) {
     distanceMeters(toTerminal, fromTerminal) +
     distanceMeters(fromTerminal, to);
 
-  const routeTouchesDestinationSide = Math.min(
-    distanceMeters(to, toTerminal),
-    distanceMeters(to, fromTerminal),
-  ) <= (route.serviceType === "seasonal_passenger_boat" ? 90000 : 65000);
+  const routeTouchesDestinationSide =
+    Math.min(
+      distanceMeters(to, toTerminal),
+      distanceMeters(to, fromTerminal),
+    ) <= (route.serviceType === "seasonal_passenger_boat" ? 90000 : 65000);
 
-  return routeTouchesDestinationSide && viaFerry <= reverseViaFerry && viaFerry <= direct * 1.85 + 9000;
+  return (
+    routeTouchesDestinationSide &&
+    viaFerry <= reverseViaFerry &&
+    viaFerry <= direct * 1.85 + 9000
+  );
 }
 
-function buildCombinedFerryTransitPlans(from, to, planTimeOptions, options = {}) {
+function buildCombinedFerryTransitPlans(
+  from,
+  to,
+  planTimeOptions,
+  options = {},
+) {
   return ferryService
     .getRoutes()
     .filter((route) => shouldConsiderCombinedFerryRoute(from, to, route))
@@ -1891,33 +2002,84 @@ function buildCombinedFerryTransitPlans(from, to, planTimeOptions, options = {})
       const toTerminal = ferryTerminalPoint(route.to);
       if (!fromTerminal || !toTerminal) return null;
 
-      const accessSteps = connectorPlanSteps(from, fromTerminal.coordinate, planTimeOptions, `ferry-access-${route.id}`, {
-        ...options,
-        maxWalkMeters: route.serviceType === "seasonal_passenger_boat" ? 3200 : 2600,
-      });
-      const egressSteps = connectorPlanSteps(toTerminal.coordinate, to, planTimeOptions, `ferry-egress-${route.id}`, {
-        ...options,
-        maxWalkMeters: route.serviceType === "seasonal_passenger_boat" ? 5600 : 3200,
-      });
+      const accessSteps = connectorPlanSteps(
+        from,
+        fromTerminal.coordinate,
+        planTimeOptions,
+        `ferry-access-${route.id}`,
+        {
+          ...options,
+          maxWalkMeters:
+            route.serviceType === "seasonal_passenger_boat" ? 3200 : 2600,
+        },
+      );
+      const egressSteps = connectorPlanSteps(
+        toTerminal.coordinate,
+        to,
+        planTimeOptions,
+        `ferry-egress-${route.id}`,
+        {
+          ...options,
+          maxWalkMeters:
+            route.serviceType === "seasonal_passenger_boat" ? 5600 : 3200,
+        },
+      );
 
       if (!accessSteps.length || !egressSteps.length) return null;
 
-      const ferryOnly = buildFerryRouteOption(route, fromTerminal.coordinate, toTerminal.coordinate, index, options);
-      const ferryStep = (ferryOnly?.journeySteps || []).find((step) => step.type === "ferry");
+      const ferryOnly = buildFerryRouteOption(
+        route,
+        fromTerminal.coordinate,
+        toTerminal.coordinate,
+        index,
+        options,
+      );
+      const ferryStep = (ferryOnly?.journeySteps || []).find(
+        (step) => step.type === "ferry",
+      );
       if (!ferryStep) return null;
 
-      const journeySteps = [...accessSteps, ferryStep, ...egressSteps].map((step, stepIndex) => ({
-        ...step,
-        id: `combined-${route.id}-${step.id || stepIndex}`,
-        sequenceIndex: stepIndex,
-      }));
+      const journeySteps = [...accessSteps, ferryStep, ...egressSteps].map(
+        (step, stepIndex) => ({
+          ...step,
+          id: `combined-${route.id}-${step.id || stepIndex}`,
+          sequenceIndex: stepIndex,
+        }),
+      );
 
-      const totalDurationMinutes = journeySteps.reduce((sum, step) => sum + Number(step.durationMinutes || step.minutes || 0), 0);
-      const totalWalkMinutes = journeySteps.filter((step) => step.type === "walk" || step.mode === "walk").reduce((sum, step) => sum + Number(step.durationMinutes || step.minutes || 0), 0);
-      const totalBusMinutes = journeySteps.filter((step) => step.mode === "bus" || step.type === "bus" || step.type === "ride").reduce((sum, step) => sum + Number(step.durationMinutes || step.minutes || 0), 0);
-      const transferCount = Math.max(1, journeySteps.filter((step) => ["bus", "ride", "ferry"].includes(String(step.type))).length - 1);
+      const totalDurationMinutes = journeySteps.reduce(
+        (sum, step) => sum + Number(step.durationMinutes || step.minutes || 0),
+        0,
+      );
+      const totalWalkMinutes = journeySteps
+        .filter((step) => step.type === "walk" || step.mode === "walk")
+        .reduce(
+          (sum, step) =>
+            sum + Number(step.durationMinutes || step.minutes || 0),
+          0,
+        );
+      const totalBusMinutes = journeySteps
+        .filter(
+          (step) =>
+            step.mode === "bus" || step.type === "bus" || step.type === "ride",
+        )
+        .reduce(
+          (sum, step) =>
+            sum + Number(step.durationMinutes || step.minutes || 0),
+          0,
+        );
+      const transferCount = Math.max(
+        1,
+        journeySteps.filter((step) =>
+          ["bus", "ride", "ferry"].includes(String(step.type)),
+        ).length - 1,
+      );
       const polyline = rebuildPolylineFromSteps(journeySteps, []);
-      const liveFerry = ferryLiveService.getLiveFerries({ routeId: route.id, now: options.now || new Date() })[0] || null;
+      const liveFerry =
+        ferryLiveService.getLiveFerries({
+          routeId: route.id,
+          now: options.now || new Date(),
+        })[0] || null;
       const routeLabelText = `Autobusas + ${route.ferryLine || route.title}`;
 
       return attachChildGuide({
@@ -1929,7 +2091,13 @@ function buildCombinedFerryTransitPlans(from, to, planTimeOptions, options = {})
         ferryRouteId: route.id,
         ferryLine: route.ferryLine || null,
         routeLabel: routeLabelText,
-        routeNumbers: Array.from(new Set(journeySteps.map((step) => step.routeNumber || step.routeLabel).filter(Boolean))),
+        routeNumbers: Array.from(
+          new Set(
+            journeySteps
+              .map((step) => step.routeNumber || step.routeLabel)
+              .filter(Boolean),
+          ),
+        ),
         totalMinutes: Math.max(1, totalDurationMinutes),
         totalDurationMinutes: Math.max(1, totalDurationMinutes),
         walkingMinutes: totalWalkMinutes,
@@ -1938,31 +2106,58 @@ function buildCombinedFerryTransitPlans(from, to, planTimeOptions, options = {})
         etaMinutes: Math.max(1, totalDurationMinutes),
         transfers: transferCount,
         transfersCount: transferCount,
-        stopCount: journeySteps.reduce((sum, step) => sum + Number(step.stopCount || 0), 0),
-        boardStopName: journeySteps.find((step) => step.fromStopName || step.toStopName)?.fromStopName || route.from.name,
-        alightStopName: [...journeySteps].reverse().find((step) => step.toStopName || step.fromStopName)?.toStopName || route.to.name,
+        stopCount: journeySteps.reduce(
+          (sum, step) => sum + Number(step.stopCount || 0),
+          0,
+        ),
+        boardStopName:
+          journeySteps.find((step) => step.fromStopName || step.toStopName)
+            ?.fromStopName || route.from.name,
+        alightStopName:
+          [...journeySteps]
+            .reverse()
+            .find((step) => step.toStopName || step.fromStopName)?.toStopName ||
+          route.to.name,
         originStop: fromTerminal,
         destinationStop: toTerminal,
         transferStops: [fromTerminal, toTerminal],
-        transferMessages: [`Persėdimas į keltą: ${route.from.name}`, `Po kelto tęsk maršrutą nuo: ${route.to.name}`],
+        transferMessages: [
+          `Persėdimas į keltą: ${route.from.name}`,
+          `Po kelto tęsk maršrutą nuo: ${route.to.name}`,
+        ],
         previewPoints: polyline,
         polyline,
         steps: journeySteps,
         journeySteps,
         departureText: ferryStep.departureTime || null,
-        arrivalText: journeySteps[journeySteps.length - 1]?.arrivalTime || ferryStep.arrivalTime || null,
+        arrivalText:
+          journeySteps[journeySteps.length - 1]?.arrivalTime ||
+          ferryStep.arrivalTime ||
+          null,
         journeyMessage: `Maršrutas sujungtas: autobusas/ėjimas → keltas → autobusas/ėjimas`,
         liveFerry,
         summary: {
           routeLabel: routeLabelText,
-          routeNumbers: Array.from(new Set(journeySteps.map((step) => step.routeNumber || step.routeLabel).filter(Boolean))),
+          routeNumbers: Array.from(
+            new Set(
+              journeySteps
+                .map((step) => step.routeNumber || step.routeLabel)
+                .filter(Boolean),
+            ),
+          ),
           totalDurationMinutes: Math.max(1, totalDurationMinutes),
           totalWalkMinutes,
           totalBusMinutes,
           transfersCount: transferCount,
-          stopCount: journeySteps.reduce((sum, step) => sum + Number(step.stopCount || 0), 0),
+          stopCount: journeySteps.reduce(
+            (sum, step) => sum + Number(step.stopCount || 0),
+            0,
+          ),
           departureTime: ferryStep.departureTime || null,
-          arrivalTime: journeySteps[journeySteps.length - 1]?.arrivalTime || ferryStep.arrivalTime || null,
+          arrivalTime:
+            journeySteps[journeySteps.length - 1]?.arrivalTime ||
+            ferryStep.arrivalTime ||
+            null,
           journeyMessage: `Autobusas/ėjimas → keltas → autobusas/ėjimas`,
           optionType: "bus_ferry_bus",
           optionLabel: "Su keltu",
@@ -1971,17 +2166,27 @@ function buildCombinedFerryTransitPlans(from, to, planTimeOptions, options = {})
           routingQuality: {
             score: Math.max(1, totalDurationMinutes),
             candidateType: "bus_ferry_bus",
-            hasGtfsSchedule: accessSteps.some((step) => step.mode === "bus") || egressSteps.some((step) => step.mode === "bus"),
+            hasGtfsSchedule:
+              accessSteps.some((step) => step.mode === "bus") ||
+              egressSteps.some((step) => step.mode === "bus"),
             hasFerrySchedule: true,
             hasFerryLive: Boolean(liveFerry),
-            hasNidaSeedBus: egressSteps.some((step) => step.source === "manual_neringa_seed") || accessSteps.some((step) => step.source === "manual_neringa_seed"),
+            hasNidaSeedBus:
+              egressSteps.some(
+                (step) => step.source === "manual_neringa_seed",
+              ) ||
+              accessSteps.some((step) => step.source === "manual_neringa_seed"),
           },
         },
         legs: journeySteps.filter((step) => step.type !== "walk"),
       });
     })
     .filter(Boolean)
-    .sort((a, b) => Number(a.totalDurationMinutes || 9999) - Number(b.totalDurationMinutes || 9999))
+    .sort(
+      (a, b) =>
+        Number(a.totalDurationMinutes || 9999) -
+        Number(b.totalDurationMinutes || 9999),
+    )
     .slice(0, 4);
 }
 
@@ -2109,7 +2314,12 @@ async function plan(body = {}) {
 
   const ferryNow = body.travelAt ? new Date(body.travelAt) : new Date();
   const ferryPlans = buildFerryPlans(from, to, { now: ferryNow });
-  const combinedFerryPlans = buildCombinedFerryTransitPlans(from, to, planTimeOptions, { now: ferryNow });
+  const combinedFerryPlans = buildCombinedFerryTransitPlans(
+    from,
+    to,
+    planTimeOptions,
+    { now: ferryNow },
+  );
 
   const profiles = planSearchProfiles(from, to);
   let selectedProfile = profiles[0];
@@ -2164,7 +2374,9 @@ async function plan(body = {}) {
       routes: allFerryPlans,
       meta: {
         routingVersion: FINAL_ROUTING_VERSION,
-        routeOptionTypes: allFerryPlans.map((route) => route.summary?.optionType || "ferry"),
+        routeOptionTypes: allFerryPlans.map(
+          (route) => route.summary?.optionType || "ferry",
+        ),
         hasRealBusRoute: false,
         hasFerryRoute: true,
         walkingGeometryHydrated: false,
@@ -2205,7 +2417,11 @@ async function plan(body = {}) {
   }
 
   const candidatePlans = [...plans, ...combinedFerryPlans, ...ferryPlans]
-    .sort((a, b) => Number(a.totalDurationMinutes || 999) - Number(b.totalDurationMinutes || 999))
+    .sort(
+      (a, b) =>
+        Number(a.totalDurationMinutes || 999) -
+        Number(b.totalDurationMinutes || 999),
+    )
     .slice(0, 6);
 
   const polishedOptions = buildPolishedRouteOptions(candidatePlans);
@@ -2229,8 +2445,14 @@ async function plan(body = {}) {
       routeOptionTypes: formattedOptions.map(
         (route) => route.summary?.optionType || route.optionType || "route",
       ),
-      hasFerryRoute: formattedOptions.some((route) => route.summary?.hasFerryRoute || route.ferryRouteId),
-      hasBusFerryBusRoute: formattedOptions.some((route) => route.summary?.originalOptionType === "bus_ferry_bus" || route.summary?.optionType === "bus_ferry_bus"),
+      hasFerryRoute: formattedOptions.some(
+        (route) => route.summary?.hasFerryRoute || route.ferryRouteId,
+      ),
+      hasBusFerryBusRoute: formattedOptions.some(
+        (route) =>
+          route.summary?.originalOptionType === "bus_ferry_bus" ||
+          route.summary?.optionType === "bus_ferry_bus",
+      ),
       fields: [
         "journeySteps",
         "childGuide",
@@ -2829,12 +3051,15 @@ function splitRouteLongName(longName) {
   const raw = String(longName || "").trim();
   if (!raw) return { from: "", to: "" };
   const parts = raw.split(/\s*(?:-|–|—|→|>)\s*/).filter(Boolean);
-  if (parts.length >= 2) return { from: parts[0].trim(), to: parts.slice(1).join(" - ").trim() };
+  if (parts.length >= 2)
+    return { from: parts[0].trim(), to: parts.slice(1).join(" - ").trim() };
   return { from: "", to: raw };
 }
 
-function publicRoute(route) {
-  const shortName = String(route?.route_short_name || route?.route_id || "").trim();
+function publicBusRoute(route) {
+  const shortName = String(
+    route?.route_short_name || route?.route_id || "",
+  ).trim();
   const longName = String(route?.route_long_name || "").trim();
   const names = splitRouteLongName(longName);
   return {
@@ -2842,12 +3067,19 @@ function publicRoute(route) {
     routeId: String(route?.route_id || shortName),
     shortName,
     longName: longName || `${shortName} Autobusas`,
-    title: shortName ? `${shortName} Autobusas` : (longName || "Autobusas"),
-    subtitle: names.from && names.to ? `${names.from} → ${names.to}` : (longName || "Visas maršrutas"),
+    title: shortName ? `${shortName} Autobusas` : longName || "Autobusas",
+    subtitle:
+      names.from && names.to
+        ? `${names.from} → ${names.to}`
+        : longName || "Visas maršrutas",
     from: names.from || null,
     to: names.to || null,
-    color: route?.route_color ? `#${String(route.route_color).replace(/^#/, "")}` : null,
-    textColor: route?.route_text_color ? `#${String(route.route_text_color).replace(/^#/, "")}` : null,
+    color: route?.route_color
+      ? `#${String(route.route_color).replace(/^#/, "")}`
+      : null,
+    textColor: route?.route_text_color
+      ? `#${String(route.route_text_color).replace(/^#/, "")}`
+      : null,
   };
 }
 
@@ -2860,15 +3092,21 @@ function routeSortValue(route) {
 function listRoutes() {
   const gtfs = loadGtfs();
   const routes = gtfs.routes
-    .filter((route) => String(route.route_type || "3") === "3" || !route.route_type)
-    .map(publicRoute)
+    .filter(
+      (route) => String(route.route_type || "3") === "3" || !route.route_type,
+    )
+    .map(publicBusRoute)
     .sort((a, b) => {
       const ra = gtfs.routesById.get(String(a.routeId));
       const rb = gtfs.routesById.get(String(b.routeId));
       const na = routeSortValue(ra);
       const nb = routeSortValue(rb);
       if (na !== nb) return na - nb;
-      return String(a.shortName || a.routeId).localeCompare(String(b.shortName || b.routeId), "lt", { numeric: true });
+      return String(a.shortName || a.routeId).localeCompare(
+        String(b.shortName || b.routeId),
+        "lt",
+        { numeric: true },
+      );
     });
 
   return { ok: true, source: "gtfs", count: routes.length, routes };
@@ -2882,7 +3120,9 @@ function bestTripForRoute(routeId) {
 
   for (const trip of trips) {
     const times = gtfs.stopTimesByTripId.get(String(trip.trip_id)) || [];
-    const shapePoints = trip.shape_id ? gtfs.shapesByShapeId.get(String(trip.shape_id)) || [] : [];
+    const shapePoints = trip.shape_id
+      ? gtfs.shapesByShapeId.get(String(trip.shape_id)) || []
+      : [];
     const score = times.length * 100000 + shapePoints.length;
     if (score > bestScore) {
       best = trip;
@@ -2896,10 +3136,14 @@ function bestTripForRoute(routeId) {
 function routeStops(routeId) {
   const gtfs = loadGtfs();
   const id = String(routeId || "").trim();
-  const route = gtfs.routesById.get(id) || gtfs.routes.find((item) => String(item.route_short_name) === id);
+  const route =
+    gtfs.routesById.get(id) ||
+    gtfs.routes.find((item) => String(item.route_short_name) === id);
   const resolvedRouteId = route ? String(route.route_id) : id;
   const trip = bestTripForRoute(resolvedRouteId);
-  const times = trip ? gtfs.stopTimesByTripId.get(String(trip.trip_id)) || [] : [];
+  const times = trip
+    ? gtfs.stopTimesByTripId.get(String(trip.trip_id)) || []
+    : [];
 
   const stops = times
     .map((stopTime, index) => {
@@ -2914,7 +3158,9 @@ function routeStops(routeId) {
         departure_time: humanGtfsTime(stopTime.departure_time),
         arrivalText: humanGtfsTime(stopTime.arrival_time),
         departureText: humanGtfsTime(stopTime.departure_time),
-        displayTime: humanGtfsTime(stopTime.departure_time || stopTime.arrival_time),
+        displayTime: humanGtfsTime(
+          stopTime.departure_time || stopTime.arrival_time,
+        ),
         time: humanGtfsTime(stopTime.departure_time || stopTime.arrival_time),
       });
     })
@@ -2923,7 +3169,20 @@ function routeStops(routeId) {
   return {
     ok: true,
     source: "gtfs",
-    route: route ? publicRoute(route) : { routeId: resolvedRouteId, shortName: id, title: `${id} Autobusas` },
+    route: route
+      ? publicBusRoute(route)
+      : {
+          id: resolvedRouteId,
+          routeId: resolvedRouteId,
+          shortName: id,
+          longName: `${id} Autobusas`,
+          title: `${id} Autobusas`,
+          subtitle: "Visas maršrutas",
+          from: null,
+          to: null,
+          color: null,
+          textColor: null,
+        },
     routeId: resolvedRouteId,
     tripId: trip?.trip_id || null,
     count: stops.length,
@@ -2934,12 +3193,19 @@ function routeStops(routeId) {
 function routeShape(routeId) {
   const gtfs = loadGtfs();
   const stopPayload = routeStops(routeId);
-  const trip = stopPayload.tripId ? gtfs.tripsById.get(String(stopPayload.tripId)) : bestTripForRoute(stopPayload.routeId);
+  const trip = stopPayload.tripId
+    ? gtfs.tripsById.get(String(stopPayload.tripId))
+    : bestTripForRoute(stopPayload.routeId);
   const stops = stopPayload.stops || [];
-  const polyline = shapeForTrip(trip, stops).map((point) => ({
-    latitude: Number(point.latitude),
-    longitude: Number(point.longitude),
-  })).filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude));
+  const polyline = shapeForTrip(trip, stops)
+    .map((point) => ({
+      latitude: Number(point.latitude),
+      longitude: Number(point.longitude),
+    }))
+    .filter(
+      (point) =>
+        Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
+    );
 
   return {
     ok: true,
