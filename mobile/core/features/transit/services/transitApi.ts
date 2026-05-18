@@ -1271,16 +1271,15 @@ async function runSearchRequest(
       )
       .filter(Boolean) as PlaceResult[];
 
-    const addressPreferred = normalized.filter((item: any) => {
-      const type = String(item.type || "").toLowerCase();
-      if (!["address", "street", "city", "region"].includes(type)) return false;
-      if (item.selectable === false || item.requiresHouseNumber === true)
-        return type === "street";
+    // Unified Local Search already ranks addresses, settlements, POI and stops on the backend.
+    // Do not filter the list down to only addresses here; otherwise places like
+    // Melnragė / Smiltynė / ferry terminals / POI disappear while typing.
+    const safeResults = normalized.filter((item: any) => {
+      if (item.selectable === false || item.requiresHouseNumber === true) {
+        return String(item.type || "").toLowerCase() === "street";
+      }
       return isUsableCoordinate(item.coordinate || null);
     });
-
-    // For normal typing, addresses win. If backend returns no addresses, keep POI fallback.
-    const safeResults = addressPreferred.length ? addressPreferred : normalized;
 
     return dedupePlaceResults(safeResults)
       .sort(

@@ -38,7 +38,7 @@ const FAST_INDEX_TIMEOUT_MS = Number(
 
 const MEILI_TIMEOUT_MS = Number(process.env.MEILI_TIMEOUT_MS || 1200);
 
-const SEARCH_SERVICE_VERSION = "ultra-fast-v160-cache-single-query";
+const SEARCH_SERVICE_VERSION = "unified-local-search-v1";
 const AUTOCOMPLETE_MEMORY_TTL_MS = Number(process.env.SEARCH_AUTOCOMPLETE_MEMORY_CACHE_TTL_MS || 5 * 60 * 1000);
 const autocompleteMemoryCache = new Map();
 
@@ -135,7 +135,7 @@ function searchCacheKey(q, type, limit, query = {}) {
       ? `${lat.toFixed(2)},${lon.toFixed(2)}`
       : "no-gps";
 
-  return `v160-cache-single-query:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(
+  return `unified-local-search-v1:${normalizeText(q)}:${String(type || "all").toLowerCase()}:${Number(
     limit || DEFAULT_LIMIT,
   )}:${locationBucket}`;
 }
@@ -333,15 +333,15 @@ async function index(query = {}) {
         ...healthMeta(),
         cached: false,
         autocomplete: true,
-        addressAutocompleteOnly: true,
-        addressFirst: true,
-        localAddressOnly: true,
+        unifiedLocalAutocomplete: true,
+        localFirst: true,
+        localAddressOnly: false,
         noProviderTimeout: true,
-        hardLocalGeocoderFix: true,
+        unifiedLocalSearchFix: true,
         ultraFastLookup: true,
-        strictPrefixOnly: true,
+        strictPrefixOnly: false,
         oneQueryPerRequest: true,
-        poiDisabledForAutocomplete: true,
+        poiEnabledForAutocomplete: true,
         memoryCache: autocompleteMemoryCache.size,
         searchServiceVersion: SEARCH_SERVICE_VERSION,
         tookMs: Date.now() - startedAt,
@@ -519,7 +519,7 @@ async function debug(query = {}) {
       firstType: payload.results[0]?.type || null,
       firstSource: payload.results[0]?.source || null,
       expectedPriority:
-        "postgres_address > exact local_poi > google/nominatim/overpass > gtfs stop fallback",
+        "unified_local: exact address > settlement > poi > stop > external fallback",
     },
   };
 }
