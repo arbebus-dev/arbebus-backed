@@ -26,6 +26,7 @@
     "stream-chain": "^2.2.5",
     "stream-json": "^1.7.5",
     "stripe": "^22.1.1",
-    "unzipper": "^0.12.3"
+    "unzipper": "^0.12.3",
+    "pino-std-serializers": "^7.0.0"
   }
 }

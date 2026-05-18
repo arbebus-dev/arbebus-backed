@@ -12,7 +12,10 @@ const { toResult } = require("../utils/mapSearchResult");
 // - no match_key during search
 // - bounded candidate sets before JS ranking
 
-const PROVIDER_VERSION = "rc-addresses-ultimate-v3";
+const PROVIDER_VERSION = "rc-addresses-ultra-v4";
+const QUERY_TIMEOUT_MS = Number(process.env.SEARCH_LOCAL_ADDRESS_STATEMENT_TIMEOUT_MS || 850);
+const TYPO_QUERY_TIMEOUT_MS = Number(process.env.SEARCH_LOCAL_ADDRESS_TYPO_TIMEOUT_MS || 650);
+const TYPO_ENABLED = String(process.env.SEARCH_LOCAL_ADDRESS_TYPO_ENABLED || "true").toLowerCase() !== "false";
 const CACHE_TTL_MS = Number(process.env.SEARCH_MEMORY_CACHE_TTL_MS || 300000);
 const MAX_CACHE_SIZE = Number(process.env.SEARCH_MEMORY_CACHE_MAX || 5000);
 
@@ -313,131 +316,212 @@ function manualAliasRows(queryInfo) {
   );
 }
 
-async function queryAddresses(queryInfo, limit) {
+async function runTimedQuery(sql, params = [], timeoutMs = QUERY_TIMEOUT_MS) {
   const pool = getPool();
-  const boundedLimit = Math.min(Math.max(Number(limit || 12) * 5, 30), 80);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL statement_timeout = $1", [Math.max(100, Number(timeoutMs) || QUERY_TIMEOUT_MS)]);
+    const result = await client.query(sql, params);
+    await client.query("COMMIT");
+    return result.rows || [];
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // ignore rollback errors
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
+function isTimeoutError(error) {
+  return String(error?.code || "") === "57014" || /statement timeout|canceling statement/i.test(String(error?.message || error));
+}
+
+function uniqueRows(rows = []) {
+  const seen = new Set();
+  const out = [];
+  for (const row of rows) {
+    const key = `${row.type}|${row.id}|${row.lat}|${row.lon}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+async function queryAddresses(queryInfo, limit) {
+  const boundedLimit = Math.min(Math.max(Number(limit || 12) * 4, 24), 60);
   const houseNumber = queryInfo.house?.houseNumber || null;
   const q = stripLithuanian(queryInfo.q);
   const prefixPatterns = queryInfo.prefixPatterns.length ? queryInfo.prefixPatterns : [`${queryInfo.q}%`];
   const streetPrefixPatterns = queryInfo.streetPrefixPatterns.length ? queryInfo.streetPrefixPatterns : prefixPatterns;
   const cityPrefixPatterns = queryInfo.cityPrefixPatterns.length ? queryInfo.cityPrefixPatterns : prefixPatterns;
 
-  const sql = `
-    WITH params AS (
-      SELECT
-        $1::text AS q,
-        $2::text AS house_number,
-        $3::text[] AS prefix_patterns,
-        $4::text[] AS street_prefix_patterns,
-        $5::text[] AS city_prefix_patterns,
-        $6::int AS bounded_limit
-    ),
-    house_results AS (
-      SELECT
-        a.id::text AS id,
-        'address'::text AS type,
-        a.name::text AS name,
-        a.street::text AS street,
-        a.house_number::text AS house_number,
-        a.city::text AS city,
-        a.lat::double precision AS lat,
-        a.lon::double precision AS lon,
-        2200::int AS rank_score,
-        0::double precision AS distance_score,
-        'postgres_address'::text AS source
-      FROM public.addresses a, params p
-      WHERE p.house_number IS NOT NULL
-        AND a.lat BETWEEN 53 AND 57
-        AND a.lon BETWEEN 20 AND 27
-        AND lower(a.house_number) = p.house_number
-        AND lower(a.street) LIKE ANY(p.street_prefix_patterns)
-      ORDER BY a.city, a.name
-      LIMIT (SELECT bounded_limit FROM params)
-    ),
-    prefix_results AS (
-      SELECT
-        a.id::text AS id,
-        CASE WHEN NULLIF(a.house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
-        a.name::text AS name,
-        a.street::text AS street,
-        a.house_number::text AS house_number,
-        a.city::text AS city,
-        a.lat::double precision AS lat,
-        a.lon::double precision AS lon,
-        1500::int AS rank_score,
-        0::double precision AS distance_score,
-        'postgres_address'::text AS source
-      FROM public.addresses a, params p
-      WHERE a.lat BETWEEN 53 AND 57
-        AND a.lon BETWEEN 20 AND 27
-        AND (
-          lower(a.name) LIKE ANY(p.prefix_patterns)
-          OR lower(a.street) LIKE ANY(p.prefix_patterns)
-          OR lower(a.city) LIKE ANY(p.city_prefix_patterns)
-        )
-      ORDER BY a.name
-      LIMIT (SELECT bounded_limit FROM params)
-    ),
-    knn_name AS (
-      SELECT
-        a.id::text AS id,
-        CASE WHEN NULLIF(a.house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
-        a.name::text AS name,
-        a.street::text AS street,
-        a.house_number::text AS house_number,
-        a.city::text AS city,
-        a.lat::double precision AS lat,
-        a.lon::double precision AS lon,
-        900::int AS rank_score,
-        (lower(a.name) <-> (SELECT q FROM params))::double precision AS distance_score,
-        'postgres_address_typo'::text AS source
-      FROM public.addresses a, params p
-      WHERE a.lat BETWEEN 53 AND 57
-        AND a.lon BETWEEN 20 AND 27
-      ORDER BY lower(a.name) <-> p.q
-      LIMIT (SELECT bounded_limit FROM params)
-    ),
-    knn_street AS (
-      SELECT
-        a.id::text AS id,
-        CASE WHEN NULLIF(a.house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
-        a.name::text AS name,
-        a.street::text AS street,
-        a.house_number::text AS house_number,
-        a.city::text AS city,
-        a.lat::double precision AS lat,
-        a.lon::double precision AS lon,
-        780::int AS rank_score,
-        (lower(a.street) <-> (SELECT q FROM params))::double precision AS distance_score,
-        'postgres_street_typo'::text AS source
-      FROM public.addresses a, params p
-      WHERE a.lat BETWEEN 53 AND 57
-        AND a.lon BETWEEN 20 AND 27
-      ORDER BY lower(a.street) <-> p.q
-      LIMIT (SELECT bounded_limit FROM params)
-    )
-    SELECT * FROM house_results
-    UNION ALL
-    SELECT * FROM prefix_results
-    UNION ALL
-    SELECT * FROM knn_name
-    UNION ALL
-    SELECT * FROM knn_street
-    LIMIT (SELECT bounded_limit FROM params)
+  const started = Date.now();
+  const rows = [];
+
+  const houseSql = `
+    SELECT
+      a.id::text AS id,
+      'address'::text AS type,
+      a.name::text AS name,
+      a.street::text AS street,
+      a.house_number::text AS house_number,
+      a.city::text AS city,
+      a.lat::double precision AS lat,
+      a.lon::double precision AS lon,
+      2500::int AS rank_score,
+      0::double precision AS distance_score,
+      'postgres_address_exact'::text AS source
+    FROM public.addresses a
+    WHERE $1::text IS NOT NULL
+      AND a.lat BETWEEN 53 AND 57
+      AND a.lon BETWEEN 20 AND 27
+      AND lower(a.house_number) = $1::text
+      AND lower(a.street) LIKE ANY($2::text[])
+    ORDER BY a.city, a.street, a.house_number
+    LIMIT $3::int
   `;
 
-  const started = Date.now();
-  const result = await pool.query(sql, [
-    q,
-    houseNumber,
-    prefixPatterns,
-    streetPrefixPatterns,
-    cityPrefixPatterns,
-    boundedLimit,
-  ]);
-  lastQueryMs = Date.now() - started;
-  return result.rows || [];
+  const prefixSql = `
+    SELECT * FROM (
+      SELECT
+        a.id::text AS id,
+        CASE WHEN NULLIF(a.house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
+        a.name::text AS name,
+        a.street::text AS street,
+        a.house_number::text AS house_number,
+        a.city::text AS city,
+        a.lat::double precision AS lat,
+        a.lon::double precision AS lon,
+        1700::int AS rank_score,
+        0::double precision AS distance_score,
+        'postgres_address_prefix_name'::text AS source
+      FROM public.addresses a
+      WHERE a.lat BETWEEN 53 AND 57
+        AND a.lon BETWEEN 20 AND 27
+        AND lower(a.name) LIKE ANY($1::text[])
+      ORDER BY a.name
+      LIMIT $4::int
+    ) by_name
+    UNION ALL
+    SELECT * FROM (
+      SELECT
+        a.id::text AS id,
+        CASE WHEN NULLIF(a.house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
+        a.name::text AS name,
+        a.street::text AS street,
+        a.house_number::text AS house_number,
+        a.city::text AS city,
+        a.lat::double precision AS lat,
+        a.lon::double precision AS lon,
+        1550::int AS rank_score,
+        0::double precision AS distance_score,
+        'postgres_address_prefix_street'::text AS source
+      FROM public.addresses a
+      WHERE a.lat BETWEEN 53 AND 57
+        AND a.lon BETWEEN 20 AND 27
+        AND lower(a.street) LIKE ANY($2::text[])
+      ORDER BY a.street, a.house_number NULLS LAST
+      LIMIT $4::int
+    ) by_street
+    UNION ALL
+    SELECT * FROM (
+      SELECT
+        a.id::text AS id,
+        CASE WHEN NULLIF(a.house_number, '') IS NOT NULL THEN 'address' ELSE 'settlement' END AS type,
+        a.name::text AS name,
+        a.street::text AS street,
+        a.house_number::text AS house_number,
+        a.city::text AS city,
+        a.lat::double precision AS lat,
+        a.lon::double precision AS lon,
+        1250::int AS rank_score,
+        0::double precision AS distance_score,
+        'postgres_address_prefix_city'::text AS source
+      FROM public.addresses a
+      WHERE a.lat BETWEEN 53 AND 57
+        AND a.lon BETWEEN 20 AND 27
+        AND lower(a.city) LIKE ANY($3::text[])
+      ORDER BY a.city, a.name
+      LIMIT $4::int
+    ) by_city
+    LIMIT $4::int
+  `;
+
+  const typoNameSql = `
+    SELECT
+      a.id::text AS id,
+      CASE WHEN NULLIF(a.house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
+      a.name::text AS name,
+      a.street::text AS street,
+      a.house_number::text AS house_number,
+      a.city::text AS city,
+      a.lat::double precision AS lat,
+      a.lon::double precision AS lon,
+      920::int AS rank_score,
+      (lower(a.name) <-> $1::text)::double precision AS distance_score,
+      'postgres_address_typo_name'::text AS source
+    FROM public.addresses a
+    WHERE a.lat BETWEEN 53 AND 57
+      AND a.lon BETWEEN 20 AND 27
+    ORDER BY lower(a.name) <-> $1::text
+    LIMIT $2::int
+  `;
+
+  const typoStreetSql = `
+    SELECT
+      a.id::text AS id,
+      CASE WHEN NULLIF(a.house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
+      a.name::text AS name,
+      a.street::text AS street,
+      a.house_number::text AS house_number,
+      a.city::text AS city,
+      a.lat::double precision AS lat,
+      a.lon::double precision AS lon,
+      840::int AS rank_score,
+      (lower(a.street) <-> $1::text)::double precision AS distance_score,
+      'postgres_address_typo_street'::text AS source
+    FROM public.addresses a
+    WHERE a.lat BETWEEN 53 AND 57
+      AND a.lon BETWEEN 20 AND 27
+    ORDER BY lower(a.street) <-> $1::text
+    LIMIT $2::int
+  `;
+
+  try {
+    if (houseNumber) {
+      rows.push(...(await runTimedQuery(houseSql, [houseNumber, streetPrefixPatterns, boundedLimit], QUERY_TIMEOUT_MS)));
+    }
+
+    rows.push(...(await runTimedQuery(prefixSql, [prefixPatterns, streetPrefixPatterns, cityPrefixPatterns, boundedLimit], QUERY_TIMEOUT_MS)));
+
+    const needTypo = TYPO_ENABLED && q.length >= 3 && uniqueRows(rows).length < Math.min(limit, 10);
+    if (needTypo) {
+      try {
+        rows.push(...(await runTimedQuery(typoNameSql, [q, boundedLimit], TYPO_QUERY_TIMEOUT_MS)));
+      } catch (error) {
+        if (!isTimeoutError(error)) throw error;
+      }
+
+      try {
+        const streetQuery = stripLithuanian(queryInfo.house?.streetText || queryInfo.q);
+        rows.push(...(await runTimedQuery(typoStreetSql, [streetQuery || q, boundedLimit], TYPO_QUERY_TIMEOUT_MS)));
+      } catch (error) {
+        if (!isTimeoutError(error)) throw error;
+      }
+    }
+
+    lastQueryMs = Date.now() - started;
+    return uniqueRows(rows).slice(0, boundedLimit);
+  } catch (error) {
+    lastQueryMs = Date.now() - started;
+    throw error;
+  }
 }
 
 async function searchLocalAddresses(query, options = {}) {

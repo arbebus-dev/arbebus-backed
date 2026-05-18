@@ -64,10 +64,10 @@ function apiBase() {
 }
 
 const API_TIMEOUT_MS = 12000;
-const SEARCH_TIMEOUT_MS = 12000;
+const SEARCH_TIMEOUT_MS = 1800;
 const SEARCH_MEMORY_TTL_MS = 5 * 60 * 1000;
 const API_RETRY_COUNT = 1;
-const SEARCH_RETRY_DELAYS_MS = [650, 1800, 3600];
+const SEARCH_RETRY_DELAYS_MS = [220, 650];
 
 type SearchLocation = Partial<Coordinate> | null | undefined;
 type SearchCacheEntry = { createdAt: number; results: PlaceResult[] };
@@ -1256,7 +1256,7 @@ async function runSearchRequest(
 
   const params = new URLSearchParams({
     q,
-    limit: "8",
+    limit: "10",
     // Apple Maps-style autocomplete: local DB first; external providers only after
     // backend decides they are needed. This keeps typing instant and avoids POI noise.
     external: "false",
@@ -1305,7 +1305,7 @@ async function runSearchRequest(
       .sort(
         (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
       )
-      .slice(0, 8);
+      .slice(0, 10);
   } catch (error) {
     if ((error as any)?.name !== "AbortError") {
       console.warn("[Arbebus search] failed", error);
@@ -1327,13 +1327,13 @@ export async function searchPlaces(
 
   const explicitLocation = normalizeSearchLocation(userLocation);
   const cached = getSearchMemoryCache(q, explicitLocation);
-  if (cached && cached.length) return cached.slice(0, 8);
+  if (cached && cached.length) return cached.slice(0, 10);
 
   const results = await runSearchRequest(q, explicitLocation);
 
   const ranked = dedupePlaceResults(results)
     .sort((a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q))
-    .slice(0, 8);
+    .slice(0, 10);
 
   if (ranked.length) setSearchMemoryCache(q, ranked, explicitLocation);
   return ranked;

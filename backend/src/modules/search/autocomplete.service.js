@@ -1,8 +1,11 @@
 /* eslint-env node */
 const { normalizeText } = require("./utils/normalizeText");
 const { searchLocalAddresses } = require("./providers/localAddress.provider");
+const { searchLocalPoi } = require("./providers/localPoi.provider");
+const { searchGtfsStops } = require("./providers/gtfsStops.provider");
+const { rankResults, dedupeResults } = require("./utils/rankSearchResults");
 
-const SERVICE_VERSION = "ultra-fast-v160-cache-single-query";
+const SERVICE_VERSION = "ultra-fast-v170-local-all-single-roundtrip";
 const CACHE_TTL_MS = Number(process.env.SEARCH_AUTOCOMPLETE_MEMORY_CACHE_TTL_MS || 5 * 60 * 1000);
 const CACHE_MAX = Number(process.env.SEARCH_AUTOCOMPLETE_MEMORY_CACHE_MAX || 1000);
 const responseCache = new Map();
@@ -50,9 +53,11 @@ function responsePayload({ q, ranked, startedAt, cached = false }) {
       tookMs: Date.now() - startedAt,
       cached,
       autocomplete: true,
-      addressAutocompleteOnly: true,
+      addressAutocompleteOnly: false,
       addressFirst: true,
-      localAddressOnly: true,
+      localAddressOnly: false,
+      localPoiEnabled: true,
+      gtfsStopsEnabled: true,
       noProviderTimeout: true,
       strictPrefixOnly: true,
       ultraFastLookup: true,
@@ -96,14 +101,23 @@ async function autocomplete(query = {}) {
     };
   }
 
-  const ranked = await searchLocalAddresses(q, {
-    limit,
-    autocomplete: true,
-    lat: query.lat ?? query.latitude,
-    lon: query.lon ?? query.lng ?? query.longitude,
-  });
+  const addressLimit = Math.max(8, limit);
+  const [addresses, pois, stops] = await Promise.all([
+    searchLocalAddresses(q, {
+      limit: addressLimit,
+      autocomplete: true,
+      lat: query.lat ?? query.latitude,
+      lon: query.lon ?? query.lng ?? query.longitude,
+    }),
+    searchLocalPoi(q, { limit: Math.max(6, limit) }),
+    searchGtfsStops(q, { limit: 6 }),
+  ]);
 
-  const payload = responsePayload({ q, ranked: ranked.slice(0, limit), startedAt });
+  const ranked = dedupeResults(
+    rankResults([...addresses, ...pois, ...stops], q),
+  ).slice(0, limit);
+
+  const payload = responsePayload({ q, ranked, startedAt });
   cacheSet(cacheKey, payload);
   return payload;
 }

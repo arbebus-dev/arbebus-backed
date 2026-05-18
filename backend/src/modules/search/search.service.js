@@ -38,7 +38,7 @@ const FAST_INDEX_TIMEOUT_MS = Number(
 
 const MEILI_TIMEOUT_MS = Number(process.env.MEILI_TIMEOUT_MS || 1200);
 
-const SEARCH_SERVICE_VERSION = "ultimate-rc-address-search-v3";
+const SEARCH_SERVICE_VERSION = "ultimate-local-search-v4";
 const AUTOCOMPLETE_MEMORY_TTL_MS = Number(process.env.SEARCH_AUTOCOMPLETE_MEMORY_CACHE_TTL_MS || 5 * 60 * 1000);
 const autocompleteMemoryCache = new Map();
 
@@ -313,12 +313,20 @@ async function index(query = {}) {
       };
     }
 
-    const results = await searchLocalAddresses(q, {
-      limit,
-      autocomplete: true,
-      lat: query.lat ?? query.latitude,
-      lon: query.lon ?? query.lng ?? query.longitude,
-    });
+    const [addressResults, poiResults, stopResults] = await Promise.all([
+      searchLocalAddresses(q, {
+        limit: Math.max(8, limit),
+        autocomplete: true,
+        lat: query.lat ?? query.latitude,
+        lon: query.lon ?? query.lng ?? query.longitude,
+      }),
+      searchLocalPoi(q, { limit: Math.max(6, limit) }),
+      searchGtfsStops(q, { limit: 6 }),
+    ]);
+
+    const results = dedupeResults(
+      rankResults([...addressResults, ...poiResults, ...stopResults], q),
+    ).slice(0, limit);
 
     const payload = {
       ok: true,
@@ -327,7 +335,7 @@ async function index(query = {}) {
       results,
       suggestions: results,
       places: results,
-      stops: [],
+      stops: results.filter((item) => item.type === "stop"),
       addresses: results.filter((item) => item.type === "address"),
       meta: {
         ...healthMeta(),
@@ -336,6 +344,8 @@ async function index(query = {}) {
         unifiedLocalAutocomplete: true,
         localFirst: true,
         localAddressOnly: false,
+        localPoiEnabled: true,
+        gtfsStopsEnabled: true,
         noProviderTimeout: true,
         unifiedLocalSearchFix: true,
         ultraFastLookup: true,
@@ -349,9 +359,11 @@ async function index(query = {}) {
           {
             name: "local_address",
             ok: true,
-            count: results.length,
+            count: addressResults.length,
             error: null,
           },
+          { name: "local_poi", ok: true, count: poiResults.length, error: null },
+          { name: "gtfs_stops", ok: true, count: stopResults.length, error: null },
         ],
       },
     };

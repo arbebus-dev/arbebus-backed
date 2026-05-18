@@ -5,6 +5,7 @@ const { toResult } = require("../utils/mapSearchResult");
 const { logger } = require("../../../core/logging/logger");
 
 const DATA_ROOT = path.join(__dirname, "../../../data/poi");
+let localPoiCache = null;
 
 const LOCAL_DATA_FILES = [
   "priorityPois.json",
@@ -90,9 +91,13 @@ function normalizeLocalItem(item) {
 }
 
 function loadLocalPois() {
-  return LOCAL_DATA_FILES.flatMap(readItemsFromFile)
-    .map(normalizeLocalItem)
-    .filter(Boolean);
+  if (localPoiCache) return localPoiCache;
+  localPoiCache = dedupeLocalPois(
+    LOCAL_DATA_FILES.flatMap(readItemsFromFile)
+      .map(normalizeLocalItem)
+      .filter(Boolean),
+  );
+  return localPoiCache;
 }
 
 function dedupeLocalPois(items) {
@@ -163,7 +168,7 @@ async function searchLocalPoi(query, options = {}) {
   const aliasMap = aliasesObject();
   const variants = expandQuery(q, aliasMap);
 
-  return dedupeLocalPois(loadLocalPois())
+  return loadLocalPois()
     .map((item) => {
       const score = scoreLocalPoi(item, variants);
       return { ...item, score, matchScore: score };
