@@ -96,6 +96,12 @@ export type TransitStopPoint = {
   longitude: number;
   coordinate?: Coordinate;
   distanceMeters?: number;
+  arrivalTime?: string | null;
+  departureTime?: string | null;
+  arrivalText?: string | null;
+  departureText?: string | null;
+  displayTime?: string | null;
+  time?: string | null;
   arrivalSeconds?: number;
   departureSeconds?: number;
 };

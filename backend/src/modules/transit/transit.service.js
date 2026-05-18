@@ -579,13 +579,17 @@ function routesForStop(stopId) {
 function tripStopPublic(stopTime) {
   const gtfs = loadGtfs();
   const stop = stopToPublic(gtfs.stopsById.get(String(stopTime.stop_id)), {
+    stop_id: String(stopTime.stop_id || ""),
     stopSequence: Number(stopTime.stop_sequence || 0),
-    arrivalTime: stopTime.arrival_time || null,
-    departureTime: stopTime.departure_time || null,
-    arrivalText: stopTime.arrival_time || null,
-    departureText: stopTime.departure_time || null,
-    displayTime: stopTime.departure_time || stopTime.arrival_time || null,
-    time: stopTime.departure_time || stopTime.arrival_time || null,
+    stop_sequence: Number(stopTime.stop_sequence || 0),
+    arrivalTime: humanGtfsTime(stopTime.arrival_time),
+    departureTime: humanGtfsTime(stopTime.departure_time),
+    arrival_time: humanGtfsTime(stopTime.arrival_time),
+    departure_time: humanGtfsTime(stopTime.departure_time),
+    arrivalText: humanGtfsTime(stopTime.arrival_time),
+    departureText: humanGtfsTime(stopTime.departure_time),
+    displayTime: humanGtfsTime(stopTime.departure_time || stopTime.arrival_time),
+    time: humanGtfsTime(stopTime.departure_time || stopTime.arrival_time),
     arrivalSeconds: secondsFromGtfsTime(stopTime.arrival_time),
     departureSeconds: secondsFromGtfsTime(stopTime.departure_time),
   });
@@ -2592,13 +2596,17 @@ function routeStops(routeId) {
     .map((stopTime, index) => {
       const stop = gtfs.stopsById.get(String(stopTime.stop_id));
       return stopToPublic(stop, {
+        stop_id: String(stopTime.stop_id || ""),
         stopSequence: Number(stopTime.stop_sequence || index + 1),
-        arrivalTime: stopTime.arrival_time || null,
-        departureTime: stopTime.departure_time || null,
-        arrivalText: stopTime.arrival_time || null,
-        departureText: stopTime.departure_time || null,
-        displayTime: stopTime.departure_time || stopTime.arrival_time || null,
-        time: stopTime.departure_time || stopTime.arrival_time || null,
+        stop_sequence: Number(stopTime.stop_sequence || index + 1),
+        arrivalTime: humanGtfsTime(stopTime.arrival_time),
+        departureTime: humanGtfsTime(stopTime.departure_time),
+        arrival_time: humanGtfsTime(stopTime.arrival_time),
+        departure_time: humanGtfsTime(stopTime.departure_time),
+        arrivalText: humanGtfsTime(stopTime.arrival_time),
+        departureText: humanGtfsTime(stopTime.departure_time),
+        displayTime: humanGtfsTime(stopTime.departure_time || stopTime.arrival_time),
+        time: humanGtfsTime(stopTime.departure_time || stopTime.arrival_time),
       });
     })
     .filter(Boolean);
