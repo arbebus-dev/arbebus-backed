@@ -940,6 +940,8 @@ function PlacePreviewCard({ props }: { props: Props }) {
   );
 }
 
+type AppleMenuPanelMode = "home" | "bus_routes";
+
 function AppleMenuContent({
   props,
   onOpenFavoritePlaces,
@@ -951,7 +953,7 @@ function AppleMenuContent({
   const { theme } = useAppPreferences();
   const [routes, setRoutes] = React.useState<TransitScheduleRoute[]>([]);
   const [loadingRoutes, setLoadingRoutes] = React.useState(false);
-  const [showAllRoutes, setShowAllRoutes] = React.useState(false);
+  const [panelMode, setPanelMode] = React.useState<AppleMenuPanelMode>("home");
 
   useEffect(() => {
     let cancelled = false;
@@ -971,7 +973,46 @@ function AppleMenuContent({
     };
   }, []);
 
-  const visibleRoutes = showAllRoutes ? routes : routes.slice(0, 10);
+  if (panelMode === "bus_routes") {
+    return (
+      <View style={styles.appleMenuRoot}>
+        <View
+          style={[
+            styles.menuCard,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <QuickMenuRow
+            icon="chevron-left"
+            title="Autobusai"
+            subtitle="Visi Klaipėdos GTFS maršrutai"
+            onPress={() => setPanelMode("home")}
+          />
+
+          {loadingRoutes ? (
+            <View style={styles.quickMenuLoadingRow}>
+              <ActivityIndicator color={theme.accent} size="small" />
+              <Text style={[styles.quickMenuSubtitle, { color: theme.muted }]}>Kraunami autobusų maršrutai...</Text>
+            </View>
+          ) : null}
+
+          {!loadingRoutes && routes.length === 0 ? (
+            <Text style={[styles.quickMenuSubtitle, { color: theme.muted }]}>Maršrutų nepavyko užkrauti.</Text>
+          ) : null}
+
+          {routes.map((route) => (
+            <QuickMenuRow
+              key={`bus-route-${route.routeId}`}
+              icon="bus"
+              title={`${route.shortName} Autobusas`}
+              subtitle={route.subtitle || route.longName || "Stotelės ir pilna linija žemėlapyje"}
+              onPress={() => props.onOpenBusRoute?.(route)}
+            />
+          ))}
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.appleMenuRoot}>
@@ -982,29 +1023,12 @@ function AppleMenuContent({
         ]}
       >
         <Text style={[styles.menuSectionTitleInside, { color: theme.muted }]}>AUTOBUSAI</Text>
-        {loadingRoutes ? (
-          <View style={styles.quickMenuLoadingRow}>
-            <ActivityIndicator color={theme.accent} size="small" />
-            <Text style={[styles.quickMenuSubtitle, { color: theme.muted }]}>Kraunami autobusų maršrutai...</Text>
-          </View>
-        ) : null}
-        {visibleRoutes.map((route) => (
-          <QuickMenuRow
-            key={`bus-route-${route.routeId}`}
-            icon="bus"
-            title={`${route.shortName} Autobusas`}
-            subtitle={route.subtitle || route.longName || "Stotelės ir pilna linija žemėlapyje"}
-            onPress={() => props.onOpenBusRoute?.(route)}
-          />
-        ))}
-        {routes.length > 10 ? (
-          <QuickMenuRow
-            icon={showAllRoutes ? "chevron-up" : "dots-horizontal-circle"}
-            title={showAllRoutes ? "Rodyti mažiau" : `Rodyti visus autobusus (${routes.length})`}
-            subtitle="Visi Klaipėdos GTFS maršrutai"
-            onPress={() => setShowAllRoutes((value) => !value)}
-          />
-        ) : null}
+        <QuickMenuRow
+          icon="bus"
+          title="Autobusai"
+          subtitle="Visi Klaipėdos GTFS maršrutai"
+          onPress={() => setPanelMode("bus_routes")}
+        />
       </View>
 
       <View

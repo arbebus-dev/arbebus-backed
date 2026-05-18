@@ -120,14 +120,21 @@ function coordinateFromBus(bus: any): Coordinate | null {
 }
 
 function busLabel(bus: LiveBus) {
+  const raw = bus as any;
   return (
     cleanRouteNumber(
-      bus.number ||
-        bus.routeShortName ||
-        bus.routeLabel ||
-        bus.route ||
-        bus.routeId ||
-        bus.vehicleLabel ||
+      raw.routeShortName ||
+        raw.route_short_name ||
+        raw.routeNumber ||
+        raw.route_number ||
+        raw.routeLabel ||
+        raw.route_label ||
+        raw.number ||
+        raw.line ||
+        raw.route ||
+        raw.routeId ||
+        raw.route_id ||
+        raw.vehicleLabel ||
         "BUS",
     ) || "BUS"
   );
@@ -345,8 +352,20 @@ export default function LiveBusesLayer({
         if (!coordinate) return null;
 
         const label = busLabel(bus);
+        const rawBus = bus as any;
         const normalizedRoute = cleanRouteNumber(
-          bus.routeId || bus.route || bus.number,
+          rawBus.routeShortName ||
+            rawBus.route_short_name ||
+            rawBus.routeNumber ||
+            rawBus.route_number ||
+            rawBus.routeLabel ||
+            rawBus.route_label ||
+            rawBus.number ||
+            rawBus.line ||
+            rawBus.route ||
+            rawBus.routeId ||
+            rawBus.route_id ||
+            label,
         );
 
         const ids = [bus.vehicleId, bus.id, bus.vehicleLabel].map(normalizeId);

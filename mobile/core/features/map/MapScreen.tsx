@@ -763,7 +763,12 @@ export default function MapScreen() {
 
         <LiveBusesLayer
           buses={buses}
-          selectedRouteLabel={selectedRouteNumber || selectedRouteLabel}
+          selectedRouteLabel={
+            focusedScheduleRoute?.routeNumbers?.[0] ||
+            focusedScheduleRoute?.routeLabel ||
+            selectedRouteNumber ||
+            selectedRouteLabel
+          }
           selectedVehicleId={selectedVehicleId}
           visibleRegion={visibleRegion}
           focusOnSelectedRoute={Boolean(mapRoute)}
