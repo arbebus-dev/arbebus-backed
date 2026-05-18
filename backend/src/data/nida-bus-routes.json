@@ -1,0 +1,23 @@
+{
+  "version": "2026-05-18",
+  "source": "manual_seed_until_official_gtfs",
+  "note": "Temporary Arbebus seed for Smiltynė–Nida connector. Replace with official Neringa/GTFS feed when operator data is received.",
+  "routes": [
+    {
+      "id": "neringa-smiltyne-nida-seed",
+      "routeNumber": "NIDA",
+      "title": "Smiltynė → Nida",
+      "durationMinutes": 58,
+      "operator": "Neringos viešasis transportas / seed",
+      "stops": [
+        { "id": "smiltyne-new-ferry-terminal", "name": "Smiltynė, Naujoji perkėla", "latitude": 55.68465, "longitude": 21.12308 },
+        { "id": "smiltyne-old-ferry-terminal", "name": "Smiltynė, Senoji perkėla", "latitude": 55.70706, "longitude": 21.11252 },
+        { "id": "juodkrante-seed", "name": "Juodkrantė", "latitude": 55.54137, "longitude": 21.11908 },
+        { "id": "preila-seed", "name": "Preila", "latitude": 55.37004, "longitude": 21.06486 },
+        { "id": "pervalka-seed", "name": "Pervalka", "latitude": 55.41348, "longitude": 21.09458 },
+        { "id": "nida-bus-station-seed", "name": "Nida", "latitude": 55.30405, "longitude": 21.00447 },
+        { "id": "nida-passenger-pier", "name": "Nida, keleivinė prieplauka", "latitude": 55.30272, "longitude": 21.00817 }
+      ]
+    }
+  ]
+}

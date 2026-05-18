@@ -595,15 +595,18 @@ function routeNumbersFromLabel(label?: string | null) {
 function normalizeStep(raw: any, index: number): TransitStep {
   const rawType = String(raw?.type ?? raw?.mode ?? "bus").toLowerCase();
 
-  const type: TransitStepType =
+  const type = (
     rawType === "walk" ||
     rawType === "transfer" ||
     rawType === "arrive" ||
     rawType === "board" ||
     rawType === "ride" ||
-    rawType === "alight"
-      ? (rawType as TransitStepType)
-      : "bus";
+    rawType === "alight" ||
+    rawType === "bus" ||
+    rawType === "ferry"
+      ? rawType
+      : "bus"
+  ) as TransitStepType | "ferry";
 
   const stops = normalizeStops(
     raw?.stops ??
@@ -634,9 +637,20 @@ function normalizeStep(raw: any, index: number): TransitStep {
     type,
     mode:
       raw?.mode ??
-      (type === "ride" || type === "board" || type === "bus" ? "bus" : type),
+      (type === "ride" || type === "board" || type === "bus"
+        ? "bus"
+        : type === "ferry"
+          ? "ferry"
+          : type),
     icon: raw?.icon,
-    title: String(raw?.title ?? "Kelionės žingsnis"),
+    title: String(
+      raw?.title ??
+        (type === "ferry"
+          ? "Kelkis keltu"
+          : type === "walk"
+            ? "Eik pėsčiomis"
+            : "Kelionės žingsnis"),
+    ),
     subtitle: raw?.subtitle,
     description: raw?.description ?? raw?.subtitle,
     routeId: raw?.routeId != null ? String(raw.routeId) : undefined,
@@ -674,6 +688,11 @@ function normalizeStep(raw: any, index: number): TransitStep {
       raw?.distanceMeters != null ? Number(raw.distanceMeters) : undefined,
     departureTime: raw?.departureTime ?? raw?.departureText,
     arrivalTime: raw?.arrivalTime ?? raw?.arrivalText,
+    livePosition: raw?.livePosition ?? raw?.live_position ?? raw?.liveFerry ?? null,
+    live_position: raw?.live_position ?? raw?.livePosition ?? raw?.liveFerry ?? null,
+    ferryRouteId: raw?.ferryRouteId ?? raw?.ferry_route_id ?? undefined,
+    ferryTerminalFrom: raw?.ferryTerminalFrom ?? raw?.fromTerminal ?? undefined,
+    ferryTerminalTo: raw?.ferryTerminalTo ?? raw?.toTerminal ?? undefined,
     polyline,
   };
 
@@ -933,6 +952,7 @@ function normalizeBackendPlan(
           ? Number(raw.etaMinutes)
           : null,
     liveEta: raw?.liveEta ?? null,
+    liveFerry: raw?.liveFerry ?? raw?.live_position ?? raw?.livePosition ?? null,
     boardingState: raw?.boardingState ?? null,
     transfers: transfersCount,
     transfersCount,

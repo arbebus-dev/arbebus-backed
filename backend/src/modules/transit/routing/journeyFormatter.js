@@ -46,6 +46,20 @@ function formatStep(step) {
     };
   }
 
+
+  if (type === 'ferry') {
+    return {
+      ...step,
+      type: 'ferry',
+      mode: 'ferry',
+      title: step.title || step.routeLabel || 'Keltas',
+      subtitle: step.subtitle || `${formatTime(step.departureTime) || ''}${step.arrivalTime ? ` → ${formatTime(step.arrivalTime)}` : ''}`.trim(),
+      departureTime: formatTime(step.departureTime),
+      arrivalTime: formatTime(step.arrivalTime),
+      stops,
+    };
+  }
+
   if (type === 'transfer') {
     return {
       ...step,

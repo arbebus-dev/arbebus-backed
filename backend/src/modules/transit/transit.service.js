@@ -9,6 +9,9 @@ const ETAEngine = require("./ETA.engine");
 const otpService = require("../otp/otp.service");
 const { formatJourney } = require("./routing/journeyFormatter");
 const ferryService = require("../ferries/ferry.service");
+const ferryLiveService = require("../ferries/ferryLive.service");
+const nidaBusRoutes = require("../../data/nida-bus-routes.json");
+const nidaBusSchedules = require("../../data/nida-bus-schedules.json");
 
 const KLAIPEDA_BOUNDS = {
   // Expanded Klaipėda region bounds. The live stops.lt feed also contains
@@ -1064,6 +1067,7 @@ function decorateRouteOption(route, optionType, optionLabel, rank) {
   const suffix = optionType ? `-${optionType}` : "";
   const summary = {
     ...(route.summary || {}),
+    originalOptionType: route.summary?.optionType || route.optionType || null,
     optionType,
     optionLabel,
     rank,
@@ -1682,6 +1686,305 @@ function buildFerryPlans(from, to, options = {}) {
     .slice(0, 3);
 }
 
+
+function bestTransitPlanBetween(from, to, planTimeOptions, idPrefix = "leg") {
+  const profiles = planSearchProfiles(from, to);
+  for (const profile of profiles) {
+    const candidates = buildTransitCandidatesForStops(
+      profile.originStops,
+      profile.destinationStops,
+      planTimeOptions,
+      4,
+    );
+    if (!candidates.length) continue;
+    const plan = buildPlanFromCandidate(candidates[0], from, to, 0);
+    if (!plan) continue;
+    const steps = (plan.journeySteps || plan.steps || []).map((step, index) => ({
+      ...step,
+      id: `${idPrefix}-${step.id || index}`,
+    }));
+    return {
+      ...plan,
+      id: `${idPrefix}-${plan.id || "bus"}`,
+      journeySteps: steps,
+      steps,
+      profile,
+    };
+  }
+  return null;
+}
+
+function buildWalkConnector(from, to, title, id, maxMeters = 2600) {
+  const fromPoint = coordinateForPublicPoint(from) || from;
+  const toPoint = coordinateForPublicPoint(to) || to;
+  if (!fromPoint || !toPoint) return null;
+  const meters = Math.round(distanceMeters(fromPoint, toPoint));
+  if (meters > maxMeters) return null;
+  const minutes = Math.max(1, Math.round(meters / WALK_SPEED_M_PER_MIN));
+  return {
+    id,
+    type: "walk",
+    mode: "walk",
+    title,
+    subtitle: `${meters} m • ${minutes} min`,
+    minutes,
+    durationMinutes: minutes,
+    distanceMeters: meters,
+    polyline: [fromPoint, toPoint],
+  };
+}
+
+function makeNidaStop(stop, extra = {}) {
+  return {
+    id: stop.id,
+    stopId: stop.id,
+    name: stop.name,
+    title: stop.name,
+    latitude: stop.latitude,
+    longitude: stop.longitude,
+    coordinate: { latitude: stop.latitude, longitude: stop.longitude },
+    ...extra,
+  };
+}
+
+function minutesFromClock(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function clockFromMinutes(value) {
+  const safe = ((Math.round(Number(value) || 0) % 1440) + 1440) % 1440;
+  const hh = Math.floor(safe / 60);
+  const mm = safe % 60;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+function currentVilniusMinutes(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Vilnius",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now).reduce((acc, part) => {
+    if (part.type !== "literal") acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return Number(parts.hour || 0) * 60 + Number(parts.minute || 0);
+}
+
+function findNidaBusRoute(from, to, options = {}) {
+  const route = Array.isArray(nidaBusRoutes?.routes) ? nidaBusRoutes.routes[0] : null;
+  if (!route || !Array.isArray(route.stops) || route.stops.length < 2) return null;
+
+  const fromPoint = coordinateForPublicPoint(from) || from;
+  const toPoint = coordinateForPublicPoint(to) || to;
+  if (!fromPoint || !toPoint) return null;
+
+  const stops = route.stops.map((stop) => ({
+    ...stop,
+    distanceFromOrigin: distanceMeters(fromPoint, stop),
+    distanceFromDestination: distanceMeters(toPoint, stop),
+  }));
+  const originStop = [...stops].sort((a, b) => a.distanceFromOrigin - b.distanceFromOrigin)[0];
+  const destinationStop = [...stops].sort((a, b) => a.distanceFromDestination - b.distanceFromDestination)[0];
+  const originIndex = route.stops.findIndex((stop) => stop.id === originStop.id);
+  const destinationIndex = route.stops.findIndex((stop) => stop.id === destinationStop.id);
+
+  if (originIndex < 0 || destinationIndex < 0 || originIndex >= destinationIndex) return null;
+  if (originStop.distanceFromOrigin > 4200 || destinationStop.distanceFromDestination > 5200) return null;
+
+  const scheduleRows = Array.isArray(nidaBusSchedules?.departures) ? nidaBusSchedules.departures : [];
+  const nowMinutes = currentVilniusMinutes(options.now || new Date());
+  const nextRow = scheduleRows
+    .map((row) => ({ row, departMinutes: minutesFromClock(row.time) }))
+    .filter((item) => Number.isFinite(item.departMinutes))
+    .map((item) => ({ ...item, wait: item.departMinutes >= nowMinutes ? item.departMinutes - nowMinutes : item.departMinutes + 1440 - nowMinutes }))
+    .sort((a, b) => a.wait - b.wait)[0];
+
+  const slicedStops = route.stops.slice(originIndex, destinationIndex + 1);
+  const totalRouteMinutes = Number(route.durationMinutes || 55);
+  const perSegment = totalRouteMinutes / Math.max(1, route.stops.length - 1);
+  const rideMinutes = Math.max(1, Math.round((destinationIndex - originIndex) * perSegment));
+  const departureBase = nextRow?.departMinutes ?? nowMinutes;
+  const departureAtOrigin = departureBase + Math.round(originIndex * perSegment);
+  const arrivalAtDestination = departureBase + Math.round(destinationIndex * perSegment);
+
+  const publicStops = slicedStops.map((stop, index) => makeNidaStop(stop, {
+    stopSequence: index + 1,
+    departureTime: clockFromMinutes(departureBase + Math.round((originIndex + index) * perSegment)),
+    arrivalTime: clockFromMinutes(departureBase + Math.round((originIndex + index) * perSegment)),
+    displayTime: clockFromMinutes(departureBase + Math.round((originIndex + index) * perSegment)),
+  }));
+  const polyline = slicedStops.map((stop) => ({ latitude: stop.latitude, longitude: stop.longitude }));
+
+  return {
+    id: `nida-bus-${originStop.id}-${destinationStop.id}`,
+    title: `${route.routeNumber} ${route.title}`,
+    subtitle: `${originStop.name} → ${destinationStop.name}`,
+    type: "bus",
+    mode: "bus",
+    routeId: route.id,
+    routeNumber: route.routeNumber,
+    routeLabel: route.routeNumber,
+    fromStopName: originStop.name,
+    toStopName: destinationStop.name,
+    fromStop: makeNidaStop(originStop),
+    toStop: makeNidaStop(destinationStop),
+    stops: publicStops,
+    rideStops: publicStops,
+    stopCount: publicStops.length,
+    minutes: rideMinutes,
+    durationMinutes: rideMinutes,
+    departureTime: clockFromMinutes(departureAtOrigin),
+    arrivalTime: clockFromMinutes(arrivalAtDestination),
+    polyline,
+    source: "manual_neringa_seed",
+    dataQuality: "seed_schedule_replace_with_official_gtfs_when_available",
+  };
+}
+
+function connectorPlanSteps(from, to, planTimeOptions, idPrefix, options = {}) {
+  const walk = buildWalkConnector(from, to, idPrefix.includes("access") ? "Eik iki perkėlos" : "Eik iki tikslo", `${idPrefix}-walk`, options.maxWalkMeters || 3200);
+  if (walk) return [walk];
+
+  const nidaBus = findNidaBusRoute(from, to, options);
+  if (nidaBus) return [nidaBus];
+
+  // GTFS connector is intentionally the last fallback because full regional
+  // stop matching is heavier than terminal walking and the Neringa seed route.
+  const busPlan = bestTransitPlanBetween(from, to, planTimeOptions, idPrefix);
+  if (busPlan) return busPlan.journeySteps || busPlan.steps || [];
+
+  return [];
+}
+
+function shouldConsiderCombinedFerryRoute(from, to, route) {
+  const fromTerminal = coordinateForPublicPoint(route.from);
+  const toTerminal = coordinateForPublicPoint(route.to);
+  if (!fromTerminal || !toTerminal) return false;
+
+  const direct = distanceMeters(from, to);
+  const viaFerry =
+    distanceMeters(from, fromTerminal) +
+    distanceMeters(fromTerminal, toTerminal) +
+    distanceMeters(toTerminal, to);
+  const reverseViaFerry =
+    distanceMeters(from, toTerminal) +
+    distanceMeters(toTerminal, fromTerminal) +
+    distanceMeters(fromTerminal, to);
+
+  const routeTouchesDestinationSide = Math.min(
+    distanceMeters(to, toTerminal),
+    distanceMeters(to, fromTerminal),
+  ) <= (route.serviceType === "seasonal_passenger_boat" ? 90000 : 65000);
+
+  return routeTouchesDestinationSide && viaFerry <= reverseViaFerry && viaFerry <= direct * 1.85 + 9000;
+}
+
+function buildCombinedFerryTransitPlans(from, to, planTimeOptions, options = {}) {
+  return ferryService
+    .getRoutes()
+    .filter((route) => shouldConsiderCombinedFerryRoute(from, to, route))
+    .map((route, index) => {
+      const fromTerminal = ferryTerminalPoint(route.from);
+      const toTerminal = ferryTerminalPoint(route.to);
+      if (!fromTerminal || !toTerminal) return null;
+
+      const accessSteps = connectorPlanSteps(from, fromTerminal.coordinate, planTimeOptions, `ferry-access-${route.id}`, {
+        ...options,
+        maxWalkMeters: route.serviceType === "seasonal_passenger_boat" ? 3200 : 2600,
+      });
+      const egressSteps = connectorPlanSteps(toTerminal.coordinate, to, planTimeOptions, `ferry-egress-${route.id}`, {
+        ...options,
+        maxWalkMeters: route.serviceType === "seasonal_passenger_boat" ? 5600 : 3200,
+      });
+
+      if (!accessSteps.length || !egressSteps.length) return null;
+
+      const ferryOnly = buildFerryRouteOption(route, fromTerminal.coordinate, toTerminal.coordinate, index, options);
+      const ferryStep = (ferryOnly?.journeySteps || []).find((step) => step.type === "ferry");
+      if (!ferryStep) return null;
+
+      const journeySteps = [...accessSteps, ferryStep, ...egressSteps].map((step, stepIndex) => ({
+        ...step,
+        id: `combined-${route.id}-${step.id || stepIndex}`,
+        sequenceIndex: stepIndex,
+      }));
+
+      const totalDurationMinutes = journeySteps.reduce((sum, step) => sum + Number(step.durationMinutes || step.minutes || 0), 0);
+      const totalWalkMinutes = journeySteps.filter((step) => step.type === "walk" || step.mode === "walk").reduce((sum, step) => sum + Number(step.durationMinutes || step.minutes || 0), 0);
+      const totalBusMinutes = journeySteps.filter((step) => step.mode === "bus" || step.type === "bus" || step.type === "ride").reduce((sum, step) => sum + Number(step.durationMinutes || step.minutes || 0), 0);
+      const transferCount = Math.max(1, journeySteps.filter((step) => ["bus", "ride", "ferry"].includes(String(step.type))).length - 1);
+      const polyline = rebuildPolylineFromSteps(journeySteps, []);
+      const liveFerry = ferryLiveService.getLiveFerries({ routeId: route.id, now: options.now || new Date() })[0] || null;
+      const routeLabelText = `Autobusas + ${route.ferryLine || route.title}`;
+
+      return attachChildGuide({
+        id: `combined-ferry-${route.id}-${index}`,
+        title: routeLabelText,
+        subtitle: `${route.from.shortName || route.from.name} → ${route.to.shortName || route.to.name} • ${Math.max(1, totalDurationMinutes)} min`,
+        mode: "mixed",
+        routeId: route.id,
+        ferryRouteId: route.id,
+        ferryLine: route.ferryLine || null,
+        routeLabel: routeLabelText,
+        routeNumbers: Array.from(new Set(journeySteps.map((step) => step.routeNumber || step.routeLabel).filter(Boolean))),
+        totalMinutes: Math.max(1, totalDurationMinutes),
+        totalDurationMinutes: Math.max(1, totalDurationMinutes),
+        walkingMinutes: totalWalkMinutes,
+        totalWalkMinutes,
+        totalBusMinutes,
+        etaMinutes: Math.max(1, totalDurationMinutes),
+        transfers: transferCount,
+        transfersCount: transferCount,
+        stopCount: journeySteps.reduce((sum, step) => sum + Number(step.stopCount || 0), 0),
+        boardStopName: journeySteps.find((step) => step.fromStopName || step.toStopName)?.fromStopName || route.from.name,
+        alightStopName: [...journeySteps].reverse().find((step) => step.toStopName || step.fromStopName)?.toStopName || route.to.name,
+        originStop: fromTerminal,
+        destinationStop: toTerminal,
+        transferStops: [fromTerminal, toTerminal],
+        transferMessages: [`Persėdimas į keltą: ${route.from.name}`, `Po kelto tęsk maršrutą nuo: ${route.to.name}`],
+        previewPoints: polyline,
+        polyline,
+        steps: journeySteps,
+        journeySteps,
+        departureText: ferryStep.departureTime || null,
+        arrivalText: journeySteps[journeySteps.length - 1]?.arrivalTime || ferryStep.arrivalTime || null,
+        journeyMessage: `Maršrutas sujungtas: autobusas/ėjimas → keltas → autobusas/ėjimas`,
+        liveFerry,
+        summary: {
+          routeLabel: routeLabelText,
+          routeNumbers: Array.from(new Set(journeySteps.map((step) => step.routeNumber || step.routeLabel).filter(Boolean))),
+          totalDurationMinutes: Math.max(1, totalDurationMinutes),
+          totalWalkMinutes,
+          totalBusMinutes,
+          transfersCount: transferCount,
+          stopCount: journeySteps.reduce((sum, step) => sum + Number(step.stopCount || 0), 0),
+          departureTime: ferryStep.departureTime || null,
+          arrivalTime: journeySteps[journeySteps.length - 1]?.arrivalTime || ferryStep.arrivalTime || null,
+          journeyMessage: `Autobusas/ėjimas → keltas → autobusas/ėjimas`,
+          optionType: "bus_ferry_bus",
+          optionLabel: "Su keltu",
+          hasFerryRoute: true,
+          liveFerry,
+          routingQuality: {
+            score: Math.max(1, totalDurationMinutes),
+            candidateType: "bus_ferry_bus",
+            hasGtfsSchedule: accessSteps.some((step) => step.mode === "bus") || egressSteps.some((step) => step.mode === "bus"),
+            hasFerrySchedule: true,
+            hasFerryLive: Boolean(liveFerry),
+            hasNidaSeedBus: egressSteps.some((step) => step.source === "manual_neringa_seed") || accessSteps.some((step) => step.source === "manual_neringa_seed"),
+          },
+        },
+        legs: journeySteps.filter((step) => step.type !== "walk"),
+      });
+    })
+    .filter(Boolean)
+    .sort((a, b) => Number(a.totalDurationMinutes || 9999) - Number(b.totalDurationMinutes || 9999))
+    .slice(0, 4);
+}
+
 function buildTransitCandidatesForStops(
   originStops,
   destinationStops,
@@ -1804,7 +2107,9 @@ async function plan(body = {}) {
             timeMode === "depart" ? requestedSeconds : nowSeconds() - 120,
         };
 
-  const ferryPlans = buildFerryPlans(from, to, { now: body.travelAt ? new Date(body.travelAt) : new Date() });
+  const ferryNow = body.travelAt ? new Date(body.travelAt) : new Date();
+  const ferryPlans = buildFerryPlans(from, to, { now: ferryNow });
+  const combinedFerryPlans = buildCombinedFerryTransitPlans(from, to, planTimeOptions, { now: ferryNow });
 
   const profiles = planSearchProfiles(from, to);
   let selectedProfile = profiles[0];
@@ -1848,16 +2153,18 @@ async function plan(body = {}) {
       )
     : basePlans.map(attachChildGuide);
 
-  if (!plans.length && ferryPlans.length) {
+  const allFerryPlans = [...combinedFerryPlans, ...ferryPlans];
+
+  if (!plans.length && allFerryPlans.length) {
     return {
       ok: true,
-      source: "ferries+schedule",
-      plan: ferryPlans[0],
-      options: ferryPlans,
-      routes: ferryPlans,
+      source: "ferries+schedule+transit-connectors",
+      plan: allFerryPlans[0],
+      options: allFerryPlans,
+      routes: allFerryPlans,
       meta: {
         routingVersion: FINAL_ROUTING_VERSION,
-        routeOptionTypes: ferryPlans.map((route) => route.summary?.optionType || "ferry"),
+        routeOptionTypes: allFerryPlans.map((route) => route.summary?.optionType || "ferry"),
         hasRealBusRoute: false,
         hasFerryRoute: true,
         walkingGeometryHydrated: false,
@@ -1897,7 +2204,7 @@ async function plan(body = {}) {
     };
   }
 
-  const candidatePlans = [...plans, ...ferryPlans]
+  const candidatePlans = [...plans, ...combinedFerryPlans, ...ferryPlans]
     .sort((a, b) => Number(a.totalDurationMinutes || 999) - Number(b.totalDurationMinutes || 999))
     .slice(0, 6);
 
@@ -1922,6 +2229,8 @@ async function plan(body = {}) {
       routeOptionTypes: formattedOptions.map(
         (route) => route.summary?.optionType || route.optionType || "route",
       ),
+      hasFerryRoute: formattedOptions.some((route) => route.summary?.hasFerryRoute || route.ferryRouteId),
+      hasBusFerryBusRoute: formattedOptions.some((route) => route.summary?.originalOptionType === "bus_ferry_bus" || route.summary?.optionType === "bus_ferry_bus"),
       fields: [
         "journeySteps",
         "childGuide",
