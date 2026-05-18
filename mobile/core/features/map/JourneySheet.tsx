@@ -8,6 +8,7 @@ import {
   Dimensions,
   Image,
   Keyboard,
+  Linking,
   PanResponder,
   Pressable,
   ScrollView,
@@ -699,6 +700,32 @@ function normalizeDisplayCategory(value?: string | null) {
   return raw.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
+
+function normalizeUrl(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+}
+
+function normalizePhone(value?: string | null) {
+  return String(value || "").replace(/[^+\d]/g, "").trim();
+}
+
+async function openExternalUrl(value?: string | null) {
+  const url = normalizeUrl(value);
+  if (!url) return;
+  const supported = await Linking.canOpenURL(url);
+  if (supported) await Linking.openURL(url);
+}
+
+async function callPhone(value?: string | null) {
+  const phone = normalizePhone(value);
+  if (!phone) return;
+  const url = `tel:${phone}`;
+  const supported = await Linking.canOpenURL(url);
+  if (supported) await Linking.openURL(url);
+}
+
 function PlacePreviewCard({ props }: { props: Props }) {
   const { t } = useLanguage();
   const { theme } = useAppPreferences();
@@ -715,6 +742,20 @@ function PlacePreviewCard({ props }: { props: Props }) {
     props.onUseMapPlaceAsDestination?.(place);
   };
 
+  const savePlace = () => {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    void saveFavoritePlace({
+      id: place.id,
+      title: place.title,
+      subtitle: place.subtitle || placeSubtitle(place),
+      type: place.type || "poi",
+      latitude: place.latitude ?? place.coordinate?.latitude,
+      longitude: place.longitude ?? place.coordinate?.longitude,
+      coordinate: place.coordinate,
+      createdAt: new Date().toISOString(),
+    });
+  };
+
   const rawPhotos = Array.isArray((place as { photos?: unknown[] }).photos)
     ? ((place as { photos?: unknown[] }).photos ?? [])
     : [];
@@ -723,18 +764,20 @@ function PlacePreviewCard({ props }: { props: Props }) {
   )
     ? ((place as { photoUrls?: unknown[] }).photoUrls ?? [])
     : [];
-  const photos = [
-    ...rawPhotos.map((photo) =>
-      typeof photo === "string"
-        ? photo
-        : photo && typeof photo === "object" && "url" in photo
-          ? String((photo as { url?: unknown }).url || "")
-          : "",
+  const photos = Array.from(
+    new Set(
+      [
+        ...rawPhotos.map((photo) =>
+          typeof photo === "string"
+            ? photo
+            : photo && typeof photo === "object" && "url" in photo
+              ? String((photo as { url?: unknown }).url || "")
+              : "",
+        ),
+        ...rawPhotoUrls.map((url) => (typeof url === "string" ? url : "")),
+      ].filter((url): url is string => Boolean(url)),
     ),
-    ...rawPhotoUrls.map((url) => (typeof url === "string" ? url : "")),
-  ]
-    .filter((url): url is string => Boolean(url))
-    .slice(0, 6);
+  ).slice(0, 8);
   const rating = Number((place as any).rating);
   const hasRating = Number.isFinite(rating) && rating > 0;
   const userRatingCount = Number((place as any).userRatingCount || 0);
@@ -750,8 +793,11 @@ function PlacePreviewCard({ props }: { props: Props }) {
     (place as any).category || place.type,
   );
   const hours = Array.isArray((place as any).openingHours)
-    ? (place as any).openingHours.slice(0, 2)
+    ? (place as any).openingHours.slice(0, 5)
     : [];
+  const phone = String((place as any).phone || "").trim();
+  const website = String((place as any).website || "").trim();
+  const mapsUrl = String((place as any).googleMapsUri || "").trim();
 
   return (
     <View
@@ -897,6 +943,14 @@ function PlacePreviewCard({ props }: { props: Props }) {
         </View>
       ) : null}
 
+      <View style={styles.placeQuickActions}>
+        <PoiAction icon="navigate" label="Maršrutas" onPress={useAsDestination} primary />
+        {phone ? <PoiAction icon="call" label="Skambinti" onPress={() => void callPhone(phone)} /> : null}
+        {website ? <PoiAction icon="globe" label="Website" onPress={() => void openExternalUrl(website)} /> : null}
+        <PoiAction icon="bookmark" label="Išsaugoti" onPress={savePlace} />
+        {mapsUrl ? <PoiAction icon="map" label="Maps" onPress={() => void openExternalUrl(mapsUrl)} /> : null}
+      </View>
+
       <View style={styles.placePreviewActions}>
         <Pressable
           style={[
@@ -921,22 +975,51 @@ function PlacePreviewCard({ props }: { props: Props }) {
           </Text>
         </Pressable>
       </View>
-      <Pressable
-        style={[styles.placeRouteButton, { backgroundColor: theme.accent }]}
-        onPress={useAsDestination}
-      >
-        <MaterialCommunityIcons
-          name="navigation-variant"
-          size={16}
-          color={COLORS.green}
-        />
-        <Text
-          style={[styles.placeRouteButtonText, { color: theme.accentText }]}
-        >
-          {t.sheet.showRoute}
-        </Text>
-      </Pressable>
     </View>
+  );
+}
+
+
+function PoiAction({
+  icon,
+  label,
+  onPress,
+  primary,
+}: {
+  icon: IoniconName;
+  label: string;
+  onPress: () => void;
+  primary?: boolean;
+}) {
+  const { theme } = useAppPreferences();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.poiActionButton,
+        primary && styles.poiActionButtonPrimary,
+        {
+          backgroundColor: primary ? theme.accent : theme.surfaceSoft,
+          borderColor: primary ? theme.accent : theme.border,
+          opacity: pressed ? 0.76 : 1,
+        },
+      ]}
+    >
+      <Ionicons
+        name={icon as any}
+        size={18}
+        color={primary ? theme.accentText : theme.text}
+      />
+      <Text
+        style={[
+          styles.poiActionLabel,
+          { color: primary ? theme.accentText : theme.text },
+        ]}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -2487,6 +2570,32 @@ const styles = StyleSheet.create({
     lineHeight: LINE_HEIGHT.tiny,
     fontWeight: "900",
     textTransform: "capitalize",
+  },
+  placeQuickActions: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 14,
+    marginBottom: 2,
+  },
+  poiActionButton: {
+    flex: 1,
+    minHeight: 62,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+  },
+  poiActionButtonPrimary: {
+    shadowColor: "#34F5B3",
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+  },
+  poiActionLabel: {
+    fontSize: T.tiny,
+    lineHeight: LINE_HEIGHT.tiny,
+    fontWeight: "900",
   },
   placePreviewActions: { flexDirection: "row", gap: 8, marginTop: 12 },
   placeActionButtonSecondary: {

@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useAppPreferences } from "@/core/features/account/context/AppPreferencesContext";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Keyboard, Pressable, StyleSheet, View } from "react-native";
+import { Animated, Keyboard, Pressable, StyleSheet, View } from "react-native";
 import MapView, { Marker, type Region } from "react-native-maps";
 
 import { useLiveBuses } from "../transit/hooks/useLiveBuses";
@@ -99,6 +99,78 @@ function averagePoint(points: MapPoint[]): MapPoint | null {
     latitude: sum.latitude / valid.length,
     longitude: sum.longitude / valid.length,
   };
+}
+
+
+function normalizePoiPlace(input: PlaceSearchResult): PlaceSearchResult {
+  const latitude = Number(input.latitude ?? input.coordinate?.latitude);
+  const longitude = Number(input.longitude ?? input.coordinate?.longitude);
+  const safeCoordinate = {
+    latitude: Number.isFinite(latitude) ? latitude : input.coordinate.latitude,
+    longitude: Number.isFinite(longitude) ? longitude : input.coordinate.longitude,
+  };
+  const anyInput = input as AnyRecord;
+
+  return {
+    ...input,
+    id: String(input.id || input.placeId || input.googlePlaceId || `${safeCoordinate.latitude}-${safeCoordinate.longitude}`),
+    title: String(input.title || input.name || "Pasirinkta vieta"),
+    name: String(input.name || input.title || "Pasirinkta vieta"),
+    subtitle: String(input.subtitle || anyInput.address || "Klaipėda"),
+    type: String(input.type || "poi"),
+    category: anyInput.category || input.type || "Vieta",
+    latitude: safeCoordinate.latitude,
+    longitude: safeCoordinate.longitude,
+    coordinate: safeCoordinate,
+    photos: Array.isArray(anyInput.photos) ? anyInput.photos : [],
+    photoUrls: Array.isArray(anyInput.photoUrls) ? anyInput.photoUrls : [],
+    rating: Number.isFinite(Number(anyInput.rating)) ? Number(anyInput.rating) : undefined,
+    userRatingCount: Number.isFinite(Number(anyInput.userRatingCount)) ? Number(anyInput.userRatingCount) : undefined,
+    phone: anyInput.phone || anyInput.formattedPhoneNumber || anyInput.internationalPhoneNumber,
+    website: anyInput.website || anyInput.url,
+    openingHours: Array.isArray(anyInput.openingHours) ? anyInput.openingHours : [],
+  };
+}
+
+function SelectedPoiMarker({ theme }: { theme: AnyRecord }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 900, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] });
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.34, 0.08] });
+
+  return (
+    <View style={styles.selectedPoiMarkerWrap}>
+      <Animated.View
+        style={[
+          styles.selectedPoiPulse,
+          { backgroundColor: theme.accent, opacity, transform: [{ scale }] },
+        ]}
+      />
+      <View
+        style={[
+          styles.selectedPoiMarker,
+          {
+            backgroundColor: theme.backgroundElevated,
+            borderColor: theme.accent,
+            shadowColor: theme.accent,
+          },
+        ]}
+      >
+        <View style={[styles.selectedPoiMarkerInner, { backgroundColor: theme.accent }]} />
+      </View>
+    </View>
+  );
 }
 
 function placeFromMapData(input: AnyRecord | null | undefined): PlaceSearchResult | null {
@@ -431,7 +503,12 @@ export default function MapScreen() {
     if (!provisional) return;
 
     Keyboard.dismiss();
-    setSelectedMapPlace(provisional);
+    setSelectedMapPlace(normalizePoiPlace(provisional));
+
+    mapRef.current?.animateCamera(
+      { center: provisional.coordinate, zoom: 17, pitch: 0 },
+      { duration: 620 },
+    );
 
     const placeId = provisional.placeId || provisional.googlePlaceId;
 
@@ -479,7 +556,7 @@ export default function MapScreen() {
       ]);
 
       if (place) {
-        setSelectedMapPlace({
+        setSelectedMapPlace(normalizePoiPlace({
           ...provisional,
           ...place,
           title: place.title || provisional.title,
@@ -489,10 +566,10 @@ export default function MapScreen() {
           longitude: place.longitude ?? provisional.longitude,
           placeId: place.placeId || place.googlePlaceId || placeId,
           googlePlaceId: place.googlePlaceId || place.placeId || placeId,
-        });
+        }));
       }
     } catch {
-      setSelectedMapPlace(provisional);
+      setSelectedMapPlace(normalizePoiPlace(provisional));
     } finally {
       setIsReverseGeocoding(false);
     }
@@ -503,7 +580,7 @@ export default function MapScreen() {
     const coordinate = { latitude: terminal.latitude, longitude: terminal.longitude };
 
     setSelectedFerryTerminalId(terminal.id);
-    setSelectedMapPlace({
+    setSelectedMapPlace(normalizePoiPlace({
       id: terminal.id,
       title: terminal.name,
       subtitle: terminal.address || "Keltų terminalas",
@@ -512,7 +589,7 @@ export default function MapScreen() {
       longitude: terminal.longitude,
       coordinate,
       source: "arbebus_ferries",
-    } as PlaceSearchResult);
+    } as PlaceSearchResult));
 
     mapRef.current?.animateCamera(
       { center: coordinate, zoom: 15.4, pitch: 0 },
@@ -531,7 +608,7 @@ export default function MapScreen() {
     }
 
     setSelectedFerryTerminalId(null);
-    setSelectedMapPlace({
+    setSelectedMapPlace(normalizePoiPlace({
       id: ferry.id,
       title: ferry.title || ferry.pierName || "Keltas",
       subtitle: `${ferry.pierName || ferry.ferryLine || "Keltas"} • ${ferry.status === "sailing" ? "plaukia" : "laukia reiso"}`,
@@ -540,7 +617,7 @@ export default function MapScreen() {
       longitude: coordinate.longitude,
       coordinate,
       source: "arbebus_ferry_live",
-    } as PlaceSearchResult);
+    } as PlaceSearchResult));
 
     mapRef.current?.animateCamera(
       { center: coordinate, zoom: ferry.status === "sailing" ? 14.2 : 15.4, pitch: 0 },
@@ -787,6 +864,7 @@ export default function MapScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <MapCanvas
         ref={mapRef}
+        poiFocusMode={Boolean(selectedMapPlace)}
         onPress={handleMapPress}
         onPoiClick={handlePoiClick}
         onRegionChangeComplete={handleRegionChangeComplete}
@@ -814,13 +892,13 @@ export default function MapScreen() {
         <FerryMarkersLayer
           selectedTerminalId={selectedFerryTerminalId}
           selectedRoute={mapRoute}
-          liveFerries={liveFerries}
+          liveFerries={selectedMapPlace ? [] : liveFerries}
           onSelectTerminal={handleSelectFerryTerminal}
           onSelectLiveFerry={handleSelectLiveFerry}
         />
 
         <LiveBusesLayer
-          buses={buses}
+          buses={selectedMapPlace ? [] : buses}
           selectedRouteLabel={
             focusedScheduleRoute?.routeNumbers?.[0] ||
             focusedScheduleRoute?.routeLabel ||
@@ -838,9 +916,7 @@ export default function MapScreen() {
             anchor={{ x: 0.5, y: 1 }}
             tracksViewChanges={false}
           >
-            <View style={[styles.mapTapMarker, { backgroundColor: theme.accentSoft, borderColor: theme.backgroundElevated, shadowColor: theme.accent }]}>
-              <View style={[styles.mapTapMarkerInner, { backgroundColor: theme.accent }]} />
-            </View>
+            <SelectedPoiMarker theme={theme as AnyRecord} />
           </Marker>
         ) : null}
 
@@ -936,6 +1012,35 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: "#05070D",
+  },
+  selectedPoiMarkerWrap: {
+    width: 64,
+    height: 64,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  selectedPoiPulse: {
+    position: "absolute",
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+  },
+  selectedPoiMarker: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 3,
+    shadowOpacity: 0.46,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 12,
+  },
+  selectedPoiMarkerInner: {
+    width: 15,
+    height: 15,
+    borderRadius: 8,
   },
   mapTapMarker: {
     width: 30,

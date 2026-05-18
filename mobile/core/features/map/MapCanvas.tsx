@@ -14,10 +14,11 @@ type Props = {
   onPress?: any;
   onPoiClick?: any;
   onRegionChangeComplete?: (region: Region) => void;
+  poiFocusMode?: boolean;
 };
 
 const MapCanvas = forwardRef<MapView, Props>(
-  ({ children, onPress, onPoiClick, onRegionChangeComplete }, ref) => {
+  ({ children, onPress, onPoiClick, onRegionChangeComplete, poiFocusMode = false }, ref) => {
     return (
       <View style={styles.container}>
         <MapView
@@ -32,8 +33,8 @@ const MapCanvas = forwardRef<MapView, Props>(
           showsMyLocationButton={false}
           showsCompass={false}
           showsBuildings
-          showsPointsOfInterest
-          showsIndoors
+          showsPointsOfInterest={!poiFocusMode}
+          showsIndoors={!poiFocusMode}
           rotateEnabled
           pitchEnabled
         >

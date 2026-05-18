@@ -20,3 +20,27 @@ infrastructure/otp/graph/*.pbf
 infrastructure/meili/
 infrastructure/otp/backend/data/import/
 /backend/data/import/
+# CACHE
+.expo/web/cache/
+mobile/.expo/web/cache/
+
+# BUILD
+dist/
+build/
+
+# LOGS
+logs/
+debug-logs/
+*.log
+
+# DATA (HEAVY)
+*.zip
+*.pbf
+*.jar
+
+# MEILI DB
+infrastructure/meili/data.ms/
+
+# OS
+.DS_Store
+Thumbs.db
