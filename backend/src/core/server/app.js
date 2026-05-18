@@ -8,6 +8,8 @@ const parentRoutes = require("../../modules/parent/parent.router");
 const childRoutes = require("../../modules/child/child.router");
 const tripsRoutes = require("../../modules/trips/trips.router");
 const ferryRoutes = require("../../modules/ferries/ferry.routes");
+const paymentsRouter = require("../../modules/payments/payments.router");
+
 const corsMiddleware = require("./middlewares/cors");
 const { notFound, errorHandler } = require("./middlewares/errorHandler");
 
@@ -15,6 +17,10 @@ function createApp() {
   const app = express();
 
   app.use(corsMiddleware);
+
+  // Stripe webhook reikia raw body, todėl /api/payments turi būti prieš express.json.
+  app.use("/api/payments", paymentsRouter);
+
   app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ extended: true }));
 

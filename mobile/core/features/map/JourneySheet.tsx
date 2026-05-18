@@ -250,7 +250,6 @@ function stageFor(
   flowState: TransitFlowState,
   selectedRoute: TransitRouteOption | null,
 ): Stage {
-  if ((selectedRoute as any)?.summary?.scheduleOnly) return "details";
   if (flowState === "routes_loading" || flowState === "destination_selected")
     return "loading";
   if (flowState === "idle" || flowState === "searching") return "search";
@@ -267,6 +266,7 @@ function stageFor(
     ].includes(flowState)
   )
     return "navigation";
+  if ((selectedRoute as any)?.summary?.scheduleOnly) return "details";
   return selectedRoute ? "details" : "search";
 }
 
@@ -1584,8 +1584,7 @@ function StopTimeline({ step }: { step: TransitStep }) {
   if (!stops.length || (step.type !== "ride" && step.type !== "bus"))
     return null;
 
-  const compactStops = stops.slice(0, 9);
-  const hidden = Math.max(0, stops.length - compactStops.length);
+  const visibleStops = stops;
 
   return (
     <View
@@ -1594,7 +1593,7 @@ function StopTimeline({ step }: { step: TransitStep }) {
         { backgroundColor: theme.surfaceSoft, borderColor: theme.border },
       ]}
     >
-      {compactStops.map((stop: any, index: number) => {
+      {visibleStops.map((stop: any, index: number) => {
         const name = cleanStopName(
           stop.stopName || stop.name || stop.title || t.common.stopLabel,
         );
@@ -1615,18 +1614,13 @@ function StopTimeline({ step }: { step: TransitStep }) {
             />
             <Text
               style={[styles.stopTimelineName, { color: theme.text }]}
-              numberOfLines={1}
+              numberOfLines={2}
             >
               {name}
             </Text>
           </View>
         );
       })}
-      {hidden ? (
-        <Text style={[styles.stopTimelineMore, { color: theme.muted }]}>
-          {t.common.moreStops.replace("{count}", String(hidden))}
-        </Text>
-      ) : null}
     </View>
   );
 }
@@ -1833,7 +1827,7 @@ function RouteDetailsState(props: Props) {
           style={[styles.primaryButton, { backgroundColor: theme.accent }]}
           onPress={props.onStartJourney}
         >
-          <Ionicons name="navigate" size={14} color={COLORS.green} />
+          <Ionicons name="navigate" size={14} color={theme.accentText} />
           <Text style={[styles.primaryButtonText, { color: theme.accentText }]}>
             GO — pradėti kelionę
           </Text>
@@ -1916,7 +1910,7 @@ function NavigationState(props: Props) {
           <Text style={[styles.primaryButtonText, { color: theme.accentText }]}>
             {vm.primaryCta}
           </Text>
-          <Ionicons name="arrow-forward" size={15} color={COLORS.green} />
+          <Ionicons name="arrow-forward" size={15} color={theme.accentText} />
         </Pressable>
       </View>
     </View>
@@ -3059,7 +3053,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   stopTimelineRow: {
-    minHeight: 34,
+    minHeight: 38,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
@@ -3080,9 +3074,9 @@ const styles = StyleSheet.create({
   stopTimelineName: {
     flex: 1,
     color: COLORS.text,
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: "900",
+    fontSize: T.caption,
+    lineHeight: LINE_HEIGHT.caption,
+    fontWeight: "800",
   },
   stopTimelineMore: {
     marginTop: 4,

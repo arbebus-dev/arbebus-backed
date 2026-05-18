@@ -8,9 +8,10 @@ export default ({ config }) => {
     ios: {
       ...(config.ios || {}),
       bundleIdentifier: "com.arbebus.app",
+      merchantIdentifier: "merchant.com.arbebus.app",
       supportsTablet: true,
       usesAppleSignIn: true,
-      buildNumber: "115",
+      buildNumber: "116",
       config: {
         ...(config.ios?.config || {}),
         googleMapsApiKey,

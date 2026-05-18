@@ -10,7 +10,7 @@ import { useUserLocation } from "../transit/hooks/useUserLocation";
 import FerryScreen from "../ferries/FerryScreen";
 import type { FerryTerminal, LiveFerry } from "../ferries/types";
 import { fetchLiveFerries } from "../ferries/services/ferryApi";
-import type { PlaceSearchResult, TransitRouteOption } from "../transit/models/transitTypes";
+import type { PlaceSearchResult, TransitFlowState, TransitRouteOption } from "../transit/models/transitTypes";
 import {
   fetchPlaceDetails,
   fetchStationAccess,
@@ -160,6 +160,9 @@ export default function MapScreen() {
   const [selectedFerryTerminalId, setSelectedFerryTerminalId] = useState<string | null>(null);
   const [liveFerries, setLiveFerries] = useState<LiveFerry[]>([]);
   const [focusedScheduleRoute, setFocusedScheduleRoute] = useState<TransitRouteOption | null>(null);
+  const [focusedScheduleFlowState, setFocusedScheduleFlowState] =
+    useState<TransitFlowState>("route_selected");
+  const [focusedScheduleStepIndex, setFocusedScheduleStepIndex] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -186,11 +189,12 @@ export default function MapScreen() {
   useEffect(() => {
     let cancelled = false;
 
+    const accessRoute = focusedScheduleRoute || selectedRoute;
     const stopId =
-      selectedRoute?.originStop?.id ||
-      selectedRoute?.originStop?.stopId ||
-      selectedRoute?.destinationStop?.id ||
-      selectedRoute?.destinationStop?.stopId ||
+      accessRoute?.originStop?.id ||
+      accessRoute?.originStop?.stopId ||
+      accessRoute?.destinationStop?.id ||
+      accessRoute?.destinationStop?.stopId ||
       null;
 
     if (!stopId) {
@@ -210,6 +214,10 @@ export default function MapScreen() {
       cancelled = true;
     };
   }, [
+    focusedScheduleRoute?.originStop?.id,
+    focusedScheduleRoute?.originStop?.stopId,
+    focusedScheduleRoute?.destinationStop?.id,
+    focusedScheduleRoute?.destinationStop?.stopId,
     selectedRoute?.originStop?.id,
     selectedRoute?.originStop?.stopId,
     selectedRoute?.destinationStop?.id,
@@ -646,9 +654,62 @@ export default function MapScreen() {
         },
       })).filter((stop: AnyRecord) => Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude));
 
-      const firstStop = stops[0] || null;
+      const nearestStop = userLocation && stops.length
+        ? stops
+            .map((stop: AnyRecord) => ({
+              stop,
+              distance: distanceMeters(userLocation, stop.coordinate),
+            }))
+            .sort((a: { distance: number }, b: { distance: number }) => a.distance - b.distance)[0]?.stop
+        : null;
+      const firstStop = nearestStop || stops[0] || null;
       const lastStop = stops[stops.length - 1] || null;
       const line = validPoints(payload.polyline || payload.points || []);
+      const walkDistanceMeters =
+        userLocation && firstStop?.coordinate
+          ? Math.max(0, Math.round(distanceMeters(userLocation, firstStop.coordinate)))
+          : 0;
+      const walkMinutes = walkDistanceMeters
+        ? Math.max(1, Math.round(walkDistanceMeters / 80))
+        : 0;
+      const accessStep = firstStop
+        ? {
+            id: `schedule-walk-${route.routeId}`,
+            type: "walk" as const,
+            mode: "walk",
+            title: `Eik iki ${firstStop.title || firstStop.name || "stotelės"}`,
+            subtitle: walkMinutes
+              ? `${walkMinutes} min • ${walkDistanceMeters} m`
+              : "Artimiausia stotelė pagal tavo lokaciją",
+            durationMinutes: walkMinutes,
+            minutes: walkMinutes,
+            distanceMeters: walkDistanceMeters,
+            stopName: firstStop.title || firstStop.name,
+            toStopId: firstStop.stopId || firstStop.id,
+            toStopName: firstStop.title || firstStop.name,
+            polyline: userLocation && firstStop?.coordinate ? [userLocation, firstStop.coordinate] : [],
+          }
+        : null;
+      const busStep = {
+        id: `schedule-step-${route.routeId}`,
+        type: "bus" as const,
+        mode: "bus",
+        title: `${route.shortName} Autobusas`,
+        subtitle: route.subtitle || route.longName || "Visos stotelės",
+        routeId: String(route.routeId),
+        routeNumber: route.shortName || String(route.routeId),
+        routeLabel: route.shortName || String(route.routeId),
+        fromStopId: firstStop?.stopId || firstStop?.id,
+        fromStopName: firstStop?.title || firstStop?.name,
+        toStopId: lastStop?.stopId || lastStop?.id,
+        toStopName: lastStop?.title || lastStop?.name,
+        stopCount: stops.length,
+        stops,
+        rideStops: stops,
+        routeStops: stops,
+        polyline: line,
+      };
+      const scheduleSteps = accessStep ? [accessStep, busStep] : [busStep];
 
       const routeOption = {
         id: `schedule-${route.routeId}`,
@@ -659,10 +720,10 @@ export default function MapScreen() {
         shapeId: payload.shapeId || null,
         routeLabel: route.shortName || String(route.routeId),
         routeNumbers: [route.shortName || String(route.routeId)],
-        totalMinutes: 0,
-        totalDurationMinutes: 0,
-        walkingMinutes: 0,
-        totalWalkMinutes: 0,
+        totalMinutes: walkMinutes,
+        totalDurationMinutes: walkMinutes,
+        walkingMinutes: walkMinutes,
+        totalWalkMinutes: walkMinutes,
         transfers: 0,
         transfersCount: 0,
         stopCount: stops.length,
@@ -672,45 +733,15 @@ export default function MapScreen() {
         destinationStop: lastStop,
         previewPoints: line,
         polyline: line,
-        steps: [
-          {
-            id: `schedule-step-${route.routeId}`,
-            type: "bus",
-            mode: "bus",
-            title: `${route.shortName} Autobusas`,
-            subtitle: route.subtitle || route.longName || "Visos stotelės",
-            routeId: String(route.routeId),
-            routeNumber: route.shortName || String(route.routeId),
-            routeLabel: route.shortName || String(route.routeId),
-            stopCount: stops.length,
-            stops,
-            rideStops: stops,
-            routeStops: stops,
-            polyline: line,
-          },
-        ],
-        journeySteps: [
-          {
-            id: `schedule-step-${route.routeId}`,
-            type: "bus",
-            mode: "bus",
-            title: `${route.shortName} Autobusas`,
-            subtitle: route.subtitle || route.longName || "Visos stotelės",
-            routeId: String(route.routeId),
-            routeNumber: route.shortName || String(route.routeId),
-            routeLabel: route.shortName || String(route.routeId),
-            stopCount: stops.length,
-            stops,
-            rideStops: stops,
-            routeStops: stops,
-            polyline: line,
-          },
-        ],
+        steps: scheduleSteps,
+        journeySteps: scheduleSteps,
         headsign: route.to || null,
         summary: { scheduleOnly: true, route },
       } as TransitRouteOption;
 
       setFocusedScheduleRoute(routeOption);
+      setFocusedScheduleFlowState("route_selected");
+      setFocusedScheduleStepIndex(0);
 
       if (line.length >= 2) {
         mapRef.current?.fitToCoordinates(line, {
@@ -721,9 +752,36 @@ export default function MapScreen() {
     } catch {
       setFocusedScheduleRoute(null);
     }
-  }, []);
+  }, [userLocation]);
 
   const mapRoute = focusedScheduleRoute || selectedRoute;
+  const mapFlowState = focusedScheduleRoute
+    ? focusedScheduleFlowState
+    : planner.flowState;
+  const mapStepIndex = focusedScheduleRoute
+    ? focusedScheduleStepIndex
+    : planner.currentStepIndex;
+
+  const handleStartJourney = useCallback(() => {
+    if (focusedScheduleRoute) {
+      setFocusedScheduleFlowState("walking_to_stop");
+      setFocusedScheduleStepIndex(0);
+      recenterToUser();
+      return;
+    }
+
+    planner.startJourney();
+  }, [focusedScheduleRoute, planner, recenterToUser]);
+
+  const handleNextJourneyStep = useCallback(() => {
+    if (focusedScheduleRoute) {
+      setFocusedScheduleFlowState("completed");
+      setFocusedScheduleStepIndex(0);
+      return;
+    }
+
+    planner.nextStep();
+  }, [focusedScheduleRoute, planner]);
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -737,8 +795,8 @@ export default function MapScreen() {
 
         <RoutePolylineLayer
           route={mapRoute}
-          flowState={planner.flowState}
-          currentStepIndex={planner.currentStepIndex}
+          flowState={mapFlowState}
+          currentStepIndex={mapStepIndex}
         />
 
         <WalkingPolylineLayer
@@ -746,11 +804,11 @@ export default function MapScreen() {
           userLocation={userLocation}
         />
 
-        <StopsLayer route={mapRoute} flowState={planner.flowState} />
+        <StopsLayer route={mapRoute} flowState={mapFlowState} />
 
         <StationAccessLayer
           accessPoints={stationAccessPoints}
-          selectedStopId={selectedRoute?.originStop?.id || null}
+          selectedStopId={mapRoute?.originStop?.id || mapRoute?.originStop?.stopId || null}
         />
 
         <FerryMarkersLayer
@@ -802,7 +860,7 @@ export default function MapScreen() {
       </Pressable>
 
       <JourneySheet
-        flowState={planner.flowState}
+        flowState={mapFlowState}
         liveBusCount={buses.length}
         query={planner.query}
         searchResults={planner.searchResults}
@@ -810,7 +868,7 @@ export default function MapScreen() {
         isPlanning={planner.isPlanning}
         routeOptions={planner.routeOptions}
         selectedRoute={mapRoute}
-        currentStepIndex={planner.currentStepIndex}
+        currentStepIndex={mapStepIndex}
         travelTimeMode={planner.travelTimeMode}
         travelTimeDate={planner.travelTimeDate}
         onChangeTravelTime={planner.setTravelTime}
@@ -857,11 +915,11 @@ export default function MapScreen() {
           void planner.selectDestination(place);
         }}
         onChooseRoute={(route) => { setFocusedScheduleRoute(null); planner.chooseRoute(route); }}
-        onStartJourney={planner.startJourney}
-        onNextStep={planner.nextStep}
-        onBackToRoutes={() => { setFocusedScheduleRoute(null); planner.backToRoutesList(); }}
-        onBackToSearch={() => { setFocusedScheduleRoute(null); planner.backToSearch(); }}
-        onReset={() => { setFocusedScheduleRoute(null); planner.resetPlanner(); }}
+        onStartJourney={handleStartJourney}
+        onNextStep={handleNextJourneyStep}
+        onBackToRoutes={() => { setFocusedScheduleRoute(null); setFocusedScheduleFlowState("route_selected"); setFocusedScheduleStepIndex(0); planner.backToRoutesList(); }}
+        onBackToSearch={() => { setFocusedScheduleRoute(null); setFocusedScheduleFlowState("route_selected"); setFocusedScheduleStepIndex(0); planner.backToSearch(); }}
+        onReset={() => { setFocusedScheduleRoute(null); setFocusedScheduleFlowState("route_selected"); setFocusedScheduleStepIndex(0); planner.resetPlanner(); }}
         onOpenFerries={() => setFerryScreenVisible(true)}
         onOpenBusRoute={handleOpenBusRoute}
       />
