@@ -38,7 +38,7 @@ const FAST_INDEX_TIMEOUT_MS = Number(
 
 const MEILI_TIMEOUT_MS = Number(process.env.MEILI_TIMEOUT_MS || 1200);
 
-const SEARCH_SERVICE_VERSION = "clean-rc-address-search-v1";
+const SEARCH_SERVICE_VERSION = "ultimate-rc-address-search-v3";
 const AUTOCOMPLETE_MEMORY_TTL_MS = Number(process.env.SEARCH_AUTOCOMPLETE_MEMORY_CACHE_TTL_MS || 5 * 60 * 1000);
 const autocompleteMemoryCache = new Map();
 
@@ -373,6 +373,47 @@ async function index(query = {}) {
     }
   })();
 
+  const addressLike = isAddressLikeQuery(q);
+  const streetLike = isLikelyStreetQuery(q);
+  const includeExternal = shouldUseExternalSearch(query);
+  const localAddressHasResult = localAddress.results.length > 0;
+
+  // ULTIMATE address-speed rule:
+  // For anything that looks like an address/street, return local RC address results immediately.
+  // Do not wait for Meili/FastIndex/Google/OSM; those are useful for POI/general search only.
+  if (addressLike || streetLike) {
+    const addressResults = forceExactAddressPriority(
+      dedupeResults(rankResults(localAddress.results, q)),
+      q,
+    ).slice(0, limit);
+
+    const payload = {
+      ok: true,
+      query: q,
+      count: addressResults.length,
+      results: addressResults,
+      places: addressResults,
+      stops: [],
+      addresses: addressResults.filter((item) => item.type === "address"),
+      meta: {
+        ...healthMeta(),
+        cached: false,
+        instant: true,
+        ultimateAddressSearch: true,
+        externalEnabled: includeExternal,
+        externalSkipped: true,
+        addressLocalFirst: true,
+        noMeiliWait: true,
+        noFastIndexWait: true,
+        tookMs: Date.now() - startedAt,
+        providers: compactProviderMeta([localAddress]),
+      },
+    };
+
+    await setCache(cacheKey, payload, 300);
+    return payload;
+  }
+
   const [fastIndex, meili] = await Promise.all([
     runProvider(
       "fast_local_index",
@@ -398,44 +439,6 @@ async function index(query = {}) {
   const hasStrongFastResult = rankedFast.some(
     (item) => Number(item.score || 0) >= 360,
   );
-
-  const addressLike = isAddressLikeQuery(q);
-  const streetLike = isLikelyStreetQuery(q);
-  const includeExternal = shouldUseExternalSearch(query);
-  const localAddressHasResult = localAddress.results.length > 0;
-
-  // FINAL Apple Maps address rule:
-  // If the query looks like a street/address, return ONLY local addresses.
-  // This prevents POI/stops from replacing addresses and fixes autocomplete/search ranking.
-  if (addressLike || streetLike) {
-    const addressResults = forceExactAddressPriority(
-      dedupeResults(rankResults(localAddress.results, q)),
-      q,
-    ).slice(0, limit);
-
-    const payload = {
-      ok: true,
-      query: q,
-      count: addressResults.length,
-      results: addressResults,
-      places: addressResults,
-      stops: [],
-      addresses: addressResults.filter((item) => item.type === "address"),
-      meta: {
-        ...healthMeta(),
-        cached: false,
-        instant: true,
-        externalEnabled: includeExternal,
-        externalSkipped: true,
-        addressLocalFirst: true,
-        tookMs: Date.now() - startedAt,
-        providers: compactProviderMeta([localAddress, meili, fastIndex]),
-      },
-    };
-
-    await setCache(cacheKey, payload, 300);
-    return payload;
-  }
 
   if (
     includeExternal &&

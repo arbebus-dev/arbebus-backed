@@ -1,17 +1,18 @@
 const { getPool } = require("../../../db/pool");
 const { toResult } = require("../utils/mapSearchResult");
 
-// Arbebus RC address provider - clean public.addresses dataset version
-// Works with the rebuilt public.addresses table:
+// Arbebus ULTIMATE local address provider
+// Designed for the rebuilt public.addresses table:
 // id, name, street, house_number, city, postcode, lat, lon
-// Rules:
-// - never joins addresses_rc_import during search
-// - never uses old match_key
-// - local DB first, one bounded query
-// - accepts house numbers and partial autocomplete
-// - returns only rows with valid WGS84 Lithuanian coordinates
+// Goals:
+// - local DB first
+// - autocomplete-friendly
+// - typo tolerant via pg_trgm KNN indexes
+// - no joins to addresses_rc_import during search
+// - no match_key during search
+// - bounded candidate sets before JS ranking
 
-const PROVIDER_VERSION = "rc-addresses-clean-v1";
+const PROVIDER_VERSION = "rc-addresses-ultimate-v3";
 const CACHE_TTL_MS = Number(process.env.SEARCH_MEMORY_CACHE_TTL_MS || 300000);
 const MAX_CACHE_SIZE = Number(process.env.SEARCH_MEMORY_CACHE_MAX || 5000);
 
@@ -102,6 +103,8 @@ function expandLithuanianVariants(value) {
   const replacements = [
     ["klaipeda", "klaipėda"],
     ["klaipedos", "klaipėdos"],
+    ["vilnius", "vilnius"],
+    ["kaunas", "kaunas"],
     ["silute", "šilutė"],
     ["silutes", "šilutės"],
     ["siauliai", "šiauliai"],
@@ -116,7 +119,7 @@ function expandLithuanianVariants(value) {
     ["h manto", "herkaus manto"],
   ];
 
-  const variants = new Set([base]);
+  const variants = new Set([base, stripLithuanian(base)]);
   for (const [plain, accented] of replacements) {
     for (const current of [...variants]) {
       if (current.includes(plain)) variants.add(current.replaceAll(plain, accented));
@@ -124,7 +127,34 @@ function expandLithuanianVariants(value) {
     }
   }
 
-  return [...variants].slice(0, 32);
+  return [...variants].filter(Boolean).slice(0, 32);
+}
+
+function normalizeStreetQuery(value) {
+  return cleanText(value)
+    .replace(/\b(g|g\.|gatve|gatvė)\b/g, "")
+    .replace(/\b(pr|pr\.|prospektas)\b/g, "")
+    .replace(/\b(al|al\.|aleja)\b/g, "")
+    .replace(/\b(pl|pl\.|plentas)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseHouseQuery(q) {
+  const normalized = cleanText(q);
+  const match = normalized.match(/\b(\d+[a-ząčęėįšųūž]?)(?:[-/]\d+)?\b/i);
+  if (!match) return null;
+
+  const houseNumber = match[1].toLowerCase();
+  const before = normalized.slice(0, match.index).trim();
+  const after = normalized.slice(match.index + match[0].length).trim();
+  const streetText = normalizeStreetQuery(before || after);
+
+  return {
+    houseNumber,
+    streetText,
+    streetVariants: expandLithuanianVariants(streetText),
+  };
 }
 
 function buildQueryInfo(query) {
@@ -133,15 +163,18 @@ function buildQueryInfo(query) {
   const lastToken = tokens[tokens.length - 1] || q;
   const variants = expandLithuanianVariants(q);
   const lastVariants = expandLithuanianVariants(lastToken);
+  const house = parseHouseQuery(q);
 
   return {
     q,
     tokens,
     variants,
+    lastVariants,
+    house,
     prefixPatterns: uniq([...variants, ...lastVariants].map((item) => `${item}%`)),
-    containsPatterns: uniq(variants.map((item) => `%${item}%`)),
-    tokenContainsPatterns: uniq(tokens.flatMap((token) => expandLithuanianVariants(token)).map((item) => `%${item}%`)),
-    hasHouseNumber: /\d+[a-ząčęėįšųūž]?([-/]\d+)?/i.test(q),
+    streetPrefixPatterns: uniq((house?.streetVariants || variants).map((item) => `${item}%`)),
+    cityPrefixPatterns: uniq([...variants, ...lastVariants].map((item) => `${item}%`)),
+    hasHouseNumber: Boolean(house),
   };
 }
 
@@ -152,6 +185,8 @@ function cacheGet(key) {
     memoryCache.delete(key);
     return null;
   }
+  memoryCache.delete(key);
+  memoryCache.set(key, cached);
   return cached.value;
 }
 
@@ -180,8 +215,6 @@ function normalizeStreetForTitle(street) {
 
 function rowTitle(row) {
   if (row.type === "settlement") return row.name || row.city || "Gyvenvietė";
-
-  // Prefer DB full address. It is the canonical value from rebuilt public.addresses.
   if (row.name) return String(row.name).trim();
 
   const street = normalizeStreetForTitle(row.street) || "Adresas";
@@ -200,16 +233,30 @@ function scoreRow(row, queryInfo) {
   const nameNorm = stripLithuanian(row.name || "");
   const streetNorm = stripLithuanian(row.street || "");
   const cityNorm = stripLithuanian(row.city || "");
+  const houseNorm = stripLithuanian(row.house_number || "");
+  const streetQueryNorm = stripLithuanian(queryInfo.house?.streetText || queryInfo.q);
 
   let score = Number(row.rank_score || 0);
-  if (row.type === "settlement") score += 500000;
+  if (row.type === "settlement") score += 700000;
   if (row.type === "address") score += 300000;
-  if (nameNorm === qNorm) score += 500000;
-  if (nameNorm.startsWith(qNorm)) score += 250000;
-  if (streetNorm.startsWith(qNorm)) score += 180000;
-  if (cityNorm.startsWith(qNorm)) score += 50000;
-  if (queryInfo.hasHouseNumber && row.house_number) score += 250000;
-  if (row.source === "manual_alias") score += 600000;
+  if (row.source === "manual_alias") score += 800000;
+
+  if (nameNorm === qNorm) score += 700000;
+  if (nameNorm.startsWith(qNorm)) score += 420000;
+  if (streetNorm.startsWith(qNorm)) score += 280000;
+  if (cityNorm.startsWith(qNorm)) score += 120000;
+
+  if (queryInfo.hasHouseNumber && row.house_number) {
+    score += 250000;
+    if (houseNorm === stripLithuanian(queryInfo.house.houseNumber)) score += 650000;
+    if (streetQueryNorm && streetNorm.startsWith(streetQueryNorm)) score += 350000;
+    if (nameNorm.includes(`${streetQueryNorm}${houseNorm}`.replace(/\s+/g, ""))) score += 120000;
+  }
+
+  if (Number.isFinite(Number(row.distance_score))) {
+    score += Math.max(0, 100000 - Number(row.distance_score) * 10000);
+  }
+
   return score;
 }
 
@@ -235,7 +282,7 @@ function rowToResult(row, queryInfo) {
     source: row.source || "postgres_address",
     category: type === "settlement" ? "Gyvenvietė" : type === "address" ? "Adresas" : "Gatvė",
     score: scoreRow(row, queryInfo),
-    priority: type === "settlement" ? 330 : type === "address" ? 370 : 340,
+    priority: type === "settlement" ? 360 : type === "address" ? 390 : 350,
     selectable: true,
     requiresHouseNumber: false,
     keywords: [row.name, row.street, row.city, type].filter(Boolean),
@@ -246,7 +293,7 @@ function dedupe(items) {
   const seen = new Set();
   const out = [];
   for (const item of items.filter(Boolean)) {
-    const key = `${stripLithuanian(item.title)}|${stripLithuanian(item.subtitle)}`;
+    const key = `${stripLithuanian(item.title)}|${stripLithuanian(item.subtitle)}|${item.latitude.toFixed(5)}|${item.longitude.toFixed(5)}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(item);
@@ -268,70 +315,125 @@ function manualAliasRows(queryInfo) {
 
 async function queryAddresses(queryInfo, limit) {
   const pool = getPool();
-  const boundedLimit = Math.max(Number(limit || 12) * 4, 24);
+  const boundedLimit = Math.min(Math.max(Number(limit || 12) * 5, 30), 80);
+
+  const houseNumber = queryInfo.house?.houseNumber || null;
+  const q = stripLithuanian(queryInfo.q);
+  const prefixPatterns = queryInfo.prefixPatterns.length ? queryInfo.prefixPatterns : [`${queryInfo.q}%`];
+  const streetPrefixPatterns = queryInfo.streetPrefixPatterns.length ? queryInfo.streetPrefixPatterns : prefixPatterns;
+  const cityPrefixPatterns = queryInfo.cityPrefixPatterns.length ? queryInfo.cityPrefixPatterns : prefixPatterns;
 
   const sql = `
-    WITH prefix_results AS (
+    WITH params AS (
       SELECT
-        id::text AS id,
-        CASE WHEN NULLIF(house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
-        name::text AS name,
-        street::text AS street,
-        house_number::text AS house_number,
-        city::text AS city,
-        lat::double precision AS lat,
-        lon::double precision AS lon,
-        1000::int AS rank_score,
-        'postgres_address'::text AS source
-      FROM public.addresses
-      WHERE
-        lat BETWEEN 53 AND 57
-        AND lon BETWEEN 20 AND 27
-        AND (
-          name ILIKE ANY($1::text[])
-          OR street ILIKE ANY($1::text[])
-          OR city ILIKE ANY($1::text[])
-        )
-      ORDER BY name
-      LIMIT $4
+        $1::text AS q,
+        $2::text AS house_number,
+        $3::text[] AS prefix_patterns,
+        $4::text[] AS street_prefix_patterns,
+        $5::text[] AS city_prefix_patterns,
+        $6::int AS bounded_limit
     ),
-    contains_results AS (
+    house_results AS (
       SELECT
-        id::text AS id,
-        CASE WHEN NULLIF(house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
-        name::text AS name,
-        street::text AS street,
-        house_number::text AS house_number,
-        city::text AS city,
-        lat::double precision AS lat,
-        lon::double precision AS lon,
-        650::int AS rank_score,
+        a.id::text AS id,
+        'address'::text AS type,
+        a.name::text AS name,
+        a.street::text AS street,
+        a.house_number::text AS house_number,
+        a.city::text AS city,
+        a.lat::double precision AS lat,
+        a.lon::double precision AS lon,
+        2200::int AS rank_score,
+        0::double precision AS distance_score,
         'postgres_address'::text AS source
-      FROM public.addresses
-      WHERE
-        lat BETWEEN 53 AND 57
-        AND lon BETWEEN 20 AND 27
+      FROM public.addresses a, params p
+      WHERE p.house_number IS NOT NULL
+        AND a.lat BETWEEN 53 AND 57
+        AND a.lon BETWEEN 20 AND 27
+        AND lower(a.house_number) = p.house_number
+        AND lower(a.street) LIKE ANY(p.street_prefix_patterns)
+      ORDER BY a.city, a.name
+      LIMIT (SELECT bounded_limit FROM params)
+    ),
+    prefix_results AS (
+      SELECT
+        a.id::text AS id,
+        CASE WHEN NULLIF(a.house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
+        a.name::text AS name,
+        a.street::text AS street,
+        a.house_number::text AS house_number,
+        a.city::text AS city,
+        a.lat::double precision AS lat,
+        a.lon::double precision AS lon,
+        1500::int AS rank_score,
+        0::double precision AS distance_score,
+        'postgres_address'::text AS source
+      FROM public.addresses a, params p
+      WHERE a.lat BETWEEN 53 AND 57
+        AND a.lon BETWEEN 20 AND 27
         AND (
-          name ILIKE ANY($2::text[])
-          OR (
-            cardinality($3::text[]) > 1
-            AND name ILIKE ALL($3::text[])
-          )
+          lower(a.name) LIKE ANY(p.prefix_patterns)
+          OR lower(a.street) LIKE ANY(p.prefix_patterns)
+          OR lower(a.city) LIKE ANY(p.city_prefix_patterns)
         )
-      ORDER BY name
-      LIMIT $4
+      ORDER BY a.name
+      LIMIT (SELECT bounded_limit FROM params)
+    ),
+    knn_name AS (
+      SELECT
+        a.id::text AS id,
+        CASE WHEN NULLIF(a.house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
+        a.name::text AS name,
+        a.street::text AS street,
+        a.house_number::text AS house_number,
+        a.city::text AS city,
+        a.lat::double precision AS lat,
+        a.lon::double precision AS lon,
+        900::int AS rank_score,
+        (lower(a.name) <-> (SELECT q FROM params))::double precision AS distance_score,
+        'postgres_address_typo'::text AS source
+      FROM public.addresses a, params p
+      WHERE a.lat BETWEEN 53 AND 57
+        AND a.lon BETWEEN 20 AND 27
+      ORDER BY lower(a.name) <-> p.q
+      LIMIT (SELECT bounded_limit FROM params)
+    ),
+    knn_street AS (
+      SELECT
+        a.id::text AS id,
+        CASE WHEN NULLIF(a.house_number, '') IS NOT NULL THEN 'address' ELSE 'street' END AS type,
+        a.name::text AS name,
+        a.street::text AS street,
+        a.house_number::text AS house_number,
+        a.city::text AS city,
+        a.lat::double precision AS lat,
+        a.lon::double precision AS lon,
+        780::int AS rank_score,
+        (lower(a.street) <-> (SELECT q FROM params))::double precision AS distance_score,
+        'postgres_street_typo'::text AS source
+      FROM public.addresses a, params p
+      WHERE a.lat BETWEEN 53 AND 57
+        AND a.lon BETWEEN 20 AND 27
+      ORDER BY lower(a.street) <-> p.q
+      LIMIT (SELECT bounded_limit FROM params)
     )
+    SELECT * FROM house_results
+    UNION ALL
     SELECT * FROM prefix_results
     UNION ALL
-    SELECT * FROM contains_results
-    LIMIT $4
+    SELECT * FROM knn_name
+    UNION ALL
+    SELECT * FROM knn_street
+    LIMIT (SELECT bounded_limit FROM params)
   `;
 
   const started = Date.now();
   const result = await pool.query(sql, [
-    queryInfo.prefixPatterns.length ? queryInfo.prefixPatterns : [`${queryInfo.q}%`],
-    queryInfo.containsPatterns.length ? queryInfo.containsPatterns : [`%${queryInfo.q}%`],
-    queryInfo.tokenContainsPatterns,
+    q,
+    houseNumber,
+    prefixPatterns,
+    streetPrefixPatterns,
+    cityPrefixPatterns,
     boundedLimit,
   ]);
   lastQueryMs = Date.now() - started;
@@ -429,11 +531,15 @@ function localAddressHealth() {
     postgresAddressProvider: true,
     postgresAddressCount: lastAddressCount,
     postgresAddressError: lastDbError,
-    providerMode: "public.addresses_clean_rc",
+    providerMode: "public.addresses_clean_rc_ultimate",
     providerVersion: PROVIDER_VERSION,
     oneQueryPerRequest: true,
     noAddressRcJoin: true,
     noMatchKey: true,
+    autocomplete: true,
+    typoTolerance: true,
+    ranking: true,
+    requiredIndexFile: "backend/sql/ultimate_search_engine_indexes.sql",
     memoryCache: memoryCache.size,
     memoryCacheTtlMs: CACHE_TTL_MS,
     lastQueryMs,
