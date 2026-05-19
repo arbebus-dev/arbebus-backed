@@ -38,7 +38,7 @@ const FAST_INDEX_TIMEOUT_MS = Number(
 
 const MEILI_TIMEOUT_MS = Number(process.env.MEILI_TIMEOUT_MS || 1200);
 
-const SEARCH_SERVICE_VERSION = "ultimate-local-search-v4";
+const SEARCH_SERVICE_VERSION = "ultimate-local-search-v5-address-fast-path";
 const AUTOCOMPLETE_MEMORY_TTL_MS = Number(process.env.SEARCH_AUTOCOMPLETE_MEMORY_CACHE_TTL_MS || 5 * 60 * 1000);
 const autocompleteMemoryCache = new Map();
 
@@ -178,6 +178,15 @@ function isAutocompleteRequest(query = {}) {
   );
 }
 
+function shouldUseAddressFastPath(q, query = {}) {
+  if (!hasHouseNumberQuery(q)) return false;
+  const mode = String(query.mode || query.endpoint || "").toLowerCase();
+  if (mode === "autocomplete") return false;
+  const type = String(query.type || "all").toLowerCase();
+  return type === "all" || type === "address" || type === "place";
+}
+
+
 function shouldUseExternalSearch(query = {}) {
   const explicit = String(
     query.external ?? query.includeExternal ?? "",
@@ -295,6 +304,58 @@ async function index(query = {}) {
         tookMs: Date.now() - startedAt,
       },
     };
+  }
+
+  // Address fast path:
+  // If the query contains a house number (e.g. "taikos 32"), do not run the full
+  // dynamic search pipeline. Go straight to the prepared address lookup provider.
+  // This is the Apple/Google-style branch: address query -> address index only.
+  if (shouldUseAddressFastPath(q, query)) {
+    const addressResults = await searchLocalAddresses(q, {
+      limit,
+      lat: query.lat ?? query.latitude,
+      lon: query.lon ?? query.lng ?? query.longitude,
+    });
+
+    const results = Array.isArray(addressResults)
+      ? addressResults.slice(0, limit)
+      : [];
+
+    const payload = {
+      ok: true,
+      query: q,
+      count: results.length,
+      results,
+      places: results,
+      stops: [],
+      addresses: results.filter((item) => item.type === "address"),
+      meta: {
+        ...healthMeta(),
+        cached: false,
+        instant: true,
+        ultimateAddressSearch: true,
+        addressFastPath: true,
+        bypassDynamicPipeline: true,
+        externalEnabled: false,
+        externalSkipped: true,
+        addressLocalFirst: true,
+        noMeiliWait: true,
+        noFastIndexWait: true,
+        noPoiWait: true,
+        tookMs: Date.now() - startedAt,
+        providers: [
+          {
+            name: "local_address_fast_path",
+            ok: true,
+            count: results.length,
+            error: null,
+          },
+        ],
+      },
+    };
+
+    await setCache(cacheKey, payload, 300);
+    return payload;
   }
 
   if (isAutocompleteRequest(query)) {
