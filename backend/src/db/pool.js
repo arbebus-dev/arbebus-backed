@@ -44,7 +44,9 @@ function createPool() {
 
     // Keep one small, stable pool. Search requests are short.
     max: Number(process.env.PG_POOL_MAX || 5),
-    min: 0,
+    // Keep one warm connection in production so address search does not pay
+    // connection setup on the first request after deploy/idle.
+    min: Number(process.env.PG_POOL_MIN || (process.env.NODE_ENV === "production" ? 1 : 0)),
 
     // Important for cloud DB connections.
     keepAlive: true,
@@ -54,7 +56,7 @@ function createPool() {
     connectionTimeoutMillis: Number(process.env.PG_CONNECTION_TIMEOUT_MS || 5_000),
 
     // Close idle clients so stale Render connections are not reused forever.
-    idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS || 30_000),
+    idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS || 600_000),
 
     // Prevent accidental long-running queries, but do not kill normal index searches.
     statement_timeout: Number(process.env.PG_STATEMENT_TIMEOUT_MS || 30_000),
@@ -94,9 +96,32 @@ function createPool() {
   return nextPool;
 }
 
+function warmPool() {
+  const shouldWarm =
+    String(process.env.PG_WARM_POOL || (process.env.NODE_ENV === "production" ? "true" : "false")).toLowerCase() === "true";
+
+  if (!shouldWarm) return;
+
+  setTimeout(async () => {
+    try {
+      const currentPool = getPool();
+      const client = await currentPool.connect();
+      try {
+        await client.query("SELECT 1");
+      } finally {
+        client.release();
+      }
+      console.log("[postgres] pool warmed");
+    } catch (err) {
+      console.warn("[postgres] pool warmup failed:", err?.message || err);
+    }
+  }, 250);
+}
+
 function getPool() {
   if (!pool) {
     pool = createPool();
+    warmPool();
   }
 
   return pool;

@@ -38,7 +38,7 @@ const FAST_INDEX_TIMEOUT_MS = Number(
 
 const MEILI_TIMEOUT_MS = Number(process.env.MEILI_TIMEOUT_MS || 1200);
 
-const SEARCH_SERVICE_VERSION = "ultimate-local-search-v5-address-fast-path";
+const SEARCH_SERVICE_VERSION = "ultimate-local-search-v6-address-fast-cache";
 const AUTOCOMPLETE_MEMORY_TTL_MS = Number(process.env.SEARCH_AUTOCOMPLETE_MEMORY_CACHE_TTL_MS || 5 * 60 * 1000);
 const autocompleteMemoryCache = new Map();
 
@@ -293,15 +293,36 @@ async function index(query = {}) {
   }
 
   const cacheKey = searchCacheKey(q, type, limit, query);
+
+  // Fast in-process cache first. This avoids a Redis/network roundtrip for repeated
+  // address searches inside the same Render instance and makes the second request
+  // feel instant even if Redis is not configured.
+  const memoryCached = memoryGet(cacheKey);
+  if (memoryCached) {
+    return {
+      ...memoryCached,
+      meta: {
+        ...(memoryCached.meta || {}),
+        cached: true,
+        cacheLayer: "memory",
+        tookMs: Date.now() - startedAt,
+        searchServiceVersion: SEARCH_SERVICE_VERSION,
+      },
+    };
+  }
+
   const cached = await getCache(cacheKey);
 
   if (cached) {
+    memorySet(cacheKey, cached);
     return {
       ...cached,
       meta: {
         ...(cached.meta || {}),
         cached: true,
+        cacheLayer: "redis_or_local",
         tookMs: Date.now() - startedAt,
+        searchServiceVersion: SEARCH_SERVICE_VERSION,
       },
     };
   }
@@ -354,6 +375,7 @@ async function index(query = {}) {
       },
     };
 
+    memorySet(cacheKey, payload);
     await setCache(cacheKey, payload, 300);
     return payload;
   }
@@ -483,6 +505,7 @@ async function index(query = {}) {
       },
     };
 
+    memorySet(cacheKey, payload);
     await setCache(cacheKey, payload, 300);
     return payload;
   }

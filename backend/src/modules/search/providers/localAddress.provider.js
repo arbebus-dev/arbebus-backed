@@ -12,7 +12,7 @@ const { toResult } = require("../utils/mapSearchResult");
 // - no match_key during search
 // - bounded candidate sets before JS ranking
 
-const PROVIDER_VERSION = "apple-addresses-clean-v9-direct-pool-fast";
+const PROVIDER_VERSION = "apple-addresses-clean-v10-cache-warm-fast";
 const QUERY_TIMEOUT_MS = Number(process.env.SEARCH_LOCAL_ADDRESS_STATEMENT_TIMEOUT_MS || 12000);
 const TYPO_QUERY_TIMEOUT_MS = Number(process.env.SEARCH_LOCAL_ADDRESS_TYPO_TIMEOUT_MS || 12000);
 const TYPO_ENABLED = String(process.env.SEARCH_LOCAL_ADDRESS_TYPO_ENABLED || "false").toLowerCase() === "true";

@@ -11,7 +11,7 @@ export default ({ config }) => {
       merchantIdentifier: "merchant.com.arbebus.app",
       supportsTablet: true,
       usesAppleSignIn: true,
-      buildNumber: "116",
+      buildNumber: "117",
       config: {
         ...(config.ios?.config || {}),
         googleMapsApiKey,

@@ -65,7 +65,7 @@ function apiBase() {
 
 const API_TIMEOUT_MS = 12000;
 const SEARCH_TIMEOUT_MS = 1800;
-const SEARCH_MEMORY_TTL_MS = 5 * 60 * 1000;
+const SEARCH_MEMORY_TTL_MS = 10 * 60 * 1000;
 const API_RETRY_COUNT = 1;
 const SEARCH_RETRY_DELAYS_MS = [220, 650];
 
@@ -125,6 +125,12 @@ function setSearchMemoryCache(
     createdAt: Date.now(),
     results,
   });
+
+  while (searchMemoryCache.size > 300) {
+    const firstKey = searchMemoryCache.keys().next().value;
+    if (!firstKey) break;
+    searchMemoryCache.delete(firstKey);
+  }
 }
 
 async function getBestEffortDeviceLocation(): Promise<Coordinate | null> {
