@@ -1091,7 +1091,7 @@ function rankPlaceResult(
   // Mobile-side safety ranking. Backend already ranks, but this protects TestFlight
   // from stale cached JS and keeps address autocomplete above POI/stops.
   if (item.type === "address") score += 1400;
-  if (item.type === "street") score += 1100;
+  if (item.type === "street") score += 1200;
   if (item.type === "poi") score += isAddressLikeSearchQuery(query) ? -220 : 80;
   if (item.type === "stop")
     score += isAddressLikeSearchQuery(query) ? -320 : 40;
@@ -1105,6 +1105,13 @@ function rankPlaceResult(
   if (source.includes("nominatim")) score -= 80;
   if (source.includes("overpass")) score -= 100;
   if (source.includes("gtfs")) score -= 60;
+
+  // Backend sends GPS-ranked score, but keep a mobile-side safety boost so
+  // stale backend/cache still prefers nearby exact address matches.
+  const distanceMeters = Number((item as any).distanceMeters);
+  if (Number.isFinite(distanceMeters)) {
+    score += Math.max(0, 900 - distanceMeters / 75);
+  }
 
   if (title === q) score += 500;
   if (title.startsWith(q)) score += 250;
@@ -1239,10 +1246,14 @@ function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
 }
 
 function searchUrls(params: string) {
-  // Production autocomplete must call ONE canonical endpoint only.
-  // This is the endpoint that uses the 1M+ RC/Postgres address table first.
+  // IMPORTANT: use /api/search first. This is the endpoint we measured in production
+  // at ~0.3–0.7s and it returns the full unified set: addresses, POI, stops, cities.
+  // /autocomplete remains as a compatibility fallback for older backend deploys.
   const base = apiBase();
-  return [`${base}/api/search/autocomplete?${params}`];
+  return [
+    `${base}/api/search?${params}`,
+    `${base}/api/search/autocomplete?${params}`,
+  ];
 }
 
 async function runSearchRequest(
@@ -1256,7 +1267,7 @@ async function runSearchRequest(
 
   const params = new URLSearchParams({
     q,
-    limit: "10",
+    limit: "12",
     // Apple Maps-style autocomplete: local DB first; external providers only after
     // backend decides they are needed. This keeps typing instant and avoids POI noise.
     external: "false",
@@ -1270,42 +1281,47 @@ async function runSearchRequest(
     params.set("lon", String(location.longitude));
     params.set("latitude", String(location.latitude));
     params.set("longitude", String(location.longitude));
+    params.set("userLat", String(location.latitude));
+    params.set("userLon", String(location.longitude));
   }
 
-  const url = searchUrls(params.toString())[0];
+  const urls = searchUrls(params.toString());
 
   activeSearchController?.abort();
   const controller = new AbortController();
   activeSearchController = controller;
 
   try {
-    const data = await fetchSearchJson(url, controller.signal);
-    if (!data) return [];
+    for (const url of urls) {
+      const data = await fetchSearchJson(url, controller.signal);
+      if (!data) continue;
 
-    const rawResults = normalizeSearchPayload(data);
-    if (!rawResults.length) return [];
+      const rawResults = normalizeSearchPayload(data);
+      if (!rawResults.length) continue;
 
-    const normalized = rawResults
-      .map((item: any, index: number): PlaceResult | null =>
-        normalizePlaceResult(item, index),
-      )
-      .filter(Boolean) as PlaceResult[];
+      const normalized = rawResults
+        .map((item: any, index: number): PlaceResult | null =>
+          normalizePlaceResult(item, index),
+        )
+        .filter(Boolean) as PlaceResult[];
 
-    // Unified Local Search already ranks addresses, settlements, POI and stops on the backend.
-    // Do not filter the list down to only addresses here; otherwise places like
-    // Melnragė / Smiltynė / ferry terminals / POI disappear while typing.
-    const safeResults = normalized.filter((item: any) => {
-      if (item.selectable === false || item.requiresHouseNumber === true) {
-        return String(item.type || "").toLowerCase() === "street";
-      }
-      return isUsableCoordinate(item.coordinate || null);
-    });
+      // Keep every backend result with valid coordinates. Do not drop address/street
+      // records just because backend marks them as requiresHouseNumber/selectable=false;
+      // RC address rows often use these flags for hints, but still contain exact coords.
+      const safeResults = normalized.filter((item: any) =>
+        isUsableCoordinate(item.coordinate || null),
+      );
 
-    return dedupePlaceResults(safeResults)
-      .sort(
-        (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
-      )
-      .slice(0, 10);
+      const ranked = dedupePlaceResults(safeResults)
+        .sort(
+          (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
+        )
+        .slice(0, 12);
+
+      if (ranked.length) return ranked;
+    }
+
+    return [];
   } catch (error) {
     if ((error as any)?.name !== "AbortError") {
       console.warn("[Arbebus search] failed", error);

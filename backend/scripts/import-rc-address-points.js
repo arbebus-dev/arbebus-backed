@@ -265,6 +265,10 @@ async function main() {
     const street = gatCode ? gatves.get(gatCode) : null;
     const city = gyvCode ? gyv.get(gyvCode) : null;
 
+    // IMPORTANT: do not fallback to AOB_KODAS here.
+    // AOB_KODAS is a Registrų centro object id, not a real house number.
+    // The real Apple-level public.addresses table is rebuilt by
+    // scripts/rebuild-addresses-apple.js from RC relational tables.
     const house = normalizeText(
       prop(p, [
         "AOB_NR",
@@ -273,7 +277,7 @@ async function main() {
         "NR",
         "NUMERIS",
         "NAMO_NUMERIS",
-      ]) || String(prop(p, ["AOB_KODAS"]) || id || ""),
+      ]) || "",
     );
 
     const postcode = normalizeText(p.PASTO_KODA || p.PASTO_KODAS || "");

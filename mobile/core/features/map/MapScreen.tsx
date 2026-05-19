@@ -15,6 +15,7 @@ import {
   fetchPlaceDetails,
   fetchStationAccess,
   fetchTransitRouteShape,
+  fetchWalkingRoute,
   type TransitScheduleRoute,
   reverseGeocodePlace,
   searchPlaces,
@@ -81,6 +82,54 @@ function distanceMeters(a: MapPoint, b: MapPoint) {
     360;
 
   return Math.sqrt(dx * dx + dy * dy);
+}
+
+function normalizeWalkPoints(raw: any): MapPoint[] {
+  const candidates =
+    raw?.points ?? raw?.geometry ?? raw?.polyline ?? raw?.coordinates ?? [];
+
+  if (!Array.isArray(candidates)) return [];
+
+  return candidates
+    .map((point: any) => {
+      if (Array.isArray(point)) {
+        return { latitude: Number(point[1]), longitude: Number(point[0]) };
+      }
+      return {
+        latitude: Number(point?.latitude ?? point?.lat),
+        longitude: Number(point?.longitude ?? point?.lng ?? point?.lon),
+      };
+    })
+    .filter(
+      (point: MapPoint) =>
+        Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
+    );
+}
+
+async function getWalkingLine(from: MapPoint | null, to: MapPoint | null) {
+  if (!from || !to) return { points: [] as MapPoint[], minutes: 0, meters: 0 };
+
+  const fallbackDistance = Math.round(distanceMeters(from, to));
+  const fallbackMinutes = Math.max(1, Math.round(fallbackDistance / 80));
+
+  try {
+    const walk = await fetchWalkingRoute({ from, to });
+    const points = normalizeWalkPoints(walk);
+    const minutes = Number(walk?.durationMinutes ?? walk?.durationSeconds / 60);
+    const meters = Number(walk?.distanceMeters);
+
+    if (points.length >= 2) {
+      return {
+        points,
+        minutes: Number.isFinite(minutes) && minutes > 0 ? Math.max(1, Math.round(minutes)) : fallbackMinutes,
+        meters: Number.isFinite(meters) && meters > 0 ? Math.round(meters) : fallbackDistance,
+      };
+    }
+  } catch {
+    // Keep schedule route usable even when ORS is temporarily unavailable.
+  }
+
+  return { points: [from, to], minutes: fallbackMinutes, meters: fallbackDistance };
 }
 
 function averagePoint(points: MapPoint[]): MapPoint | null {
@@ -742,13 +791,12 @@ export default function MapScreen() {
       const firstStop = nearestStop || stops[0] || null;
       const lastStop = stops[stops.length - 1] || null;
       const line = validPoints(payload.polyline || payload.points || []);
-      const walkDistanceMeters =
-        userLocation && firstStop?.coordinate
-          ? Math.max(0, Math.round(distanceMeters(userLocation, firstStop.coordinate)))
-          : 0;
-      const walkMinutes = walkDistanceMeters
-        ? Math.max(1, Math.round(walkDistanceMeters / 80))
-        : 0;
+      const accessWalk = await getWalkingLine(
+        userLocation,
+        firstStop?.coordinate || null,
+      );
+      const walkDistanceMeters = accessWalk.meters;
+      const walkMinutes = accessWalk.minutes;
       const accessStep = firstStop
         ? {
             id: `schedule-walk-${route.routeId}`,
@@ -764,7 +812,7 @@ export default function MapScreen() {
             stopName: firstStop.title || firstStop.name,
             toStopId: firstStop.stopId || firstStop.id,
             toStopName: firstStop.title || firstStop.name,
-            polyline: userLocation && firstStop?.coordinate ? [userLocation, firstStop.coordinate] : [],
+            polyline: accessWalk.points,
           }
         : null;
       const busStep = {

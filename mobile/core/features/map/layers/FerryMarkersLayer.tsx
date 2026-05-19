@@ -195,7 +195,7 @@ export default function FerryMarkersLayer({
           <Marker
             key={terminal.id}
             coordinate={{ latitude: terminal.latitude, longitude: terminal.longitude }}
-            anchor={{ x: 0.5, y: 1 }}
+            anchor={{ x: 0.5, y: 0.5 }}
             zIndex={selected ? 1600 : 250}
             tracksViewChanges={false}
             onPress={() => onSelectTerminal?.(terminal)}
@@ -218,7 +218,6 @@ export default function FerryMarkersLayer({
                 </Text>
               ) : null}
             </View>
-            <View style={[styles.markerTail, { backgroundColor: selected ? theme.accent : theme.surfaceStrong }]} />
           </Marker>
         );
       })}
@@ -264,14 +263,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 13,
     fontWeight: "900",
-  },
-  markerTail: {
-    alignSelf: "center",
-    width: 10,
-    height: 10,
-    borderRadius: 2,
-    marginTop: -5,
-    transform: [{ rotate: "45deg" }],
   },
   liveMarkerWrap: {
     width: 70,

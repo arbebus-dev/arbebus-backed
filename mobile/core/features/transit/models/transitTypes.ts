@@ -38,7 +38,7 @@ export type PlaceSearchResult = {
   title: string;
   name?: string;
   subtitle?: string;
-  type?: "stop" | "poi" | "place" | "address" | "city" | "region" | string;
+  type?: "stop" | "poi" | "place" | "address" | "street" | "city" | "region" | "ferry" | string;
   source?: "gtfs" | "seed" | "poi" | "ors" | "google_places" | string;
   distanceMeters?: number;
   latitude?: number;

@@ -20,10 +20,15 @@ export default ({ config }) => {
         ...(config.ios?.infoPlist || {}),
         ITSAppUsesNonExemptEncryption: false,
         UIBackgroundModes: ["location", "fetch", "remote-notification"],
+
+        NSCameraUsageDescription: "Arbebus naudoja kamerą QR kodų nuskaitymui.",
+
         NSLocationWhenInUseUsageDescription:
           "Arbebus naudoja tavo lokaciją maršrutams, artimiausiems autobusams ir tiksliems kelionės priminimams.",
+
         NSLocationAlwaysAndWhenInUseUsageDescription:
           "Arbebus gali naudoti lokaciją fone, kad primintų kada išeiti ir perskaičiuotų kelionės priminimus.",
+
         NSUserNotificationsUsageDescription:
           "Arbebus siunčia kelionės priminimus ir įlipimo / išlipimo pranešimus.",
       },

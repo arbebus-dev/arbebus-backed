@@ -44,7 +44,7 @@ function sleep(ms: number) {
 const TRANSIT_PLAN_CACHE_KEY = "arbebus:last-transit-plan:v1";
 const TRANSIT_PLAN_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const SEARCH_DEBOUNCE_MS = 250;
-const SEARCH_RESULTS_LIMIT = 8;
+const SEARCH_RESULTS_LIMIT = 12;
 
 type CachedTransitPlan = {
   createdAt: number;
@@ -441,7 +441,11 @@ function normalizeStep(step: any, index: number): TransitStep {
     rawType === "arrive" ||
     rawType === "board" ||
     rawType === "ride" ||
-    rawType === "alight"
+    rawType === "alight" ||
+    rawType === "bus" ||
+    rawType === "ferry" ||
+    rawType === "train" ||
+    rawType === "bolt"
       ? (rawType as TransitStepType)
       : "bus";
 
@@ -683,12 +687,22 @@ function hasRealBusSegment(route: TransitRouteOption | null) {
   if (!route) return false;
 
   const steps = route.journeySteps || route.steps || [];
-  const busStep = steps.find(
-    (step) => step.type === "bus" || step.type === "ride",
+  const transitStep = steps.find((step) => {
+    const type = String(step?.type ?? "").toLowerCase();
+    const mode = String(step?.mode ?? "").toLowerCase();
+    return ["bus", "ride", "ferry", "train", "bolt"].includes(type) ||
+      ["bus", "ferry", "train", "bolt"].includes(mode);
+  });
+
+  const isFerryRoute = Boolean(
+    route.ferryRouteId ||
+      String(route.mode || "").toLowerCase().includes("ferry") ||
+      steps.some((step) => String(step?.type || step?.mode || "").toLowerCase().includes("ferry")),
   );
+
   const routeNumber =
     route.routeNumbers?.find((item) => !looksLikeFakeRouteNumber(item)) ??
-    busStep?.routeNumber ??
+    transitStep?.routeNumber ??
     route.routeId ??
     route.routeLabel;
 
@@ -707,13 +721,13 @@ function hasRealBusSegment(route: TransitRouteOption | null) {
 
   const hasUsableGeometry =
     !!route.shapeId ||
-    (Array.isArray(busStep?.polyline) && busStep.polyline.length >= 2) ||
+    (Array.isArray(transitStep?.polyline) && transitStep.polyline.length >= 2) ||
     (Array.isArray(route.polyline) && route.polyline.length >= 2) ||
     (Array.isArray(route.previewPoints) && route.previewPoints.length >= 2);
 
   return (
-    !looksLikeFakeRouteNumber(routeNumber) &&
-    !!busStep &&
+    (isFerryRoute || !looksLikeFakeRouteNumber(routeNumber)) &&
+    !!transitStep &&
     !!boardName &&
     !!alightName &&
     boardName.toLowerCase() !== "undefined" &&
@@ -721,6 +735,7 @@ function hasRealBusSegment(route: TransitRouteOption | null) {
     hasUsableGeometry
   );
 }
+
 
 function estimateWalkMinutes(points: Coordinate[]) {
   if (!Array.isArray(points) || points.length < 2) return 0;

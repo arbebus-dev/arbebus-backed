@@ -12,7 +12,9 @@
     "fill:smiltyne": "node scripts/fill-smiltyne-coordinates.js",
     "fill:kretingale": "node scripts/fill-kretingale-coordinates.js",
     "test": "node -e \"require('./src/modules/search/search.service'); require('./src/modules/transit/transit.service'); console.log('backend smoke ok')\"",
-    "rebuild:search": "node scripts/rebuild-search-index.js"
+    "rebuild:search": "node scripts/rebuild-search-index.js",
+    "addresses:rebuild": "node scripts/rebuild-addresses-apple.js",
+    "addresses:indexes": "psql \"$DATABASE_URL\" -f sql/rebuild_addresses_apple_indexes.sql"
   },
   "dependencies": {
     "cors": "^2.8.5",
