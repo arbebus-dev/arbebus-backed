@@ -2223,7 +2223,7 @@ function planSearchProfiles(from, to) {
   }));
 }
 
-async function buildPlan(body = {}) {
+async function legacyPlan(body = {}) {
   const defaultOrigin = { latitude: 55.7033, longitude: 21.1443 };
   const defaultDestination = { latitude: 55.68962, longitude: 21.14691 };
 
@@ -2475,113 +2475,191 @@ async function buildPlan(body = {}) {
   };
 }
 
-// ===== Apple-level fast preview + cache layer =====
-const TRANSIT_PLAN_CACHE_TTL_MS = Number(process.env.TRANSIT_PLAN_CACHE_TTL_MS || 120000);
-const TRANSIT_PLAN_CACHE_MAX = Number(process.env.TRANSIT_PLAN_CACHE_MAX || 300);
-const transitPlanMemoryCache = new Map();
 
-function roundedCoordinateKey(coordinate) {
-  const c = toCoordinate(coordinate);
-  if (!c) return 'none';
-  return `${c.latitude.toFixed(5)},${c.longitude.toFixed(5)}`;
+const APPLE_PLAN_CACHE_TTL_MS = Number(process.env.TRANSIT_PLAN_CACHE_TTL_MS || 25_000);
+const APPLE_PREFETCH_CACHE_TTL_MS = Number(process.env.TRANSIT_PREFETCH_CACHE_TTL_MS || 90_000);
+const applePlanCache = new Map();
+
+function roundCoordForCache(coord) {
+  if (!coord) return null;
+  return {
+    latitude: Math.round(Number(coord.latitude) * 10000) / 10000,
+    longitude: Math.round(Number(coord.longitude) * 10000) / 10000,
+  };
 }
 
 function planCacheKey(body = {}) {
-  const from = coordinateFromPlanInput(body, 'from');
-  const to = coordinateFromPlanInput(body, 'to');
+  const from = coordinateFromPlanInput(body, "from") || coordinateFromPlanInput(body, "origin");
+  const to = coordinateFromPlanInput(body, "to") || coordinateFromPlanInput(body, "destination");
   return JSON.stringify({
-    from: roundedCoordinateKey(from),
-    to: roundedCoordinateKey(to),
-    timeMode: body.timeMode || 'now',
+    from: roundCoordForCache(from),
+    to: roundCoordForCache(to),
+    timeMode: body.timeMode || "now",
     travelAt: body.travelAt || null,
-    engine: body.engine || process.env.TRANSIT_ENGINE || 'legacy',
-    walking: body.includeWalkingGeometry === true,
+    engine: body.engine || process.env.TRANSIT_ENGINE || "legacy",
   });
 }
 
-function getPlanCache(key) {
-  const cached = transitPlanMemoryCache.get(key);
+function getApplePlanCache(key) {
+  const cached = applePlanCache.get(key);
   if (!cached) return null;
-  if (Date.now() - cached.createdAt > TRANSIT_PLAN_CACHE_TTL_MS) {
-    transitPlanMemoryCache.delete(key);
+  if (Date.now() > cached.expiresAt) {
+    applePlanCache.delete(key);
     return null;
   }
   return cached.value;
 }
 
-function setPlanCache(key, value) {
-  if (transitPlanMemoryCache.size >= TRANSIT_PLAN_CACHE_MAX) {
-    const firstKey = transitPlanMemoryCache.keys().next().value;
-    if (firstKey) transitPlanMemoryCache.delete(firstKey);
+function setApplePlanCache(key, value, ttlMs = APPLE_PLAN_CACHE_TTL_MS) {
+  if (!key || !value) return;
+  applePlanCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+  if (applePlanCache.size > 250) {
+    const firstKey = applePlanCache.keys().next().value;
+    if (firstKey) applePlanCache.delete(firstKey);
   }
-  transitPlanMemoryCache.set(key, { createdAt: Date.now(), value });
 }
 
-function sortAppleRouteOptions(routes = []) {
-  return [...routes]
-    .filter(Boolean)
-    .map((route) => {
-      const transfers = Number(route.transfersCount ?? route.transfers ?? route.summary?.transfersCount ?? 0);
-      const totalMinutes = Number(route.totalDurationMinutes ?? route.totalMinutes ?? route.summary?.totalDurationMinutes ?? 999);
-      const walkMinutes = Number(route.totalWalkMinutes ?? route.walkingMinutes ?? route.summary?.totalWalkMinutes ?? 0);
-      const delayMinutes = Math.max(0, Number(route.liveEta?.delayMinutes ?? route.summary?.delayMinutes ?? 0));
-      const score = totalMinutes + transfers * 9 + walkMinutes * 0.7 + delayMinutes * 1.4;
-      return { ...route, appleScore: score, routingQuality: { ...(route.routingQuality || {}), appleScore: score } };
-    })
-    .sort((a, b) => Number(a.appleScore || 9999) - Number(b.appleScore || 9999));
+function routeDelayPenalty(route) {
+  const delays = [];
+  const steps = Array.isArray(route?.journeySteps) ? route.journeySteps : Array.isArray(route?.steps) ? route.steps : [];
+  for (const step of steps) {
+    const delay = Number(step?.delaySeconds ?? step?.liveDelaySeconds ?? step?.vehicle?.delaySeconds ?? 0);
+    if (Number.isFinite(delay)) delays.push(delay);
+  }
+  const liveVehicleDelay = Number(route?.liveVehicle?.delaySeconds ?? 0);
+  if (Number.isFinite(liveVehicleDelay)) delays.push(liveVehicleDelay);
+  return Math.max(0, ...delays, 0) / 60;
 }
 
-async function preview(body = {}) {
-  const defaultOrigin = { latitude: 55.7033, longitude: 21.1443 };
-  const defaultDestination = { latitude: 55.68962, longitude: 21.14691 };
-  const from = coordinateFromPlanInput(body, 'from') || defaultOrigin;
-  const to = coordinateFromPlanInput(body, 'to') || defaultDestination;
-  const distance = Math.round(distanceMeters(from, to));
-  const durationMinutes = Math.max(1, Math.round(distance / WALK_SPEED_M_PER_MIN));
-  const route = {
-    id: `preview-${roundedCoordinateKey(from)}-${roundedCoordinateKey(to)}`,
-    title: 'Preview',
-    routeLabel: 'Preview',
+function routeSmartScore(route) {
+  const duration = Number(route?.totalDurationMinutes ?? route?.totalMinutes ?? route?.summary?.totalDurationMinutes ?? 999);
+  const transfers = Number(route?.transfersCount ?? route?.transfers ?? route?.summary?.transfersCount ?? 0);
+  const walk = Number(route?.totalWalkMinutes ?? route?.walkingMinutes ?? route?.summary?.totalWalkMinutes ?? 0);
+  const stopCount = Number(route?.stopCount ?? route?.summary?.stopCount ?? 0);
+  const delay = routeDelayPenalty(route);
+  const hasLiveVehicle = route?.liveVehicle || route?.summary?.liveVehicle ? -3 : 0;
+  return duration * 1.0 + transfers * 9 + walk * 0.8 + stopCount * 0.15 + delay * 1.4 + hasLiveVehicle;
+}
+
+function finalizeAppleRoutes(result, source) {
+  if (!result || result.ok !== true) return result;
+  const rawRoutes = [
+    ...(result.plan ? [result.plan] : []),
+    ...(Array.isArray(result.options) ? result.options : []),
+    ...(Array.isArray(result.routes) ? result.routes : []),
+  ].filter(Boolean);
+  const deduped = [];
+  const seen = new Set();
+  for (const route of rawRoutes) {
+    const key = String(route?.id || `${route?.routeLabel || route?.title}-${route?.boardStopName}-${route?.alightStopName}`);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(route);
+  }
+  const ranked = deduped
+    .map((route) => ({
+      ...route,
+      smartScore: routeSmartScore(route),
+      summary: {
+        ...(route.summary || {}),
+        smartScore: routeSmartScore(route),
+        ranking: "apple_level_fastest_less_transfer_delay_aware",
+      },
+    }))
+    .sort((a, b) => Number(a.smartScore || 9999) - Number(b.smartScore || 9999))
+    .slice(0, 6);
+  return {
+    ...result,
+    source: source || result.source,
+    plan: ranked[0] || result.plan || null,
+    options: ranked,
+    routes: ranked,
+    meta: {
+      ...(result.meta || {}),
+      appleLevel: true,
+      routingArchitecture: "preview_prefetch_cache_multi_option_reroute",
+      ranking: "duration+transfers+walk+live_delay",
+      routeCount: ranked.length,
+      generatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+function buildPreviewRoute(body = {}) {
+  const from = coordinateFromPlanInput(body, "from") || coordinateFromPlanInput(body, "origin") || { latitude: 55.7033, longitude: 21.1443 };
+  const to = coordinateFromPlanInput(body, "to") || coordinateFromPlanInput(body, "destination") || { latitude: 55.68962, longitude: 21.14691 };
+  const destinationTitle = body.selectedDestination?.title || body.destination?.title || body.to?.title || "Tikslas";
+  const meters = distanceMeters(from, to);
+  const minutes = Math.max(1, Math.round(meters / 80));
+  const preview = {
+    id: `preview-${Math.round(from.latitude * 10000)}-${Math.round(to.latitude * 10000)}`,
+    title: "Ruošiamas maršrutas",
+    subtitle: "Instant preview – pilnas maršrutas skaičiuojamas fone",
+    mode: "preview",
+    routeLabel: "Preview",
     routeNumbers: [],
-    mode: 'preview',
-    totalMinutes: durationMinutes,
-    totalDurationMinutes: durationMinutes,
-    walkingMinutes: durationMinutes,
-    totalWalkMinutes: durationMinutes,
+    totalMinutes: minutes,
+    totalDurationMinutes: minutes,
+    walkingMinutes: minutes,
+    totalWalkMinutes: minutes,
+    totalBusMinutes: 0,
     transfers: 0,
     transfersCount: 0,
     stopCount: 0,
-    boardStopName: 'Pradžia',
-    alightStopName: body.selectedDestination?.title || body.destination?.title || 'Tikslas',
-    originStop: { name: 'Pradžia', title: 'Pradžia', latitude: from.latitude, longitude: from.longitude, coordinate: from },
-    destinationStop: { name: body.selectedDestination?.title || 'Tikslas', title: body.selectedDestination?.title || 'Tikslas', latitude: to.latitude, longitude: to.longitude, coordinate: to },
+    boardStopName: "Mano vieta",
+    alightStopName: destinationTitle,
+    originStop: { title: "Mano vieta", name: "Mano vieta", latitude: from.latitude, longitude: from.longitude, coordinate: from },
+    destinationStop: { title: destinationTitle, name: destinationTitle, latitude: to.latitude, longitude: to.longitude, coordinate: to },
     previewPoints: [from, to],
     polyline: [from, to],
-    steps: [{ id: 'preview-line', type: 'walk', mode: 'walk', title: 'Maršrutas skaičiuojamas', subtitle: 'Rodomas greitas preview', durationMinutes }],
-    journeySteps: [{ id: 'preview-line', type: 'walk', mode: 'walk', title: 'Maršrutas skaičiuojamas', subtitle: 'Rodomas greitas preview', durationMinutes }],
-    summary: { optionType: 'preview', isPreview: true, totalDurationMinutes: durationMinutes, totalWalkMinutes: durationMinutes },
+    steps: [{ id: "preview-step", type: "walk", mode: "walk", title: "Maršrutas ruošiamas", subtitle: "Tikriname stoteles ir laikus", minutes, durationMinutes: minutes, polyline: [from, to] }],
+    journeySteps: [{ id: "preview-step", type: "walk", mode: "walk", title: "Maršrutas ruošiamas", subtitle: "Tikriname stoteles ir laikus", minutes, durationMinutes: minutes, polyline: [from, to] }],
+    summary: { isPreview: true, totalDurationMinutes: minutes, totalWalkMinutes: minutes, ranking: "instant_preview" },
   };
-  return { ok: true, source: 'apple-preview', plan: route, options: [route], routes: [route], meta: { from, to, preview: true, distanceMeters: distance } };
+  return { ok: true, source: "instant-preview", preview, plan: preview, options: [preview], routes: [preview], meta: { appleLevel: true, previewOnly: true, from, to } };
 }
 
 async function plan(body = {}) {
   const key = planCacheKey(body);
-  const cached = getPlanCache(key);
-  if (cached) return { ...cached, meta: { ...(cached.meta || {}), cache: 'memory-hit' } };
-  const result = await buildPlan(body);
-  if (result && result.ok === true) {
-    const sorted = sortAppleRouteOptions(result.routes || result.options || []);
-    const finalResult = {
-      ...result,
-      plan: sorted[0] || result.plan || null,
-      options: sorted.slice(0, 3),
-      routes: sorted.slice(0, 3),
-      meta: { ...(result.meta || {}), cache: 'memory-miss', appleRouting: true, maxOptions: 3 },
-    };
-    setPlanCache(key, finalResult);
-    return finalResult;
+  const forceRefresh = body.forceRefresh === true || body.reroute === true;
+  if (!forceRefresh) {
+    const cached = getApplePlanCache(key);
+    if (cached) {
+      return {
+        ...cached,
+        meta: { ...(cached.meta || {}), cache: "hit", returnedAt: new Date().toISOString() },
+      };
+    }
   }
-  return result;
+  const result = finalizeAppleRoutes(await legacyPlan(body), "gtfs+stops.lt+apple-level");
+  setApplePlanCache(key, result, APPLE_PLAN_CACHE_TTL_MS);
+  return { ...result, meta: { ...(result.meta || {}), cache: forceRefresh ? "refresh" : "miss" } };
+}
+
+async function preview(body = {}) {
+  const key = planCacheKey(body);
+  const cached = getApplePlanCache(key);
+  if (cached?.plan) {
+    return { ok: true, source: "cache-preview", preview: cached.plan, plan: cached.plan, options: cached.options || cached.routes || [cached.plan], routes: cached.routes || cached.options || [cached.plan], meta: { ...(cached.meta || {}), cache: "hit", previewOnly: true } };
+  }
+  return buildPreviewRoute(body);
+}
+
+async function prefetch(body = {}) {
+  const key = planCacheKey(body);
+  const cached = getApplePlanCache(key);
+  if (cached) return { ok: true, prefetched: true, cache: "hit" };
+  legacyPlan({ ...body, includeWalkingGeometry: false })
+    .then((result) => setApplePlanCache(key, finalizeAppleRoutes(result, "prefetch"), APPLE_PREFETCH_CACHE_TTL_MS))
+    .catch(() => undefined);
+  return { ok: true, prefetched: true, cache: "warming" };
+}
+
+async function reroute(body = {}) {
+  const result = await legacyPlan({ ...body, reroute: true, forceRefresh: true, includeWalkingGeometry: false });
+  const finalized = finalizeAppleRoutes(result, "reroute+gtfs+stops.lt");
+  setApplePlanCache(planCacheKey(body), finalized, APPLE_PLAN_CACHE_TTL_MS);
+  return finalized;
 }
 
 function requestText(url) {
@@ -3443,6 +3521,8 @@ async function stationAccess({ stopId } = {}) {
 module.exports = {
   plan,
   preview,
+  prefetch,
+  reroute,
   liveBuses,
   liveEta,
   shape,

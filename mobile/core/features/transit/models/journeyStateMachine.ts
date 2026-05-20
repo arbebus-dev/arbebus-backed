@@ -107,15 +107,14 @@ export function getActiveStepIndex(flowState: TransitFlowState, route: TransitRo
 }
 
 export function deriveJourneyStage(flowState: TransitFlowState, route: TransitRouteOption | null): JourneyStage {
-  if (flowState === "route_options" || flowState === "routes_ready" || flowState === "preview" || flowState === "routes_loading" || !route) return "routes_list";
+  if (flowState === "route_options" || flowState === "routes_loading" || flowState === "preview" || !route) return "routes_list";
   if (flowState === "route_selected") return "route_details";
   if (["walking_to_stop", "waiting_bus", "onboard", "transfer", "arriving", "completed"].includes(flowState)) return "navigation";
   return route ? "route_details" : "routes_list";
 }
 
 function actionForState(flowState: TransitFlowState): JourneyActionKind {
-  if (flowState === "preview" || flowState === "routes_loading") return "search";
-  if (flowState === "route_options" || flowState === "routes_ready") return "choose_route";
+  if (flowState === "route_options") return "choose_route";
   if (flowState === "route_selected") return "start_walk";
   if (flowState === "walking_to_stop") return "wait_bus";
   if (flowState === "waiting_bus") return "board_bus";
@@ -128,9 +127,6 @@ function actionForState(flowState: TransitFlowState): JourneyActionKind {
 
 function ctaForState(flowState: TransitFlowState) {
   switch (flowState) {
-    case "preview": return "Skaičiuojama";
-    case "routes_loading": return "Skaičiuojama";
-    case "routes_ready": return "Rodyti";
     case "route_options": return "Rodyti";
     case "route_selected": return "Start";
     case "walking_to_stop": return "Atėjau";
@@ -148,7 +144,7 @@ function titleForState(flowState: TransitFlowState, route: TransitRouteOption | 
   const boardStopName = cleanStopName(route?.boardStopName || route?.originStop?.name || route?.originStop?.title || "stotelė");
   const alightStopName = cleanStopName(route?.alightStopName || route?.destinationStop?.name || route?.destinationStop?.title || "tikslas");
   switch (flowState) {
-    case "preview": return { title: "Ruošiame maršrutą", subtitle: "Vieta rodoma iš karto, pilnas maršrutas kraunamas fone." };
+    case "preview": return { title: "Ruošiamas maršrutas", subtitle: "Preview rodomas iš karto, tikriname tikslų kelią." };
     case "routes_loading": return { title: "Ieškome maršrutų", subtitle: "Tikriname grafikus, stoteles ir live GPS." };
     case "route_options": return { title: "Pasirink maršrutą", subtitle: "Laikas, autobusai, persėdimai ir išvykimas." };
     case "route_selected": return { title: `${routeLabel} maršrutas`, subtitle: `${boardStopName} → ${alightStopName}` };

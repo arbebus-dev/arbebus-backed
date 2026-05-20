@@ -3,8 +3,10 @@ const controller = require('./transit.controller');
 const router = express.Router();
 
 router.get('/', controller.index);
-router.post('/preview', controller.preview);
 router.post('/plan', controller.plan);
+router.post('/preview', controller.preview);
+router.post('/prefetch', controller.prefetch);
+router.post('/reroute', controller.reroute);
 router.get('/live-buses', controller.liveBuses);
 router.get('/live-eta', controller.liveEta);
 router.get('/routes', controller.routes);

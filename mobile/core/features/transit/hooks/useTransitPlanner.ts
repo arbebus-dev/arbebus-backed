@@ -26,9 +26,10 @@ import {
     fetchPlaceDetails,
     fetchTransitShape,
     fetchWalkingRoute,
-    fetchTransitPreviewRoute,
     planTransitRoute,
+    previewTransitRoute,
     prefetchTransitRoute,
+    rerouteTransitRoute,
     searchPlaces,
     type PlaceResult as ApiPlaceResult,
     type TransitRouteOption as ApiTransitRouteOption,
@@ -841,6 +842,90 @@ function buildWalkOnlyRoute(params: {
   } as TransitRouteOption;
 }
 
+
+function buildInstantPreviewRoute(params: {
+  origin: Coordinate;
+  destination: PlaceSearchResult;
+  id?: string;
+  title?: string;
+  durationMinutes?: number;
+  points?: Coordinate[];
+}): TransitRouteOption {
+  const points =
+    Array.isArray(params.points) && params.points.length >= 2
+      ? params.points
+      : [params.origin, params.destination.coordinate];
+  const durationMinutes = Math.max(
+    1,
+    Math.round(Number(params.durationMinutes || estimateWalkMinutes(points) || 1)),
+  );
+
+  const previewStep: TransitStep = {
+    id: `${params.id || "instant-preview"}-step`,
+    type: "walk",
+    mode: "walk",
+    icon: "walk",
+    title: "Maršrutas ruošiamas",
+    subtitle: "Tikriname stoteles, laikus ir realų transportą",
+    description: "Instant preview – pilnas maršrutas bus pakeistas automatiškai.",
+    minutes: durationMinutes,
+    durationMinutes,
+    polyline: points,
+  };
+
+  const originStop = stopPoint("Mano vieta", params.origin, {
+    title: "Mano vieta",
+    name: "Mano vieta",
+    coordinate: params.origin,
+  });
+  const destinationStop = stopPoint(params.destination.title, params.destination.coordinate, {
+    title: params.destination.title,
+    name: params.destination.title,
+    coordinate: params.destination.coordinate,
+  });
+
+  return {
+    id: params.id || `preview-${params.destination.id}`,
+    title: params.title || "Ruošiamas maršrutas",
+    subtitle: "Rodomas greitas preview, skaičiuojamas pilnas maršrutas",
+    mode: "preview",
+    routeId: undefined,
+    shapeId: null,
+    routeLabel: "Preview",
+    routeNumbers: [],
+    totalMinutes: durationMinutes,
+    totalDurationMinutes: durationMinutes,
+    walkingMinutes: durationMinutes,
+    totalWalkMinutes: durationMinutes,
+    totalBusMinutes: 0,
+    etaMinutes: null,
+    liveEta: null,
+    boardingState: null,
+    transfers: 0,
+    transfersCount: 0,
+    stopCount: 0,
+    boardStopName: "Mano vieta",
+    alightStopName: params.destination.title,
+    originStop,
+    destinationStop,
+    previewPoints: points,
+    polyline: points,
+    steps: [previewStep],
+    journeySteps: [previewStep],
+    journeyMessage: "Skaičiuojamas tikslus maršrutas…",
+    headsign: null,
+    liveVehicle: null,
+    summary: {
+      isPreview: true,
+      routeLabel: "Preview",
+      totalDurationMinutes: durationMinutes,
+      totalWalkMinutes: durationMinutes,
+      totalBusMinutes: 0,
+      journeyMessage: "Skaičiuojamas tikslus maršrutas…",
+    },
+  } as TransitRouteOption;
+}
+
 function getWalkingRoutePoints(walk: any): Coordinate[] {
   const rawPoints = (
     Array.isArray(walk?.points) && walk.points.length >= 2
@@ -1145,7 +1230,6 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
   const deviationConfirmations = useRef(0);
   const rerouteInFlight = useRef(false);
   const searchRequestId = useRef(0);
-  const prefetchRequestId = useRef(0);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const planRequestId = useRef(0);
 
@@ -1325,24 +1409,18 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           .slice(0, SEARCH_RESULTS_LIMIT) as PlaceSearchResult[];
 
         setSearchResults(results);
-
-        const routeOrigin = selectedOrigin?.coordinate ?? userLocation;
-        const best = results.find((item) => item?.coordinate);
-        const nextPrefetchId = ++prefetchRequestId.current;
-        if (routeOrigin && best?.coordinate) {
-          setTimeout(() => {
-            if (nextPrefetchId !== prefetchRequestId.current) return;
-            prefetchTransitRoute({
-              from: routeOrigin,
-              to: best.coordinate,
-              destination: best,
-              timeMode: travelTimeMode,
-              travelAt: travelTimeMode === "now" ? null : travelTimeDate,
-            });
-          }, 80);
-        }
-
         setError(results.length ? null : "Nieko nerasta");
+
+        const firstPrefetchable = results.find((item) => item.coordinate);
+        if (userLocation && firstPrefetchable?.coordinate) {
+          void prefetchTransitRoute({
+            from: userLocation,
+            to: firstPrefetchable.coordinate,
+            destination: firstPrefetchable,
+            timeMode: travelTimeMode,
+            travelAt: travelTimeMode === "now" ? null : travelTimeDate,
+          }).catch(() => undefined);
+        }
       } catch (err: any) {
         if (requestId !== searchRequestId.current) return;
 
@@ -1361,7 +1439,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         }
       }
     },
-    [query, selectedOrigin, travelTimeDate, travelTimeMode, userLocation],
+    [query, userLocation],
   );
 
   const selectOrigin = useCallback((rawOrigin: PlaceSearchResult) => {
@@ -1419,32 +1497,33 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         return;
       }
 
-      // Apple Maps-style pipeline: render a non-blocking preview first, then
-      // replace it with full GTFS/live transit options when the backend answers.
-      setFlowState("preview");
-      setIsPlanning(true);
+      const instantPreview = buildInstantPreviewRoute({
+        origin: routeOrigin,
+        destination,
+      });
 
-      void fetchTransitPreviewRoute({
+      setRouteOptions([instantPreview]);
+      setSelectedRoute(instantPreview);
+      setFlowState("preview");
+
+      void previewTransitRoute({
         from: routeOrigin,
         to: destination.coordinate,
         destination,
+        timeMode: travelTimeMode,
+        travelAt: travelTimeMode === "now" ? null : travelTimeDate,
       })
-        .then((previewOptions) => {
-          if (requestId !== planRequestId.current) return;
-          const normalizedPreview = safeArray(previewOptions)
-            .map((route, index) =>
-              normalizeRoute(route, index, routeOrigin, destination),
-            )
-            .slice(0, 1);
-          if (!normalizedPreview.length) return;
-          setRouteOptions(normalizedPreview);
-          setSelectedRoute(normalizedPreview[0] || null);
-          setCurrentStepIndex(0);
-          setFlowState("routes_loading");
+        .then((preview) => {
+          if (requestId !== planRequestId.current || !preview) return;
+          const previewRoute = normalizeRoute(preview, 0, routeOrigin, destination);
+          setRouteOptions([previewRoute]);
+          setSelectedRoute(previewRoute);
         })
-        .catch(() => {
-          // Preview is optional. Full route still continues below.
-        });
+        .catch(() => undefined);
+
+      // Route planning starts after instant preview; UI must never wait for backend.
+      setFlowState("routes_loading");
+      setIsPlanning(true);
 
       try {
         const rawOptions = await planTransitRoute({
@@ -1716,7 +1795,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
 
         for (let i = 0; i < 2; i += 1) {
           try {
-            rawOptions = await planTransitRoute({
+            rawOptions = await rerouteTransitRoute({
               from: userLocation,
               to: selectedDestination.coordinate,
               destination: selectedDestination,

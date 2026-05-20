@@ -26,6 +26,22 @@ async function preview(req, res, next) {
   }
 }
 
+async function prefetch(req, res, next) {
+  try {
+    res.json(await service.prefetch({ ...(req.query || {}), ...(req.body || {}) }));
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function reroute(req, res, next) {
+  try {
+    res.json(await service.reroute({ ...(req.query || {}), ...(req.body || {}) }));
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function liveBuses(req, res, next) {
   try {
     res.json(await service.liveBuses(req.query || {}));
@@ -161,6 +177,8 @@ module.exports = {
   index,
   plan,
   preview,
+  prefetch,
+  reroute,
   liveBuses,
   liveEta,
   shape,

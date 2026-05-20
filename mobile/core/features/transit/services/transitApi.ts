@@ -35,6 +35,87 @@ export type WalkingRouteResult = {
 };
 
 
+
+type TransitPlanRequest = {
+  from: Coordinate;
+  to: Coordinate;
+  destination?: PlaceResult;
+  timeMode?: "now" | "depart" | "arrive";
+  travelAt?: string | Date | null;
+};
+
+function buildTransitPlanBody(params: TransitPlanRequest, extra?: Record<string, unknown>) {
+  const destination = params.destination ?? {
+    id: "destination",
+    title: "Tikslas",
+    subtitle: "",
+    type: "place",
+    distanceMeters: 0,
+    latitude: params.to.latitude,
+    longitude: params.to.longitude,
+    coordinate: params.to,
+  };
+
+  return {
+    origin: {
+      latitude: params.from.latitude,
+      longitude: params.from.longitude,
+    },
+    destination: {
+      latitude: params.to.latitude,
+      longitude: params.to.longitude,
+    },
+    from: params.from,
+    to: params.to,
+    selectedDestination: destination,
+    timeMode: params.timeMode || "now",
+    travelAt:
+      params.travelAt instanceof Date
+        ? new Date(
+            params.travelAt.toLocaleString("en-US", {
+              timeZone: "Europe/Vilnius",
+            }),
+          ).toISOString()
+        : params.travelAt || null,
+    includeWalkingGeometry: false,
+    ...(extra || {}),
+  };
+}
+
+async function postTransitJson(endpoint: string, params: TransitPlanRequest, timeoutMs: number, extra?: Record<string, unknown>) {
+  const response = await fetchWithTimeout(
+    endpoint,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildTransitPlanBody(params, extra)),
+    },
+    timeoutMs,
+  );
+
+  const data = await safeJson<any>(response);
+
+  if (!response.ok || data?.ok !== true) {
+    throw new Error(data?.error || data?.message || `Transit request failed: ${response.status}`);
+  }
+
+  return data;
+}
+
+function extractTransitRoutes(data: any) {
+  const rawRoutes = [
+    ...(data?.plan ? [data.plan] : []),
+    ...(Array.isArray(data?.options) ? data.options : []),
+    ...(Array.isArray(data?.routes) ? data.routes : []),
+  ];
+
+  return rawRoutes.filter(
+    (route, index, arr) =>
+      route &&
+      arr.findIndex((item) => String(item?.id) === String(route?.id)) === index,
+  );
+}
+
 export type TransitScheduleRoute = {
   id: string;
   routeId: string;
@@ -1420,140 +1501,48 @@ export async function fetchPlaceDetails(
   return null;
 }
 
-export async function fetchTransitPreviewRoute(params: {
-  from: Coordinate;
-  to: Coordinate;
-  destination?: PlaceResult;
-}): Promise<TransitRouteOption[]> {
-  const destination = params.destination ?? {
-    id: "destination",
-    title: "Tikslas",
-    subtitle: "",
-    type: "place",
-    distanceMeters: 0,
-    latitude: params.to.latitude,
-    longitude: params.to.longitude,
-    coordinate: params.to,
-  };
+export async function planTransitRoute(params: TransitPlanRequest): Promise<TransitRouteOption[]> {
+  const data = await postTransitJson(API_ENDPOINTS.transitPlan, params, 15000, {
+    appleLevel: true,
+    strategy: "multi_option",
+  });
 
-  const response = await fetchWithTimeout(
-    API_ENDPOINTS.transitPreview,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        origin: { latitude: params.from.latitude, longitude: params.from.longitude },
-        destination: { latitude: params.to.latitude, longitude: params.to.longitude },
-        from: params.from,
-        to: params.to,
-        selectedDestination: destination,
-      }),
-    },
-    1800,
-  );
-
-  const data = await safeJson<any>(response);
-  if (!response.ok || data?.ok !== true) return [];
-
-  const rawRoutes = [
-    ...(data?.plan ? [data.plan] : []),
-    ...(Array.isArray(data?.options) ? data.options : []),
-    ...(Array.isArray(data?.routes) ? data.routes : []),
-  ];
-
-  return rawRoutes
-    .filter(Boolean)
-    .slice(0, 1)
+  return extractTransitRoutes(data)
+    .slice(0, 6)
     .map((route: any, index: number) =>
       normalizeBackendPlan(route, index, params.from, params.to),
     );
 }
 
-export function prefetchTransitRoute(params: {
-  from: Coordinate;
-  to: Coordinate;
-  destination?: PlaceResult;
-  timeMode?: "now" | "depart" | "arrive";
-  travelAt?: string | Date | null;
-}) {
-  void planTransitRoute(params).catch(() => {
-    // Prefetch must never block typing or selection.
-  });
+export async function previewTransitRoute(params: TransitPlanRequest): Promise<TransitRouteOption | null> {
+  try {
+    const data = await postTransitJson(API_ENDPOINTS.transitPreview, params, 2500, {
+      previewOnly: true,
+    });
+    const route = data?.preview || data?.plan || extractTransitRoutes(data)[0];
+    return route ? normalizeBackendPlan(route, 0, params.from, params.to) : null;
+  } catch {
+    return null;
+  }
 }
 
-export async function planTransitRoute(params: {
-  from: Coordinate;
-  to: Coordinate;
-  destination?: PlaceResult;
-  timeMode?: "now" | "depart" | "arrive";
-  travelAt?: string | Date | null;
-}): Promise<TransitRouteOption[]> {
-  const destination = params.destination ?? {
-    id: "destination",
-    title: "Tikslas",
-    subtitle: "",
-    type: "place",
-    distanceMeters: 0,
-    latitude: params.to.latitude,
-    longitude: params.to.longitude,
-    coordinate: params.to,
-  };
-
-  const response = await fetchWithTimeout(
-    API_ENDPOINTS.transitPlan,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        origin: {
-          latitude: params.from.latitude,
-          longitude: params.from.longitude,
-        },
-        destination: {
-          latitude: params.to.latitude,
-          longitude: params.to.longitude,
-        },
-        from: params.from,
-        to: params.to,
-        selectedDestination: destination,
-        timeMode: params.timeMode || "now",
-        travelAt:
-          params.travelAt instanceof Date
-            ? new Date(
-                params.travelAt.toLocaleString("en-US", {
-                  timeZone: "Europe/Vilnius",
-                }),
-              ).toISOString()
-            : params.travelAt || null,
-        // Important: keep the first plan response fast. Detailed walking geometry is
-        // hydrated lazily later, so route cards never get stuck on "checking stops".
-        includeWalkingGeometry: false,
-      }),
-    },
-    15000,
-  );
-
-  const data = await safeJson<any>(response);
-
-  if (!response.ok || data?.ok !== true) {
-    throw new Error(
-      data?.error || data?.message || `Transit plan failed: ${response.status}`,
-    );
+export async function prefetchTransitRoute(params: TransitPlanRequest): Promise<void> {
+  try {
+    await postTransitJson(API_ENDPOINTS.transitPrefetch, params, 3500, {
+      prefetch: true,
+    });
+  } catch {
+    // Prefetch is a speed optimization only.
   }
+}
 
-  const rawRoutes = [
-    ...(data?.plan ? [data.plan] : []),
-    ...(Array.isArray(data?.options) ? data.options : []),
-    ...(Array.isArray(data?.routes) ? data.routes : []),
-  ];
+export async function rerouteTransitRoute(params: TransitPlanRequest & { reason?: string }): Promise<TransitRouteOption[]> {
+  const data = await postTransitJson(API_ENDPOINTS.transitReroute, params, 12000, {
+    reroute: true,
+    reason: params.reason || "gps_deviation",
+  });
 
-  const uniqueRoutes = rawRoutes.filter(
-    (route, index, arr) =>
-      route &&
-      arr.findIndex((item) => String(item?.id) === String(route?.id)) === index,
-  );
-
-  return uniqueRoutes
+  return extractTransitRoutes(data)
     .slice(0, 6)
     .map((route: any, index: number) =>
       normalizeBackendPlan(route, index, params.from, params.to),

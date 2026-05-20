@@ -49,6 +49,14 @@ function validPoints(points?: MapPoint[] | null) {
   );
 }
 
+
+function coordinateFromPlace(place: AnyRecord | null | undefined): MapPoint | null {
+  const latitude = Number(place?.latitude ?? place?.lat ?? place?.coordinate?.latitude);
+  const longitude = Number(place?.longitude ?? place?.lng ?? place?.lon ?? place?.coordinate?.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return { latitude, longitude };
+}
+
 function normalizeId(value: unknown) {
   return String(value ?? "").trim();
 }
@@ -534,17 +542,6 @@ export default function MapScreen() {
     return () => clearTimeout(timer);
   }, [focusCoords, selectedRouteFocusKey]);
 
-
-  useEffect(() => {
-    if (!selectedMapPlace || !selectedDestination?.coordinate) return;
-    const sameDestination =
-      normalizeId(selectedMapPlace.id) === normalizeId(selectedDestination.id) ||
-      distanceMeters(selectedMapPlace.coordinate, selectedDestination.coordinate) < 18;
-    if (sameDestination) {
-      setSelectedMapPlace(null);
-    }
-  }, [selectedDestination, selectedMapPlace]);
-
   useEffect(() => {
     if (!activeCameraTarget || planner.flowState !== "onboard" || !mapRef.current) return;
 
@@ -556,6 +553,16 @@ export default function MapScreen() {
       { duration: 900 },
     );
   }, [activeCameraTarget, planner.flowState]);
+
+  const focusDestinationInstantly = useCallback((place: PlaceSearchResult | AnyRecord) => {
+    const coordinate = coordinateFromPlace(place);
+    if (!coordinate) return;
+
+    mapRef.current?.animateCamera(
+      { center: coordinate, zoom: 16.4, pitch: 0 },
+      { duration: 520 },
+    );
+  }, []);
 
   const showPlacePreview = async (
     rawPlace: AnyRecord,
@@ -1063,15 +1070,8 @@ export default function MapScreen() {
         onSelectDestination={(item) => {
           Keyboard.dismiss();
           setFocusedScheduleRoute(null);
-          if (item?.coordinate) {
-            setSelectedMapPlace(normalizePoiPlace(item));
-            mapRef.current?.animateCamera(
-              { center: item.coordinate, zoom: 16.2, pitch: 0 },
-              { duration: 380 },
-            );
-          } else {
-            setSelectedMapPlace(null);
-          }
+          setSelectedMapPlace(null);
+          focusDestinationInstantly(item);
           void planner.selectDestination(item);
         }}
         onSelectOrigin={(item) => {
@@ -1090,15 +1090,8 @@ export default function MapScreen() {
         }}
         onUseMapPlaceAsDestination={(place) => {
           Keyboard.dismiss();
-          if (place?.coordinate) {
-            setSelectedMapPlace(normalizePoiPlace(place));
-            mapRef.current?.animateCamera(
-              { center: place.coordinate, zoom: 16.2, pitch: 0 },
-              { duration: 380 },
-            );
-          } else {
-            setSelectedMapPlace(null);
-          }
+          setSelectedMapPlace(null);
+          focusDestinationInstantly(place);
           void planner.selectDestination(place);
         }}
         onChooseRoute={(route) => { setFocusedScheduleRoute(null); planner.chooseRoute(route); }}

@@ -65,7 +65,6 @@ export type TransitFlowState =
   | "destination_selected"
   | "preview"
   | "routes_loading"
-  | "routes_ready"
   | "route_options"
   | "route_selected"
   | "walking_to_stop"
