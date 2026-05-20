@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, StyleSheet, Text, View } from "react-native";
+import { Animated, StyleSheet, View } from "react-native";
 import { Marker, AnimatedRegion } from "react-native-maps";
 
 import { useAppPreferences } from "@/core/features/account/context/AppPreferencesContext";
@@ -124,14 +124,13 @@ const LiveFerryMarker = memo(function LiveFerryMarker({ ferry, active, onPress }
     if (!coordinate) return;
     setTracks(true);
     animatedCoordinate
-      .timing({ latitude: coordinate.latitude, longitude: coordinate.longitude, duration: 14500, useNativeDriver: false } as any)
+      .timing({ latitude: coordinate.latitude, longitude: coordinate.longitude, duration: 8500, useNativeDriver: false } as any)
       .start(() => setTimeout(() => setTracks(false), 480));
   }, [animatedCoordinate, coordinate?.latitude, coordinate?.longitude]);
 
   if (!coordinate) return null;
 
   const sailing = String(ferry.status).toLowerCase() === "sailing";
-  const label = ferry.pierName || ferry.ferryLine || ferry.title;
   const heading = Number(ferry.heading ?? ferry.bearing ?? 0);
 
   return (
@@ -152,13 +151,8 @@ const LiveFerryMarker = memo(function LiveFerryMarker({ ferry, active, onPress }
           ]}
         >
           <View style={{ transform: [{ rotate: `${heading}deg` }] }}>
-            <MaterialCommunityIcons name="ferry" size={active ? 22 : 18} color={sailing ? "#FFFFFF" : COLORS.green} />
+            <MaterialCommunityIcons name="ferry" size={active ? 16 : 14} color={sailing ? "#FFFFFF" : COLORS.green} />
           </View>
-          {active ? (
-            <Text style={[styles.liveLabel, { color: sailing ? "#FFFFFF" : theme.text }]} numberOfLines={1}>
-              {label}
-            </Text>
-          ) : null}
         </Animated.View>
       </View>
     </Marker.Animated>
@@ -211,12 +205,7 @@ export default function FerryMarkersLayer({
                 },
               ]}
             >
-              <MaterialCommunityIcons name="ferry" size={selected ? 20 : 17} color={COLORS.green} />
-              {selected ? (
-                <Text style={[styles.markerLabel, { color: theme.text }]} numberOfLines={1}>
-                  {terminal.shortName || terminal.name}
-                </Text>
-              ) : null}
+              <MaterialCommunityIcons name="ferry" size={selected ? 16 : 14} color={COLORS.green} />
             </View>
           </Marker>
         );
@@ -236,71 +225,53 @@ export default function FerryMarkersLayer({
 
 const styles = StyleSheet.create({
   markerWrap: {
-    minWidth: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.2,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 9,
-    flexDirection: "row",
-    gap: 5,
     shadowOpacity: 0.18,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
   },
   markerWrapSelected: {
-    minWidth: 92,
-    height: 42,
-    borderRadius: 21,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     borderWidth: 2,
-    shadowOpacity: 0.35,
-    shadowRadius: 14,
-    transform: [{ scale: 1.08 }],
-  },
-  markerLabel: {
-    maxWidth: 78,
-    fontSize: 11,
-    lineHeight: 13,
-    fontWeight: "900",
+    shadowOpacity: 0.34,
+    shadowRadius: 12,
+    transform: [{ scale: 1.04 }],
   },
   liveMarkerWrap: {
-    width: 70,
-    height: 48,
+    width: 34,
+    height: 34,
     alignItems: "center",
     justifyContent: "center",
   },
   liveGlow: {
     position: "absolute",
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
   },
   liveMarker: {
-    minWidth: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 2,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.6,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 8,
-    flexDirection: "row",
-    gap: 6,
     shadowColor: "#000",
     shadowOpacity: 0.24,
-    shadowRadius: 12,
+    shadowRadius: 10,
     shadowOffset: { width: 0, height: 5 },
   },
   liveMarkerActive: {
-    minWidth: 118,
-    height: 44,
-    borderRadius: 22,
-    transform: [{ scale: 1.05 }],
-  },
-  liveLabel: {
-    maxWidth: 82,
-    fontSize: 11,
-    lineHeight: 13,
-    fontWeight: "900",
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    transform: [{ scale: 1.04 }],
   },
 });

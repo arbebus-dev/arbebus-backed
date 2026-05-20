@@ -2223,7 +2223,7 @@ function planSearchProfiles(from, to) {
   }));
 }
 
-async function plan(body = {}) {
+async function buildPlan(body = {}) {
   const defaultOrigin = { latitude: 55.7033, longitude: 21.1443 };
   const defaultDestination = { latitude: 55.68962, longitude: 21.14691 };
 
@@ -2473,6 +2473,115 @@ async function plan(body = {}) {
       to,
     },
   };
+}
+
+// ===== Apple-level fast preview + cache layer =====
+const TRANSIT_PLAN_CACHE_TTL_MS = Number(process.env.TRANSIT_PLAN_CACHE_TTL_MS || 120000);
+const TRANSIT_PLAN_CACHE_MAX = Number(process.env.TRANSIT_PLAN_CACHE_MAX || 300);
+const transitPlanMemoryCache = new Map();
+
+function roundedCoordinateKey(coordinate) {
+  const c = toCoordinate(coordinate);
+  if (!c) return 'none';
+  return `${c.latitude.toFixed(5)},${c.longitude.toFixed(5)}`;
+}
+
+function planCacheKey(body = {}) {
+  const from = coordinateFromPlanInput(body, 'from');
+  const to = coordinateFromPlanInput(body, 'to');
+  return JSON.stringify({
+    from: roundedCoordinateKey(from),
+    to: roundedCoordinateKey(to),
+    timeMode: body.timeMode || 'now',
+    travelAt: body.travelAt || null,
+    engine: body.engine || process.env.TRANSIT_ENGINE || 'legacy',
+    walking: body.includeWalkingGeometry === true,
+  });
+}
+
+function getPlanCache(key) {
+  const cached = transitPlanMemoryCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.createdAt > TRANSIT_PLAN_CACHE_TTL_MS) {
+    transitPlanMemoryCache.delete(key);
+    return null;
+  }
+  return cached.value;
+}
+
+function setPlanCache(key, value) {
+  if (transitPlanMemoryCache.size >= TRANSIT_PLAN_CACHE_MAX) {
+    const firstKey = transitPlanMemoryCache.keys().next().value;
+    if (firstKey) transitPlanMemoryCache.delete(firstKey);
+  }
+  transitPlanMemoryCache.set(key, { createdAt: Date.now(), value });
+}
+
+function sortAppleRouteOptions(routes = []) {
+  return [...routes]
+    .filter(Boolean)
+    .map((route) => {
+      const transfers = Number(route.transfersCount ?? route.transfers ?? route.summary?.transfersCount ?? 0);
+      const totalMinutes = Number(route.totalDurationMinutes ?? route.totalMinutes ?? route.summary?.totalDurationMinutes ?? 999);
+      const walkMinutes = Number(route.totalWalkMinutes ?? route.walkingMinutes ?? route.summary?.totalWalkMinutes ?? 0);
+      const delayMinutes = Math.max(0, Number(route.liveEta?.delayMinutes ?? route.summary?.delayMinutes ?? 0));
+      const score = totalMinutes + transfers * 9 + walkMinutes * 0.7 + delayMinutes * 1.4;
+      return { ...route, appleScore: score, routingQuality: { ...(route.routingQuality || {}), appleScore: score } };
+    })
+    .sort((a, b) => Number(a.appleScore || 9999) - Number(b.appleScore || 9999));
+}
+
+async function preview(body = {}) {
+  const defaultOrigin = { latitude: 55.7033, longitude: 21.1443 };
+  const defaultDestination = { latitude: 55.68962, longitude: 21.14691 };
+  const from = coordinateFromPlanInput(body, 'from') || defaultOrigin;
+  const to = coordinateFromPlanInput(body, 'to') || defaultDestination;
+  const distance = Math.round(distanceMeters(from, to));
+  const durationMinutes = Math.max(1, Math.round(distance / WALK_SPEED_M_PER_MIN));
+  const route = {
+    id: `preview-${roundedCoordinateKey(from)}-${roundedCoordinateKey(to)}`,
+    title: 'Preview',
+    routeLabel: 'Preview',
+    routeNumbers: [],
+    mode: 'preview',
+    totalMinutes: durationMinutes,
+    totalDurationMinutes: durationMinutes,
+    walkingMinutes: durationMinutes,
+    totalWalkMinutes: durationMinutes,
+    transfers: 0,
+    transfersCount: 0,
+    stopCount: 0,
+    boardStopName: 'Pradžia',
+    alightStopName: body.selectedDestination?.title || body.destination?.title || 'Tikslas',
+    originStop: { name: 'Pradžia', title: 'Pradžia', latitude: from.latitude, longitude: from.longitude, coordinate: from },
+    destinationStop: { name: body.selectedDestination?.title || 'Tikslas', title: body.selectedDestination?.title || 'Tikslas', latitude: to.latitude, longitude: to.longitude, coordinate: to },
+    previewPoints: [from, to],
+    polyline: [from, to],
+    steps: [{ id: 'preview-line', type: 'walk', mode: 'walk', title: 'Maršrutas skaičiuojamas', subtitle: 'Rodomas greitas preview', durationMinutes }],
+    journeySteps: [{ id: 'preview-line', type: 'walk', mode: 'walk', title: 'Maršrutas skaičiuojamas', subtitle: 'Rodomas greitas preview', durationMinutes }],
+    summary: { optionType: 'preview', isPreview: true, totalDurationMinutes: durationMinutes, totalWalkMinutes: durationMinutes },
+  };
+  return { ok: true, source: 'apple-preview', plan: route, options: [route], routes: [route], meta: { from, to, preview: true, distanceMeters: distance } };
+}
+
+async function plan(body = {}) {
+  const key = planCacheKey(body);
+  const cached = getPlanCache(key);
+  if (cached) return { ...cached, meta: { ...(cached.meta || {}), cache: 'memory-hit' } };
+  const result = await buildPlan(body);
+  if (result && result.ok === true) {
+    const sorted = sortAppleRouteOptions(result.routes || result.options || []);
+    const finalResult = {
+      ...result,
+      plan: sorted[0] || result.plan || null,
+      options: sorted.slice(0, 3),
+      routes: sorted.slice(0, 3),
+      meta: { ...(result.meta || {}), cache: 'memory-miss', appleRouting: true, maxOptions: 3 },
+    };
+    setPlanCache(key, finalResult);
+    return finalResult;
+  }
+  return result;
 }
 
 function requestText(url) {
@@ -3333,6 +3442,7 @@ async function stationAccess({ stopId } = {}) {
 
 module.exports = {
   plan,
+  preview,
   liveBuses,
   liveEta,
   shape,

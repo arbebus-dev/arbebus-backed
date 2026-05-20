@@ -88,7 +88,7 @@ type Props = {
   onOpenBusRoute?: (route: TransitScheduleRoute) => void;
 };
 
-type Stage = "search" | "loading" | "routes" | "details" | "navigation";
+type Stage = "search" | "selected" | "loading" | "routes" | "details" | "navigation";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_TOP = 64;
@@ -251,10 +251,10 @@ function stageFor(
   flowState: TransitFlowState,
   selectedRoute: TransitRouteOption | null,
 ): Stage {
-  if (flowState === "routes_loading" || flowState === "destination_selected")
-    return "loading";
+  if (flowState === "preview" || flowState === "routes_loading") return "loading";
+  if (flowState === "destination_selected") return "selected";
   if (flowState === "idle" || flowState === "searching") return "search";
-  if (flowState === "route_options") return "routes";
+  if (flowState === "route_options" || flowState === "routes_ready") return "routes";
   if (flowState === "route_selected") return "details";
   if (
     [
@@ -276,6 +276,7 @@ function snapForStage(stage: Stage, query: string, resultCount: number) {
     if (query.trim().length >= 2 || resultCount > 0) return SNAP_MID;
     return SNAP_BOTTOM;
   }
+  if (stage === "selected") return SNAP_MID;
   if (stage === "loading") return SNAP_MID;
   if (stage === "routes") return SNAP_MID;
   if (stage === "details") return SNAP_MID;
@@ -1363,6 +1364,58 @@ function SearchState(props: Props & { panHandlers?: unknown }) {
   );
 }
 
+
+function DestinationSelectedState(props: Props) {
+  const { theme } = useAppPreferences();
+  const destination = props.selectedDestination;
+  const title = destination?.title || (destination as any)?.name || "Pasirinkta vieta";
+  const subtitle = destination?.subtitle || placeSubtitle(destination as PlaceSearchResult) || "Pasiruošę skaičiuoti maršrutą";
+
+  return (
+    <View style={styles.stateRoot}>
+      <View style={styles.fixedHeader}>
+        <Header
+          title={cleanStopName(title)}
+          subtitle={subtitle}
+          icon="map-marker-check"
+          badge="Vieta pasirinkta"
+          onClose={props.onReset}
+          onBack={props.onBackToSearch}
+        />
+      </View>
+      <View
+        style={[
+          styles.loadingBox,
+          { backgroundColor: theme.surface, borderColor: theme.border },
+        ]}
+      >
+        <Text style={[styles.emptyTitle, { color: theme.text }]}>Pasirinkta vieta</Text>
+        <Text style={[styles.emptyText, { color: theme.muted }]}>Maršrutą skaičiuosime tik kai paspausi GO. Taip paieška išlieka greita kaip Apple Maps.</Text>
+        {props.error ? (
+          <Text style={[styles.inlineError, { color: theme.danger }]}>{props.error}</Text>
+        ) : null}
+      </View>
+      <View
+        style={[
+          styles.stickyCtaWrap,
+          {
+            backgroundColor: theme.backgroundElevated,
+            borderTopColor: theme.border,
+          },
+        ]}
+      >
+        <Pressable
+          style={[styles.primaryButton, { backgroundColor: theme.accent }]}
+          onPress={props.onStartJourney}
+        >
+          {props.isPlanning ? <ActivityIndicator size="small" color={theme.accentText} /> : <Ionicons name="navigate" size={14} color={theme.accentText} />}
+          <Text style={[styles.primaryButtonText, { color: theme.accentText }]}>GO — ieškoti maršruto</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 function LoadingState({ onReset }: Pick<Props, "onReset">) {
   const { t } = useLanguage();
   const { theme } = useAppPreferences();
@@ -2140,6 +2193,7 @@ export default function JourneySheet(props: Props) {
         {stage === "search" ? (
           <SearchState {...props} panHandlers={panResponder.panHandlers} />
         ) : null}
+        {stage === "selected" ? <DestinationSelectedState {...props} /> : null}
         {stage === "loading" ? <LoadingState onReset={props.onReset} /> : null}
         {stage === "routes" ? <RoutesListState {...props} /> : null}
         {stage === "details" ? <RouteDetailsState {...props} /> : null}

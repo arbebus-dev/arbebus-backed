@@ -31,7 +31,16 @@ function hasWalkStepGeometry(route: TransitRouteOption | null): boolean {
   return steps.some((step: any) => {
     const mode = String(step.mode || step.type || "").toLowerCase();
     const points = cleanPolyline(step.polyline);
-    return (mode.includes("walk") || mode === "transfer") && points.length >= 2;
+    if (!mode.includes("walk") && mode !== "transfer") return false;
+    if (points.length < 2) return false;
+
+    const provider = String(step.provider || step.walkingProvider || "").toLowerCase();
+    const length = polylineLengthMeters(points);
+
+    // ORS / real walking geometry usually has several points. Very short two-point
+    // connectors are fine too. Long two-point fallback lines are not treated as
+    // real geometry, so this layer can still draw a clear dashed walking-to-stop cue.
+    return points.length >= 4 || provider.includes("ors") || length <= 220;
   });
 }
 
@@ -39,8 +48,9 @@ function connectorLine(from?: Coordinate | null, to?: Coordinate | null): Coordi
   const points = cleanPolyline([from, to].filter(Boolean) as Coordinate[]);
   if (points.length !== 2) return [];
 
-  // Never draw huge straight fallback lines. Those are what make the map look non-production.
-  if (polylineLengthMeters(points) > 120) return [];
+  // Show the first/last walking cue even if ORS did not return road geometry.
+  // This is better than no guidance after selecting a bus route.
+  if (polylineLengthMeters(points) > 2600) return [];
 
   return smoothPolyline(points);
 }

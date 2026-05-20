@@ -468,27 +468,27 @@ export default function LiveBusesLayer({
 
 const styles = StyleSheet.create({
   markerWrap: {
-    width: 34,
-    height: 34,
+    width: 30,
+    height: 30,
     alignItems: "center",
     justifyContent: "center",
   },
 
   glow: {
     position: "absolute",
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: "rgba(45,212,167,0.22)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.45)",
   },
 
   glyph: {
-    minWidth: 26,
-    height: 26,
-    paddingHorizontal: 4,
-    borderRadius: 13,
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 3,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(8,13,27,0.94)",
@@ -497,22 +497,22 @@ const styles = StyleSheet.create({
   },
 
   glyphActive: {
-    minWidth: 30,
-    height: 30,
-    borderRadius: 15,
+    minWidth: 27,
+    height: 27,
+    borderRadius: 13.5,
     backgroundColor: COLORS.green,
     borderColor: "#FFFFFF",
   },
 
   glyphVehicle: {
-    minWidth: 32,
-    height: 32,
-    borderRadius: 16,
+    minWidth: 29,
+    height: 29,
+    borderRadius: 14.5,
   },
 
   arrow: {
     position: "absolute",
-    top: -6,
+    top: -5,
     alignSelf: "center",
   },
 
@@ -521,7 +521,7 @@ const styles = StyleSheet.create({
     fontSize: T.tiny,
     fontWeight: "900",
     marginTop: -2,
-    maxWidth: 28,
+    maxWidth: 24,
   },
 
   labelActive: {

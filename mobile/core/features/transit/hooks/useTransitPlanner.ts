@@ -26,7 +26,9 @@ import {
     fetchPlaceDetails,
     fetchTransitShape,
     fetchWalkingRoute,
+    fetchTransitPreviewRoute,
     planTransitRoute,
+    prefetchTransitRoute,
     searchPlaces,
     type PlaceResult as ApiPlaceResult,
     type TransitRouteOption as ApiTransitRouteOption,
@@ -695,7 +697,7 @@ function hasRealBusSegment(route: TransitRouteOption | null) {
   });
 
   const isFerryRoute = Boolean(
-    route.ferryRouteId ||
+    (route as any).ferryRouteId ||
       String(route.mode || "").toLowerCase().includes("ferry") ||
       steps.some((step) => String(step?.type || step?.mode || "").toLowerCase().includes("ferry")),
   );
@@ -1143,6 +1145,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
   const deviationConfirmations = useRef(0);
   const rerouteInFlight = useRef(false);
   const searchRequestId = useRef(0);
+  const prefetchRequestId = useRef(0);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const planRequestId = useRef(0);
 
@@ -1322,6 +1325,23 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
           .slice(0, SEARCH_RESULTS_LIMIT) as PlaceSearchResult[];
 
         setSearchResults(results);
+
+        const routeOrigin = selectedOrigin?.coordinate ?? userLocation;
+        const best = results.find((item) => item?.coordinate);
+        const nextPrefetchId = ++prefetchRequestId.current;
+        if (routeOrigin && best?.coordinate) {
+          setTimeout(() => {
+            if (nextPrefetchId !== prefetchRequestId.current) return;
+            prefetchTransitRoute({
+              from: routeOrigin,
+              to: best.coordinate,
+              destination: best,
+              timeMode: travelTimeMode,
+              travelAt: travelTimeMode === "now" ? null : travelTimeDate,
+            });
+          }, 80);
+        }
+
         setError(results.length ? null : "Nieko nerasta");
       } catch (err: any) {
         if (requestId !== searchRequestId.current) return;
@@ -1341,7 +1361,7 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         }
       }
     },
-    [query, userLocation],
+    [query, selectedOrigin, travelTimeDate, travelTimeMode, userLocation],
   );
 
   const selectOrigin = useCallback((rawOrigin: PlaceSearchResult) => {
@@ -1399,9 +1419,32 @@ export function useTransitPlanner(userLocation: Coordinate | null) {
         return;
       }
 
-      // Route planning starts only after explicit result selection.
-      setFlowState("routes_loading");
+      // Apple Maps-style pipeline: render a non-blocking preview first, then
+      // replace it with full GTFS/live transit options when the backend answers.
+      setFlowState("preview");
       setIsPlanning(true);
+
+      void fetchTransitPreviewRoute({
+        from: routeOrigin,
+        to: destination.coordinate,
+        destination,
+      })
+        .then((previewOptions) => {
+          if (requestId !== planRequestId.current) return;
+          const normalizedPreview = safeArray(previewOptions)
+            .map((route, index) =>
+              normalizeRoute(route, index, routeOrigin, destination),
+            )
+            .slice(0, 1);
+          if (!normalizedPreview.length) return;
+          setRouteOptions(normalizedPreview);
+          setSelectedRoute(normalizedPreview[0] || null);
+          setCurrentStepIndex(0);
+          setFlowState("routes_loading");
+        })
+        .catch(() => {
+          // Preview is optional. Full route still continues below.
+        });
 
       try {
         const rawOptions = await planTransitRoute({

@@ -41,6 +41,7 @@ export const API_ENDPOINTS = {
   // Transit
   liveBuses: apiUrl("/api/transit/live-buses"),
   liveEta: apiUrl("/api/transit/live-eta"),
+  transitPreview: apiUrl("/api/transit/preview"),
   transitPlan: apiUrl("/api/transit/plan"),
   transitShape: (shapeId: string) =>
     apiUrl(`/api/transit/shape/${encodeURIComponent(shapeId)}`),

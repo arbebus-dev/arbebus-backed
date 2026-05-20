@@ -207,8 +207,8 @@ export default function RoutePolylineLayer({
     .filter((segment) => {
       if (segment.points.length < 2) return false;
       const provider = String(segment.provider || "").toLowerCase();
-      if (segment.mode === "walk" && provider === "fallback" && segment.rawLength > 120) return false;
-      if (segment.mode === "walk" && segment.points.length <= 3 && segment.rawLength > 220) return false;
+      if (segment.mode === "walk" && provider === "fallback" && segment.rawLength > 2600) return false;
+      if (segment.mode === "walk" && segment.points.length <= 3 && segment.rawLength > 2600) return false;
       return true;
     });
   }, [route]);
@@ -221,9 +221,10 @@ export default function RoutePolylineLayer({
         const active = isActiveSegment(segment, flowState, currentStepIndex);
         const style = styleForMode(segment.mode);
         const isWalk = segment.mode === "walk";
-        const mainWidth = active ? (isWalk ? 3.2 : 4.8) : (isWalk ? 2.8 : 3.8);
-        const casingWidth = mainWidth + (isWalk ? 2.2 : 2.8);
-        const glowWidth = mainWidth + (isWalk ? 4.2 : 5.2);
+        const isFerry = segment.mode === "ferry";
+        const mainWidth = active ? (isWalk ? 3.2 : isFerry ? 4.4 : 4.6) : (isWalk ? 2.8 : isFerry ? 3.6 : 3.7);
+        const casingWidth = mainWidth + (isWalk ? 2.2 : isFerry ? 2.4 : 2.7);
+        const glowWidth = mainWidth + (isWalk ? 4.2 : isFerry ? 4.8 : 5.0);
 
         return (
           <React.Fragment key={segment.id}>

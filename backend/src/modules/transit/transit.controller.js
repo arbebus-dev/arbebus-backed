@@ -18,6 +18,14 @@ async function plan(req, res, next) {
   }
 }
 
+async function preview(req, res, next) {
+  try {
+    res.json(await service.preview({ ...(req.query || {}), ...(req.body || {}) }));
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function liveBuses(req, res, next) {
   try {
     res.json(await service.liveBuses(req.query || {}));
@@ -152,6 +160,7 @@ async function stationAccess(req, res, next) {
 module.exports = {
   index,
   plan,
+  preview,
   liveBuses,
   liveEta,
   shape,

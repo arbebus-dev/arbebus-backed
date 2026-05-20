@@ -125,12 +125,6 @@ function setSearchMemoryCache(
     createdAt: Date.now(),
     results,
   });
-
-  while (searchMemoryCache.size > 300) {
-    const firstKey = searchMemoryCache.keys().next().value;
-    if (!firstKey) break;
-    searchMemoryCache.delete(firstKey);
-  }
 }
 
 async function getBestEffortDeviceLocation(): Promise<Coordinate | null> {
@@ -1074,13 +1068,22 @@ function normalizePlaceType(item: any): PlaceResult["type"] {
 
 function normalizeSearchPayload(data: any): any[] {
   if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.results)) return data.results;
-  if (Array.isArray(data?.places)) return data.places;
-  if (Array.isArray(data?.addresses)) return data.addresses;
-  if (Array.isArray(data?.items)) return data.items;
-  if (Array.isArray(data?.data)) return data.data;
-  if (Array.isArray(data?.data?.results)) return data.data.results;
-  return [];
+
+  // Apple Maps style autocomplete can return multiple light buckets.
+  // Never stop at the first bucket, otherwise addresses disappear when the
+  // backend also returns generic results/places.
+  const buckets = [
+    data?.addresses,
+    data?.results,
+    data?.places,
+    data?.items,
+    data?.data?.addresses,
+    data?.data?.results,
+    data?.data?.places,
+    Array.isArray(data?.data) ? data.data : null,
+  ];
+
+  return buckets.flatMap((bucket) => (Array.isArray(bucket) ? bucket : []));
 }
 
 function rankPlaceResult(
@@ -1097,7 +1100,7 @@ function rankPlaceResult(
   // Mobile-side safety ranking. Backend already ranks, but this protects TestFlight
   // from stale cached JS and keeps address autocomplete above POI/stops.
   if (item.type === "address") score += 1400;
-  if (item.type === "street") score += 1200;
+  if (item.type === "street") score += 1100;
   if (item.type === "poi") score += isAddressLikeSearchQuery(query) ? -220 : 80;
   if (item.type === "stop")
     score += isAddressLikeSearchQuery(query) ? -320 : 40;
@@ -1111,13 +1114,6 @@ function rankPlaceResult(
   if (source.includes("nominatim")) score -= 80;
   if (source.includes("overpass")) score -= 100;
   if (source.includes("gtfs")) score -= 60;
-
-  // Backend sends GPS-ranked score, but keep a mobile-side safety boost so
-  // stale backend/cache still prefers nearby exact address matches.
-  const distanceMeters = Number((item as any).distanceMeters);
-  if (Number.isFinite(distanceMeters)) {
-    score += Math.max(0, 900 - distanceMeters / 75);
-  }
 
   if (title === q) score += 500;
   if (title.startsWith(q)) score += 250;
@@ -1252,14 +1248,10 @@ function normalizePlaceResult(item: any, index = 0): PlaceResult | null {
 }
 
 function searchUrls(params: string) {
-  // IMPORTANT: use /api/search first. This is the endpoint we measured in production
-  // at ~0.3–0.7s and it returns the full unified set: addresses, POI, stops, cities.
-  // /autocomplete remains as a compatibility fallback for older backend deploys.
+  // Production autocomplete must call ONE canonical endpoint only.
+  // This is the endpoint that uses the 1M+ RC/Postgres address table first.
   const base = apiBase();
-  return [
-    `${base}/api/search?${params}`,
-    `${base}/api/search/autocomplete?${params}`,
-  ];
+  return [`${base}/api/search/autocomplete?${params}`];
 }
 
 async function runSearchRequest(
@@ -1287,47 +1279,42 @@ async function runSearchRequest(
     params.set("lon", String(location.longitude));
     params.set("latitude", String(location.latitude));
     params.set("longitude", String(location.longitude));
-    params.set("userLat", String(location.latitude));
-    params.set("userLon", String(location.longitude));
   }
 
-  const urls = searchUrls(params.toString());
+  const url = searchUrls(params.toString())[0];
 
   activeSearchController?.abort();
   const controller = new AbortController();
   activeSearchController = controller;
 
   try {
-    for (const url of urls) {
-      const data = await fetchSearchJson(url, controller.signal);
-      if (!data) continue;
+    const data = await fetchSearchJson(url, controller.signal);
+    if (!data) return [];
 
-      const rawResults = normalizeSearchPayload(data);
-      if (!rawResults.length) continue;
+    const rawResults = normalizeSearchPayload(data);
+    if (!rawResults.length) return [];
 
-      const normalized = rawResults
-        .map((item: any, index: number): PlaceResult | null =>
-          normalizePlaceResult(item, index),
-        )
-        .filter(Boolean) as PlaceResult[];
+    const normalized = rawResults
+      .map((item: any, index: number): PlaceResult | null =>
+        normalizePlaceResult(item, index),
+      )
+      .filter(Boolean) as PlaceResult[];
 
-      // Keep every backend result with valid coordinates. Do not drop address/street
-      // records just because backend marks them as requiresHouseNumber/selectable=false;
-      // RC address rows often use these flags for hints, but still contain exact coords.
-      const safeResults = normalized.filter((item: any) =>
-        isUsableCoordinate(item.coordinate || null),
-      );
+    // Unified Local Search already ranks addresses, settlements, POI and stops on the backend.
+    // Do not filter the list down to only addresses here; otherwise places like
+    // Melnragė / Smiltynė / ferry terminals / POI disappear while typing.
+    const safeResults = normalized.filter((item: any) => {
+      if (item.selectable === false || item.requiresHouseNumber === true) {
+        return String(item.type || "").toLowerCase() === "street";
+      }
+      return isUsableCoordinate(item.coordinate || null);
+    });
 
-      const ranked = dedupePlaceResults(safeResults)
-        .sort(
-          (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
-        )
-        .slice(0, 12);
-
-      if (ranked.length) return ranked;
-    }
-
-    return [];
+    return dedupePlaceResults(safeResults)
+      .sort(
+        (a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q),
+      )
+      .slice(0, 12);
   } catch (error) {
     if ((error as any)?.name !== "AbortError") {
       console.warn("[Arbebus search] failed", error);
@@ -1349,13 +1336,13 @@ export async function searchPlaces(
 
   const explicitLocation = normalizeSearchLocation(userLocation);
   const cached = getSearchMemoryCache(q, explicitLocation);
-  if (cached && cached.length) return cached.slice(0, 10);
+  if (cached && cached.length) return cached.slice(0, 12);
 
   const results = await runSearchRequest(q, explicitLocation);
 
   const ranked = dedupePlaceResults(results)
     .sort((a, b) => rankPlaceResult(b as any, q) - rankPlaceResult(a as any, q))
-    .slice(0, 10);
+    .slice(0, 12);
 
   if (ranked.length) setSearchMemoryCache(q, ranked, explicitLocation);
   return ranked;
@@ -1431,6 +1418,67 @@ export async function fetchPlaceDetails(
   }
 
   return null;
+}
+
+export async function fetchTransitPreviewRoute(params: {
+  from: Coordinate;
+  to: Coordinate;
+  destination?: PlaceResult;
+}): Promise<TransitRouteOption[]> {
+  const destination = params.destination ?? {
+    id: "destination",
+    title: "Tikslas",
+    subtitle: "",
+    type: "place",
+    distanceMeters: 0,
+    latitude: params.to.latitude,
+    longitude: params.to.longitude,
+    coordinate: params.to,
+  };
+
+  const response = await fetchWithTimeout(
+    API_ENDPOINTS.transitPreview,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        origin: { latitude: params.from.latitude, longitude: params.from.longitude },
+        destination: { latitude: params.to.latitude, longitude: params.to.longitude },
+        from: params.from,
+        to: params.to,
+        selectedDestination: destination,
+      }),
+    },
+    1800,
+  );
+
+  const data = await safeJson<any>(response);
+  if (!response.ok || data?.ok !== true) return [];
+
+  const rawRoutes = [
+    ...(data?.plan ? [data.plan] : []),
+    ...(Array.isArray(data?.options) ? data.options : []),
+    ...(Array.isArray(data?.routes) ? data.routes : []),
+  ];
+
+  return rawRoutes
+    .filter(Boolean)
+    .slice(0, 1)
+    .map((route: any, index: number) =>
+      normalizeBackendPlan(route, index, params.from, params.to),
+    );
+}
+
+export function prefetchTransitRoute(params: {
+  from: Coordinate;
+  to: Coordinate;
+  destination?: PlaceResult;
+  timeMode?: "now" | "depart" | "arrive";
+  travelAt?: string | Date | null;
+}) {
+  void planTransitRoute(params).catch(() => {
+    // Prefetch must never block typing or selection.
+  });
 }
 
 export async function planTransitRoute(params: {

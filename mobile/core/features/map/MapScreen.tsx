@@ -115,7 +115,9 @@ async function getWalkingLine(from: MapPoint | null, to: MapPoint | null) {
   try {
     const walk = await fetchWalkingRoute({ from, to });
     const points = normalizeWalkPoints(walk);
-    const minutes = Number(walk?.durationMinutes ?? walk?.durationSeconds / 60);
+    const minutes = Number(
+      walk?.durationMinutes ?? ((walk?.durationSeconds ?? 0) / 60),
+    );
     const meters = Number(walk?.distanceMeters);
 
     if (points.length >= 2) {
@@ -299,7 +301,7 @@ export default function MapScreen() {
     };
 
     load();
-    const timer = setInterval(load, 20000);
+    const timer = setInterval(load, 8000);
 
     return () => {
       cancelled = true;
@@ -531,6 +533,17 @@ export default function MapScreen() {
 
     return () => clearTimeout(timer);
   }, [focusCoords, selectedRouteFocusKey]);
+
+
+  useEffect(() => {
+    if (!selectedMapPlace || !selectedDestination?.coordinate) return;
+    const sameDestination =
+      normalizeId(selectedMapPlace.id) === normalizeId(selectedDestination.id) ||
+      distanceMeters(selectedMapPlace.coordinate, selectedDestination.coordinate) < 18;
+    if (sameDestination) {
+      setSelectedMapPlace(null);
+    }
+  }, [selectedDestination, selectedMapPlace]);
 
   useEffect(() => {
     if (!activeCameraTarget || planner.flowState !== "onboard" || !mapRef.current) return;
@@ -865,11 +878,16 @@ export default function MapScreen() {
       } as TransitRouteOption;
 
       setFocusedScheduleRoute(routeOption);
-      setFocusedScheduleFlowState("route_selected");
+      setFocusedScheduleFlowState(accessStep ? "walking_to_stop" : "route_selected");
       setFocusedScheduleStepIndex(0);
 
-      if (line.length >= 2) {
-        mapRef.current?.fitToCoordinates(line, {
+      const fitPoints = validPoints([
+        ...(accessWalk.points || []),
+        ...line,
+      ]);
+
+      if (fitPoints.length >= 2) {
+        mapRef.current?.fitToCoordinates(fitPoints, {
           animated: true,
           edgePadding: { top: 100, right: 54, bottom: 360, left: 54 },
         });
@@ -886,6 +904,35 @@ export default function MapScreen() {
   const mapStepIndex = focusedScheduleRoute
     ? focusedScheduleStepIndex
     : planner.currentStepIndex;
+
+  const mapLiveFerries = useMemo(() => {
+    const byId = new Map<string, LiveFerry>();
+
+    for (const ferry of liveFerries || []) {
+      const key = String(ferry.id || ferry.routeId || `${ferry.latitude}-${ferry.longitude}`);
+      byId.set(key, ferry);
+    }
+
+    const routeLive = (mapRoute as any)?.liveFerry || (mapRoute as any)?.summary?.liveFerry;
+    if (routeLive) {
+      const key = String(routeLive.id || routeLive.routeId || `${routeLive.latitude}-${routeLive.longitude}`);
+      byId.set(key, routeLive as LiveFerry);
+    }
+
+    return [...byId.values()];
+  }, [liveFerries, mapRoute]);
+
+  const routeHasWalkingStep = useMemo(() => {
+    const steps = mapRoute?.journeySteps || mapRoute?.steps || [];
+    return steps.some((step: any) => {
+      const mode = String(step?.type || step?.mode || "").toLowerCase();
+      return mode.includes("walk") || mode === "transfer";
+    });
+  }, [mapRoute]);
+
+  const effectiveFlowState = focusedScheduleRoute && routeHasWalkingStep
+    ? focusedScheduleFlowState
+    : mapFlowState;
 
   const handleStartJourney = useCallback(() => {
     if (focusedScheduleRoute) {
@@ -921,7 +968,7 @@ export default function MapScreen() {
 
         <RoutePolylineLayer
           route={mapRoute}
-          flowState={mapFlowState}
+          flowState={effectiveFlowState}
           currentStepIndex={mapStepIndex}
         />
 
@@ -930,7 +977,7 @@ export default function MapScreen() {
           userLocation={userLocation}
         />
 
-        <StopsLayer route={mapRoute} flowState={mapFlowState} />
+        <StopsLayer route={mapRoute} flowState={effectiveFlowState} />
 
         <StationAccessLayer
           accessPoints={stationAccessPoints}
@@ -940,7 +987,7 @@ export default function MapScreen() {
         <FerryMarkersLayer
           selectedTerminalId={selectedFerryTerminalId}
           selectedRoute={mapRoute}
-          liveFerries={selectedMapPlace ? [] : liveFerries}
+          liveFerries={selectedMapPlace ? [] : mapLiveFerries}
           onSelectTerminal={handleSelectFerryTerminal}
           onSelectLiveFerry={handleSelectLiveFerry}
         />
@@ -984,7 +1031,7 @@ export default function MapScreen() {
       </Pressable>
 
       <JourneySheet
-        flowState={mapFlowState}
+        flowState={effectiveFlowState}
         liveBusCount={buses.length}
         query={planner.query}
         searchResults={planner.searchResults}
@@ -1016,7 +1063,15 @@ export default function MapScreen() {
         onSelectDestination={(item) => {
           Keyboard.dismiss();
           setFocusedScheduleRoute(null);
-          setSelectedMapPlace(null);
+          if (item?.coordinate) {
+            setSelectedMapPlace(normalizePoiPlace(item));
+            mapRef.current?.animateCamera(
+              { center: item.coordinate, zoom: 16.2, pitch: 0 },
+              { duration: 380 },
+            );
+          } else {
+            setSelectedMapPlace(null);
+          }
           void planner.selectDestination(item);
         }}
         onSelectOrigin={(item) => {
@@ -1035,7 +1090,15 @@ export default function MapScreen() {
         }}
         onUseMapPlaceAsDestination={(place) => {
           Keyboard.dismiss();
-          setSelectedMapPlace(null);
+          if (place?.coordinate) {
+            setSelectedMapPlace(normalizePoiPlace(place));
+            mapRef.current?.animateCamera(
+              { center: place.coordinate, zoom: 16.2, pitch: 0 },
+              { duration: 380 },
+            );
+          } else {
+            setSelectedMapPlace(null);
+          }
           void planner.selectDestination(place);
         }}
         onChooseRoute={(route) => { setFocusedScheduleRoute(null); planner.chooseRoute(route); }}
