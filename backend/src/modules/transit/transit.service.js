@@ -2223,12 +2223,34 @@ function planSearchProfiles(from, to) {
   }));
 }
 
-async function legacyPlan(body = {}) {
-  const defaultOrigin = { latitude: 55.7033, longitude: 21.1443 };
-  const defaultDestination = { latitude: 55.68962, longitude: 21.14691 };
+function missingCoordinatesResponse(from, to, source = "transit-plan") {
+  return {
+    ok: false,
+    source,
+    error: "MISSING_COORDINATES",
+    code: "MISSING_COORDINATES",
+    message: "Realios from/to koordinatės yra privalomos. Demo fallback koordinatės produkcijoje nenaudojamos.",
+    details: {
+      hasFrom: Boolean(from),
+      hasTo: Boolean(to),
+      required: {
+        from: { latitude: "number", longitude: "number" },
+        to: { latitude: "number", longitude: "number" },
+      },
+    },
+    plan: null,
+    options: [],
+    routes: [],
+  };
+}
 
-  const from = coordinateFromPlanInput(body, "from") || defaultOrigin;
-  const to = coordinateFromPlanInput(body, "to") || defaultDestination;
+async function legacyPlan(body = {}) {
+  const from = coordinateFromPlanInput(body, "from") || coordinateFromPlanInput(body, "origin");
+  const to = coordinateFromPlanInput(body, "to") || coordinateFromPlanInput(body, "destination");
+
+  if (!from || !to) {
+    return missingCoordinatesResponse(from, to, "gtfs+stops.lt");
+  }
 
   const engine = String(
     body.engine || process.env.TRANSIT_ENGINE || "legacy",
@@ -2586,8 +2608,13 @@ function finalizeAppleRoutes(result, source) {
 }
 
 function buildPreviewRoute(body = {}) {
-  const from = coordinateFromPlanInput(body, "from") || coordinateFromPlanInput(body, "origin") || { latitude: 55.7033, longitude: 21.1443 };
-  const to = coordinateFromPlanInput(body, "to") || coordinateFromPlanInput(body, "destination") || { latitude: 55.68962, longitude: 21.14691 };
+  const from = coordinateFromPlanInput(body, "from") || coordinateFromPlanInput(body, "origin");
+  const to = coordinateFromPlanInput(body, "to") || coordinateFromPlanInput(body, "destination");
+
+  if (!from || !to) {
+    return missingCoordinatesResponse(from, to, "instant-preview");
+  }
+
   const destinationTitle = body.selectedDestination?.title || body.destination?.title || body.to?.title || "Tikslas";
   const meters = distanceMeters(from, to);
   const minutes = Math.max(1, Math.round(meters / 80));
@@ -3418,13 +3445,11 @@ function shape(shapeId) {
     };
   }
   return {
-    ok: true,
-    source: "fallback",
-    points: [
-      { latitude: 55.7033, longitude: 21.1443 },
-      { latitude: 55.696, longitude: 21.146 },
-      { latitude: 55.68962, longitude: 21.14691 },
-    ],
+    ok: false,
+    source: "gtfs",
+    error: "SHAPE_NOT_FOUND",
+    shapeId: shapeId ? String(shapeId) : null,
+    points: [],
   };
 }
 
